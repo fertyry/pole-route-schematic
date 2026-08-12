@@ -77,8 +77,17 @@ def export_scene_to_excel(
     """Create an XLSX workbook containing editable Shapes from the current scene."""
     settings = settings or ExcelExportSettings()
     objects = collect_excel_objects(scene, settings)
+    return export_objects_to_excel(objects, path, settings)
+
+
+def export_objects_to_excel(
+    objects: list[ExcelObject],
+    path: str | Path,
+    settings: ExcelExportSettings,
+) -> int:
+    """Create an XLSX from the exact prepared objects approved in the preview."""
     if not objects:
-        raise ExcelExportError("The canvas has no objects to export.")
+        raise ExcelExportError("The preview has no objects to export.")
     destination = str(Path(path).resolve())
     try:
         import pythoncom

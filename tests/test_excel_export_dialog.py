@@ -36,3 +36,18 @@ def test_repeated_preview_changes_keep_objects_and_source_scene(qtbot) -> None:
         assert dialog.preview_scene.items()
         assert dialog.preview.scene() is dialog.preview_scene
         assert source_line.scene() is source
+
+
+def test_confirmed_export_uses_snapshot_even_if_source_scene_later_changes(qtbot) -> None:
+    source = QGraphicsScene()
+    source_line = QGraphicsLineItem(0, 0, 300, 40)
+    source.addItem(source_line)
+    dialog = ExcelExportDialog(source)
+    qtbot.addWidget(dialog)
+    expected_count = len(dialog.export_objects())
+
+    source.clear()
+
+    assert expected_count > 0
+    assert len(dialog.export_objects()) == expected_count
+    assert dialog.preview_scene.items()

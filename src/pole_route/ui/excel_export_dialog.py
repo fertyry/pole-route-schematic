@@ -138,6 +138,10 @@ class ExcelExportDialog(QDialog):
         self.preview.fitInView(bounds, Qt.AspectRatioMode.KeepAspectRatio)
         previous_scene.deleteLater()
 
+    def export_objects(self) -> list[ExcelObject]:
+        """Return the exact styled snapshot currently represented by the preview."""
+        return prepare_excel_objects(self.source_objects, self.settings())
+
 
 def _draw_preview_object(scene: QGraphicsScene, item: ExcelObject) -> None:
     pen = QPen(QColor("black"), item.line_width)

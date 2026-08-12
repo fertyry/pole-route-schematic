@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 from pole_route.domain.blocks import BLOCK_CATALOG
 from pole_route.domain.pole import Pole
 from pole_route.domain.route import ClassifiedRoute, Route, RouteType
-from pole_route.exporters.excel_exporter import ExcelExportError, export_scene_to_excel
+from pole_route.exporters.excel_exporter import ExcelExportError, export_objects_to_excel
 from pole_route.geometry.road_geometry import RoadGeometryError, build_road_network_geometry
 from pole_route.geometry.schematic_layout import create_schematic_layout
 from pole_route.importers.kml_importer import RouteImportError, inspect_route_file
@@ -336,7 +336,9 @@ class MainWindow(QMainWindow):
         if not path.lower().endswith(".xlsx"):
             path += ".xlsx"
         try:
-            object_count = export_scene_to_excel(self.route_scene, path, dialog.settings())
+            object_count = export_objects_to_excel(
+                dialog.export_objects(), path, dialog.settings()
+            )
         except ExcelExportError as error:
             QMessageBox.warning(self, "Excel export failed", str(error))
             self.statusBar().showMessage("Excel export failed")

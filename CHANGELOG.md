@@ -4,6 +4,9 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ## [Unreleased]
 
+- Fixed confirmed Excel exports incorrectly re-reading an empty canvas; export now uses
+  the exact styled object snapshot approved in the preview.
+
 - Fixed export-preview objects disappearing during setting changes by snapshotting the
   source canvas and swapping fully rendered preview scenes atomically.
 
