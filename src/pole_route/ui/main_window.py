@@ -19,7 +19,15 @@ from PySide6.QtWidgets import (
 )
 
 from pole_route.domain.pole import Pole
-from pole_route.importers.pole_importer import PoleImportError, import_poles
+from pole_route.importers.pole_importer import (
+    OPTIONAL_FIELDS,
+    REQUIRED_FIELDS,
+    PoleImportError,
+    inspect_pole_file,
+    poles_from_table,
+    suggest_column_mapping,
+)
+from pole_route.ui.column_mapping_dialog import ColumnMappingDialog
 
 
 class MainWindow(QMainWindow):
@@ -105,14 +113,24 @@ class MainWindow(QMainWindow):
     def load_pole_file(self, path: str) -> None:
         """Load a pole file and display validation errors to the user."""
         try:
-            poles = import_poles(path)
+            table = inspect_pole_file(path)
+            mapping = suggest_column_mapping(table.headers)
+            if any(not mapping[field] for field in REQUIRED_FIELDS):
+                dialog = ColumnMappingDialog(table, mapping, self)
+                if dialog.exec() != ColumnMappingDialog.DialogCode.Accepted:
+                    self.statusBar().showMessage("Pole import cancelled")
+                    return
+                mapping = dialog.mapping()
+            poles = poles_from_table(table, mapping)
         except PoleImportError as error:
             QMessageBox.warning(self, "Pole import failed", str(error))
             self.statusBar().showMessage("Pole import failed")
             return
 
         self.show_poles(poles)
-        self.statusBar().showMessage(f"Imported {len(poles)} poles")
+        optional_missing = [field for field in OPTIONAL_FIELDS if not mapping[field]]
+        suffix = " (optional fields omitted)" if optional_missing else ""
+        self.statusBar().showMessage(f"Imported {len(poles)} poles{suffix}")
 
     def show_poles(self, poles: list[Pole]) -> None:
         """Replace the table contents with imported pole records."""

@@ -4,7 +4,13 @@ import pytest
 from openpyxl import Workbook
 
 from pole_route.domain.pole import PoleSide
-from pole_route.importers.pole_importer import PoleImportError, import_poles
+from pole_route.importers.pole_importer import (
+    PoleImportError,
+    import_poles,
+    inspect_pole_file,
+    poles_from_table,
+    suggest_column_mapping,
+)
 
 HEADERS = ["Pole No.", "Latitude", "Longitude", "Detail", "Side"]
 
@@ -43,8 +49,48 @@ def test_rejects_missing_columns(tmp_path) -> None:
     source = tmp_path / "poles.csv"
     source.write_text("Pole No.,Latitude\nP-001,13.75\n", encoding="utf-8")
 
-    with pytest.raises(PoleImportError, match="Missing required columns"):
+    with pytest.raises(PoleImportError, match="Choose columns for"):
         import_poles(source)
+
+
+def test_detects_aliases_and_header_below_title(tmp_path) -> None:
+    source = tmp_path / "field-export.csv"
+    source.write_text(
+        "Project,North feeder\n"
+        "Pole ID,Lat,Lng,Description,Road Side\n"
+        "A-01,13.75,100.50,Transformer,L\n",
+        encoding="utf-8",
+    )
+
+    table = inspect_pole_file(source)
+    mapping = suggest_column_mapping(table.headers)
+    poles = poles_from_table(table, mapping)
+
+    assert table.header_row == 2
+    assert mapping["number"] == "Pole ID"
+    assert mapping["longitude"] == "Lng"
+    assert poles[0].number == "A-01"
+
+
+def test_imports_with_explicit_mapping_and_optional_fields_omitted(tmp_path) -> None:
+    source = tmp_path / "custom.csv"
+    source.write_text("Asset,Y Coordinate,X Coordinate\nP-9,13.7,100.4\n", encoding="utf-8")
+    table = inspect_pole_file(source)
+
+    poles = poles_from_table(
+        table,
+        {
+            "number": "Asset",
+            "latitude": "Y Coordinate",
+            "longitude": "X Coordinate",
+            "detail": None,
+            "side": None,
+        },
+    )
+
+    assert poles[0].number == "P-9"
+    assert poles[0].detail == ""
+    assert poles[0].side is PoleSide.UNKNOWN
 
 
 @pytest.mark.parametrize(
