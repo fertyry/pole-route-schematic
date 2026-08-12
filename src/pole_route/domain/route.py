@@ -1,6 +1,7 @@
 """Road-centerline route data."""
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,3 +31,26 @@ class Route:
         if len(self.points) < 2:
             raise ValueError("A route LineString requires at least two points")
 
+
+class RouteType(StrEnum):
+    MAIN_ROUTE = "Main route"
+    ROAD = "Road / Soi"
+    BRIDGE = "Vehicle bridge"
+    FOOTBRIDGE = "Footbridge"
+    CANAL = "Canal"
+    RAILWAY = "Railway"
+    REFERENCE = "Reference"
+    IGNORE = "Ignore"
+
+
+@dataclass(frozen=True, slots=True)
+class ClassifiedRoute:
+    route: Route
+    type: RouteType
+    width_metres: float | None
+
+    def __post_init__(self) -> None:
+        if self.type in {RouteType.MAIN_ROUTE, RouteType.ROAD, RouteType.BRIDGE} and (
+            self.width_metres is None or self.width_metres <= 0
+        ):
+            raise ValueError(f"{self.type.value} requires a width greater than zero")

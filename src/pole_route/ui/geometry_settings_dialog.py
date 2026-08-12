@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 class GeometrySettingsDialog(QDialog):
     """Collect road width and offset outside each road edge."""
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, road_width_metres: float = 6.0) -> None:
         super().__init__(parent)
         self.setWindowTitle("Build road geometry")
         self.resize(440, 220)
@@ -30,7 +30,7 @@ class GeometrySettingsDialog(QDialog):
         self.road_width.setRange(0.1, 1000.0)
         self.road_width.setDecimals(2)
         self.road_width.setSuffix(" m")
-        self.road_width.setValue(6.0)
+        self.road_width.setValue(road_width_metres)
 
         self.pole_offset = QDoubleSpinBox()
         self.pole_offset.setLocale(QLocale.c())

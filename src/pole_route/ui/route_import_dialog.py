@@ -1,4 +1,4 @@
-"""Route candidate selection and confirmation dialog."""
+"""Classify and confirm multiple KML/KMZ LineStrings."""
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
@@ -6,95 +6,160 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QGraphicsScene,
     QGraphicsView,
     QLabel,
+    QMessageBox,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
 )
 
-from pole_route.domain.route import Route
+from pole_route.domain.route import ClassifiedRoute, Route, RouteType
 
 
 class RouteImportDialog(QDialog):
-    """Let the user inspect and confirm one LineString candidate."""
+    """Assign a type and optional width to each source LineString."""
 
     def __init__(self, routes: list[Route], parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Confirm road centerline")
-        self.resize(760, 540)
+        self.setWindowTitle("Classify KML LineStrings")
+        self.resize(980, 700)
         self._routes = routes
 
         intro = QLabel(
-            "Select the KML/KMZ LineString to use as the road centerline, "
-            "review its details, then confirm the import."
+            "Choose every LineString to import, assign its meaning, and set road widths. "
+            "Exactly one used line must be Main route."
         )
         intro.setWordWrap(True)
 
-        self.route_selector = QComboBox()
-        for index, route in enumerate(routes):
-            self.route_selector.addItem(route.name, index)
-        self.route_selector.currentIndexChanged.connect(self._update_preview)
+        self.table = QTableWidget(len(routes), 4)
+        self.table.setHorizontalHeaderLabels(["Use", "LineString", "Type", "Width"])
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        for row, route in enumerate(routes):
+            use_item = QTableWidgetItem()
+            use_item.setFlags(use_item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            use_item.setCheckState(Qt.CheckState.Checked if row == 0 else Qt.CheckState.Unchecked)
+            self.table.setItem(row, 0, use_item)
+            self.table.setItem(row, 1, QTableWidgetItem(route.name))
+
+            route_type = QComboBox()
+            for item_type in RouteType:
+                route_type.addItem(item_type.value, item_type.value)
+            route_type.setCurrentText(
+                RouteType.MAIN_ROUTE.value if row == 0 else RouteType.ROAD.value
+            )
+            route_type.currentTextChanged.connect(
+                lambda _text, selected_row=row: self._update_width_state(selected_row)
+            )
+            self.table.setCellWidget(row, 2, route_type)
+
+            width = QDoubleSpinBox()
+            width.setRange(0.5, 1000.0)
+            width.setDecimals(2)
+            width.setSuffix(" m")
+            width.setValue(6.0)
+            self.table.setCellWidget(row, 3, width)
+            self._update_width_state(row)
 
         self.details = QLabel()
-        self.details.setWordWrap(True)
-
         self.scene = QGraphicsScene(self)
         self.preview = QGraphicsView(self.scene)
         self.preview.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self.preview.setMinimumHeight(320)
+        self.preview.setMinimumHeight(300)
+
+        self.table.resizeColumnsToContents()
+        self.table.itemSelectionChanged.connect(self._update_preview)
+        self.table.selectRow(0)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok
         )
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Confirm route")
-        buttons.accepted.connect(self.accept)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Confirm routes")
+        buttons.accepted.connect(self._validate_and_accept)
         buttons.rejected.connect(self.reject)
 
         layout = QVBoxLayout(self)
         layout.addWidget(intro)
-        layout.addWidget(QLabel("LineString"))
-        layout.addWidget(self.route_selector)
+        layout.addWidget(self.table)
         layout.addWidget(self.details)
-        layout.addWidget(QLabel("Geographic shape preview (not schematic and not to scale)"))
+        layout.addWidget(QLabel("Selected LineString preview (geographic shape, not to scale)"))
         layout.addWidget(self.preview, 1)
         layout.addWidget(buttons)
         self._update_preview()
 
+    def classified_routes(self) -> list[ClassifiedRoute]:
+        selections = []
+        for row, route in enumerate(self._routes):
+            if self.table.item(row, 0).checkState() != Qt.CheckState.Checked:
+                continue
+            route_type = RouteType(self.table.cellWidget(row, 2).currentData())
+            if route_type is RouteType.IGNORE:
+                continue
+            width = self.table.cellWidget(row, 3)
+            width_value = width.value() if width.isEnabled() else None
+            selections.append(ClassifiedRoute(route, route_type, width_value))
+        return selections
+
     def selected_route(self) -> Route:
-        return self._routes[self.route_selector.currentData()]
+        """Compatibility helper returning the confirmed main route."""
+        return next(item.route for item in self.classified_routes() if item.type is RouteType.MAIN_ROUTE)
+
+    def _validate_and_accept(self) -> None:
+        try:
+            selections = self.classified_routes()
+        except ValueError as error:
+            QMessageBox.warning(self, "Route classification invalid", str(error))
+            return
+        main_count = sum(item.type is RouteType.MAIN_ROUTE for item in selections)
+        if main_count != 1:
+            QMessageBox.warning(
+                self,
+                "Route classification incomplete",
+                "Select and use exactly one Main route.",
+            )
+            return
+        self.accept()
+
+    def _update_width_state(self, row: int) -> None:
+        route_type = RouteType(self.table.cellWidget(row, 2).currentData())
+        self.table.cellWidget(row, 3).setEnabled(
+            route_type in {RouteType.MAIN_ROUTE, RouteType.ROAD, RouteType.BRIDGE}
+        )
 
     def _update_preview(self) -> None:
-        route = self.selected_route()
-        first = route.points[0]
-        last = route.points[-1]
+        row = self.table.currentRow()
+        if row < 0:
+            return
+        route = self._routes[row]
+        first, last = route.points[0], route.points[-1]
         self.details.setText(
-            f"{len(route.points)} points | "
-            f"Start: {first.latitude:.6f}, {first.longitude:.6f} | "
-            f"End: {last.latitude:.6f}, {last.longitude:.6f}"
+            f"{route.name}: {len(route.points)} points | "
+            f"Start {first.latitude:.6f}, {first.longitude:.6f} | "
+            f"End {last.latitude:.6f}, {last.longitude:.6f}"
         )
-        draw_route_preview(self.scene, route, 680, 300)
+        draw_route_preview(self.scene, route, 860, 280)
 
 
 def draw_route_preview(scene: QGraphicsScene, route: Route, width: float, height: float) -> None:
-    """Draw a fitted geographic-shape preview without spatial calculations."""
     scene.clear()
     margin = 24.0
     longitudes = [point.longitude for point in route.points]
     latitudes = [point.latitude for point in route.points]
-    longitude_span = max(max(longitudes) - min(longitudes), 1e-12)
-    latitude_span = max(max(latitudes) - min(latitudes), 1e-12)
-    scale = min((width - 2 * margin) / longitude_span, (height - 2 * margin) / latitude_span)
+    span_x = max(max(longitudes) - min(longitudes), 1e-12)
+    span_y = max(max(latitudes) - min(latitudes), 1e-12)
+    scale = min((width - 2 * margin) / span_x, (height - 2 * margin) / span_y)
 
     def project(point):
-        x = margin + (point.longitude - min(longitudes)) * scale
-        y = margin + (max(latitudes) - point.latitude) * scale
-        return x, y
+        return (
+            margin + (point.longitude - min(longitudes)) * scale,
+            margin + (max(latitudes) - point.latitude) * scale,
+        )
 
     path = QPainterPath()
-    start_x, start_y = project(route.points[0])
-    path.moveTo(start_x, start_y)
+    path.moveTo(*project(route.points[0]))
     for point in route.points[1:]:
-        x, y = project(point)
-        path.lineTo(x, y)
-    scene.addPath(path, QPen(QColor("#2f80ed"), 3.0, Qt.PenStyle.SolidLine))
+        path.lineTo(*project(point))
+    scene.addPath(path, QPen(QColor("#2f80ed"), 3.0))
     scene.setSceneRect(0, 0, width, height)

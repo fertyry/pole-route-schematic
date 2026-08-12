@@ -1,3 +1,4 @@
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QDialogButtonBox, QGraphicsView
 
 from pole_route.importers.pole_importer import PoleTable
@@ -82,7 +83,27 @@ def test_route_dialog_uses_explicit_confirmation(qtbot) -> None:
     buttons = dialog.findChild(QDialogButtonBox)
 
     assert dialog.selected_route() is route
-    assert buttons.button(QDialogButtonBox.StandardButton.Ok).text() == "Confirm route"
+    assert buttons.button(QDialogButtonBox.StandardButton.Ok).text() == "Confirm routes"
+
+
+def test_route_dialog_classifies_multiple_lines(qtbot) -> None:
+    from pole_route.domain.route import GeoPoint, Route, RouteType
+
+    routes = [
+        Route("Main", "route.kml", (GeoPoint(100, 13), GeoPoint(100.1, 13.1))),
+        Route("Soi", "route.kml", (GeoPoint(100.05, 13.05), GeoPoint(100.06, 13.06))),
+    ]
+    dialog = RouteImportDialog(routes)
+    qtbot.addWidget(dialog)
+    dialog.table.item(1, 0).setCheckState(Qt.CheckState.Checked)
+    dialog.table.cellWidget(1, 2).setCurrentText(RouteType.ROAD.value)
+    dialog.table.cellWidget(1, 3).setValue(4.0)
+
+    classified = dialog.classified_routes()
+
+    assert [item.type for item in classified] == [RouteType.MAIN_ROUTE, RouteType.ROAD]
+    assert classified[0].width_metres == 6.0
+    assert classified[1].width_metres == 4.0
 
 
 def test_geometry_settings_use_arabic_digits(qtbot) -> None:

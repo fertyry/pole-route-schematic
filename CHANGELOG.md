@@ -11,6 +11,10 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ### Added
 
+- Multi-LineString KML/KMZ classification with per-line Use, Type, and Width settings
+- Main route validation plus multiple retained context routes
+- Shift-modified angle snapping for semantic Blocks
+- Non-destructive junction-mouth masks over the main-road edge
 - Extensible Blocks menu with Side road, T-junction, Crossroad, Vehicle bridge, and Footbridge
 - Two-point semantic block placement with automatic main-road anchor snapping and Alt override
 - Shift-modified 45-degree angle snapping for the Line tool

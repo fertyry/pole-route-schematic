@@ -1,7 +1,7 @@
 import pytest
 from PySide6.QtCore import QPointF
 from PySide6.QtGui import QUndoStack
-from PySide6.QtWidgets import QGraphicsScene
+from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsScene
 
 from pole_route.domain.blocks import BLOCK_CATALOG, BlockType
 from pole_route.domain.pole import Pole, PoleSide
@@ -31,6 +31,22 @@ def test_catalog_blocks_create_semantic_editable_groups(definition, qapp) -> Non
     assert item.childItems()
     assert item.flags() & item.GraphicsItemFlag.ItemIsSelectable
     assert item.flags() & item.GraphicsItemFlag.ItemIsMovable
+
+
+@pytest.mark.parametrize(
+    "block_type",
+    [BlockType.SIDE_ROAD, BlockType.T_JUNCTION, BlockType.CROSSROAD],
+)
+def test_junction_blocks_include_non_destructive_mouth_mask(block_type, qapp) -> None:
+    item = create_block_item(
+        block_type,
+        QPointF(100, 200),
+        QPointF(300, 120),
+        QUndoStack(),
+    )
+
+    masks = [child for child in item.childItems() if isinstance(child, QGraphicsEllipseItem)]
+    assert len(masks) == 1
 
 
 def test_block_creation_is_undoable(qapp) -> None:

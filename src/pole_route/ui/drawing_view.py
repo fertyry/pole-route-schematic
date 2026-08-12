@@ -87,6 +87,8 @@ class DrawingView(QGraphicsView):
         end = self.mapToScene(event.position().toPoint())
         if self.mode is DrawingMode.LINE and event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             end = snap_line_endpoint(self._start, end)
+        if self.mode is DrawingMode.BLOCK and event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            end = snap_line_endpoint(self._start, end)
         if self.mode is DrawingMode.BLOCK:
             if QPointF(end - self._start).manhattanLength() < 3:
                 return
@@ -103,6 +105,8 @@ class DrawingView(QGraphicsView):
             return
         end = self.mapToScene(event.position().toPoint())
         if self.mode is DrawingMode.LINE and event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            end = snap_line_endpoint(self._start, end)
+        if self.mode is DrawingMode.BLOCK and event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             end = snap_line_endpoint(self._start, end)
         start = QPointF(self._start)
         if self.mode is DrawingMode.BLOCK:

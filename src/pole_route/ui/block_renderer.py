@@ -3,8 +3,8 @@
 from math import hypot
 
 from PySide6.QtCore import QLineF, QPointF, Qt
-from PySide6.QtGui import QColor, QPen, QUndoStack
-from PySide6.QtWidgets import QGraphicsLineItem
+from PySide6.QtGui import QBrush, QColor, QPen, QUndoStack
+from PySide6.QtWidgets import QGraphicsEllipseItem, QGraphicsLineItem
 
 from pole_route.domain.blocks import BlockType
 from pole_route.ui.editor_commands import EditableItemGroup
@@ -38,10 +38,12 @@ def create_block_item(
     detail_pen = QPen(QColor("#f2c94c"), 2)
 
     if block_type in {BlockType.SIDE_ROAD, BlockType.T_JUNCTION}:
+        _add_junction_mask(group, start)
         _add_parallel(group, start, end, normal_x, normal_y, ROAD_HALF_WIDTH, road_pen)
         if block_type is BlockType.T_JUNCTION:
             _add_crossbar(group, end, unit_x, unit_y, normal_x, normal_y, 28, detail_pen)
     elif block_type is BlockType.CROSSROAD:
+        _add_junction_mask(group, start)
         opposite = QPointF(start.x() - delta_x, start.y() - delta_y)
         _add_parallel(group, opposite, end, normal_x, normal_y, ROAD_HALF_WIDTH, road_pen)
     elif block_type is BlockType.VEHICLE_BRIDGE:
@@ -80,3 +82,17 @@ def _add_line(group, start, end, pen) -> None:
     line.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
     group.addToGroup(line)
 
+
+def _add_junction_mask(group, center: QPointF) -> None:
+    """Cover main-road strokes beneath a junction mouth without destructively cutting them."""
+    radius = ROAD_HALF_WIDTH + 5
+    mask = QGraphicsEllipseItem(
+        center.x() - radius,
+        center.y() - radius,
+        radius * 2,
+        radius * 2,
+    )
+    mask.setPen(QPen(Qt.PenStyle.NoPen))
+    mask.setBrush(QBrush(QColor("#2b2b2b")))
+    mask.setAcceptedMouseButtons(Qt.MouseButton.NoButton)
+    group.addToGroup(mask)

@@ -2,7 +2,7 @@
 
 PoleRoute Schematic is an early-stage Windows desktop application for turning route and utility-pole data into an editable schematic drawing.
 
-> Project status: Sprint 3 in progress. Confirmed imports, metric geometry, selectable schematic spacing, undoable editing, drawing tools, and a first semantic block library are implemented. Project persistence and export are not implemented yet.
+> Project status: Sprint 3 in progress. Multi-LineString route classification, pole import, metric geometry, selectable schematic spacing, undoable editing, drawing tools, and semantic blocks are implemented. Context topology, project persistence, and export are not implemented yet.
 
 ## Problem
 

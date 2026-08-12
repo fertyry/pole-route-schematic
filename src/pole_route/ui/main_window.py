@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 
 from pole_route.domain.blocks import BLOCK_CATALOG
 from pole_route.domain.pole import Pole
-from pole_route.domain.route import Route
+from pole_route.domain.route import ClassifiedRoute, Route, RouteType
 from pole_route.geometry.road_geometry import RoadGeometryError, build_road_geometry
 from pole_route.geometry.schematic_layout import create_schematic_layout
 from pole_route.importers.kml_importer import RouteImportError, inspect_route_file
@@ -52,6 +52,8 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.current_route: Route | None = None
+        self.current_context_routes: list[ClassifiedRoute] = []
+        self.current_road_width = 6.0
         self.current_poles: list[Pole] = []
         self.current_geometry = None
         self.undo_stack = QUndoStack(self)
@@ -213,7 +215,9 @@ class MainWindow(QMainWindow):
             if dialog.exec() != RouteImportDialog.DialogCode.Accepted:
                 self.statusBar().showMessage("Route import cancelled")
                 return
-            route = dialog.selected_route()
+            classified = dialog.classified_routes()
+            main = next(item for item in classified if item.type is RouteType.MAIN_ROUTE)
+            route = main.route
         except RouteImportError as error:
             QMessageBox.warning(self, "Route import failed", str(error))
             self.statusBar().showMessage("Route import failed")
@@ -221,15 +225,19 @@ class MainWindow(QMainWindow):
 
         self.show_route(route)
         self.current_route = route
+        self.current_context_routes = [item for item in classified if item is not main]
+        self.current_road_width = main.width_metres or 6.0
         self._update_geometry_action()
-        self.statusBar().showMessage(f"Imported route '{route.name}' ({len(route.points)} points)")
+        self.statusBar().showMessage(
+            f"Imported main route '{route.name}' and {len(self.current_context_routes)} context line(s)"
+        )
 
     def show_route(self, route: Route) -> None:
         """Display the confirmed centerline as a geographic-shape preview."""
         draw_route_preview(self.route_scene, route, 960, 540)
 
     def _build_geometry(self) -> None:
-        dialog = GeometrySettingsDialog(self)
+        dialog = GeometrySettingsDialog(self, self.current_road_width)
         if dialog.exec() != GeometrySettingsDialog.DialogCode.Accepted:
             self.statusBar().showMessage("Geometry build cancelled")
             return
