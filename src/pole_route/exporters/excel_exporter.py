@@ -54,6 +54,7 @@ class ExcelExportSettings:
     road_edge_width: float = 1.0
     centerline_width: float = 0.4
     page_count: int = 1
+    work_description: str = ""
 
 
 def collect_excel_objects(
@@ -281,7 +282,7 @@ def prepare_excel_objects(
     if settings.orientation == "portrait":
         paper_w_mm, paper_h_mm = paper_h_mm, paper_w_mm
     paper_w, paper_h = paper_w_mm * 72 / 25.4, paper_h_mm * 72 / 25.4
-    margin, header, footer = 28.0, 54.0, 42.0
+    margin, header, footer = 28.0, 72.0, 42.0
     max_x = max(point[0] for point in coordinates)
     max_y = max(point[1] for point in coordinates)
     span_x, span_y = max(max_x - min_x, 1.0), max(max_y - min_y, 1.0)
@@ -549,7 +550,7 @@ def _paper_map_size(settings: ExcelExportSettings) -> tuple[float, float]:
     if settings.orientation == "portrait":
         paper_w_mm, paper_h_mm = paper_h_mm, paper_w_mm
     paper_w, paper_h = paper_w_mm * 72 / 25.4, paper_h_mm * 72 / 25.4
-    margin, header = 28.0, 54.0
+    margin, header = 28.0, 72.0
     return paper_w - 2 * margin, paper_h * 0.60 - (margin + header)
 
 
@@ -622,7 +623,7 @@ def _prepare_page(
     if settings.orientation == "portrait":
         paper_w_mm, paper_h_mm = paper_h_mm, paper_w_mm
     paper_w, paper_h = paper_w_mm * 72 / 25.4, paper_h_mm * 72 / 25.4
-    margin, header, footer = 28.0, 54.0, 42.0
+    margin, header, footer = 28.0, 72.0, 42.0
     map_left, map_right = margin, paper_w - margin
     map_top = margin + header
     map_bottom = paper_h * 0.60
@@ -860,6 +861,17 @@ def _frame_objects(
                 fill_color=black,
                 font_size=10.0,
                 role="subtitle",
+            )
+        )
+    if settings.work_description:
+        objects.append(
+            ExcelObject(
+                "text",
+                ((margin, margin + 42), (paper_w - margin, margin + 60)),
+                settings.work_description,
+                fill_color=black,
+                font_size=10.0,
+                role="work_description",
             )
         )
     if settings.show_compass:

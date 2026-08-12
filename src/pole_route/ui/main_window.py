@@ -1,5 +1,7 @@
 """Main application window."""
 
+from dataclasses import asdict
+
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -26,6 +28,7 @@ from pole_route.domain.pole import Pole
 from pole_route.domain.route import ClassifiedRoute, Route, RouteType
 from pole_route.exporters.excel_exporter import (
     ExcelExportError,
+    ExcelExportSettings,
     collect_scene_objects,
     export_pages_to_excel,
 )
@@ -77,6 +80,7 @@ class MainWindow(QMainWindow):
         self.current_poles: list[Pole] = []
         self.current_geometry = None
         self.same_pole_groups: list[frozenset[str]] = []
+        self.export_settings = ExcelExportSettings()
         self.project_path: str | None = None
         self.project_dirty = False
         self._changing_project = False
@@ -365,10 +369,14 @@ class MainWindow(QMainWindow):
         if not source_objects:
             QMessageBox.warning(self, "Excel export failed", "The canvas has no objects to export.")
             return
-        dialog = ExcelExportDialog(source_objects, self)
+        dialog = ExcelExportDialog(
+            source_objects, self, initial_settings=self.export_settings
+        )
         if dialog.exec() != ExcelExportDialog.DialogCode.Accepted:
             self.statusBar().showMessage("Excel export cancelled")
             return
+        self.export_settings = dialog.settings()
+        self._mark_dirty()
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Export editable Excel drawing",
@@ -590,6 +598,7 @@ class MainWindow(QMainWindow):
             self.current_poles = []
             self.current_geometry = None
             self.same_pole_groups = []
+            self.export_settings = ExcelExportSettings()
             self.project_path = None
             self.route_scene.clear()
             self.route_scene.setSceneRect(0, 0, 1000, 600)
@@ -634,6 +643,7 @@ class MainWindow(QMainWindow):
                     "canvas": scene_to_data(self.route_scene),
                     "workspace_note": self.workspace_note.text(),
                     "has_schematic": self.export_action.isEnabled(),
+                    "export_settings": asdict(self.export_settings),
                 },
             )
         except ProjectFileError as error:
@@ -670,6 +680,9 @@ class MainWindow(QMainWindow):
             self.same_pole_groups = [
                 frozenset(group) for group in document.get("same_pole_groups", [])
             ]
+            self.export_settings = ExcelExportSettings(
+                **document.get("export_settings", {})
+            )
             self.show_poles(poles)
             self._show_same_pole_groups()
             self.undo_stack.clear()

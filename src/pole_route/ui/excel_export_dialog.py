@@ -28,15 +28,22 @@ from pole_route.exporters.excel_exporter import (
 
 
 class ExcelExportDialog(QDialog):
-    def __init__(self, source_objects: list[ExcelObject], parent=None) -> None:
+    def __init__(
+        self,
+        source_objects: list[ExcelObject],
+        parent=None,
+        initial_settings: ExcelExportSettings | None = None,
+    ) -> None:
         super().__init__(parent)
+        initial_settings = initial_settings or ExcelExportSettings()
         self.source_objects = list(source_objects)
         self.setWindowTitle("Excel export preview")
         self.resize(1150, 760)
-        self.project_title = QLineEdit("PoleRoute Schematic")
-        self.location = QLineEdit()
-        self.prepared_by = QLineEdit()
-        self.drawing_number = QLineEdit()
+        self.project_title = QLineEdit(initial_settings.project_title)
+        self.location = QLineEdit(initial_settings.location)
+        self.work_description = QLineEdit(initial_settings.work_description)
+        self.prepared_by = QLineEdit(initial_settings.prepared_by)
+        self.drawing_number = QLineEdit(initial_settings.drawing_number)
         self.paper_size = QComboBox()
         self.paper_size.addItems(["A4", "A3"])
         self.orientation = QComboBox()
@@ -67,7 +74,19 @@ class ExcelExportDialog(QDialog):
         self.page_count = QSpinBox()
         self.page_count.setLocale(QLocale.c())
         self.page_count.setRange(1, 20)
-        self.page_count.setValue(1)
+        self.paper_size.setCurrentText(initial_settings.paper_size)
+        self.orientation.setCurrentText(initial_settings.orientation.title())
+        self.frame_style.setCurrentIndex(
+            max(0, self.frame_style.findData(initial_settings.frame_style))
+        )
+        self.centerline.setCurrentIndex(
+            max(0, self.centerline.findData(initial_settings.centerline_mode))
+        )
+        self.pole_size.setValue(initial_settings.pole_size_mm)
+        self.road_edge_width.setValue(initial_settings.road_edge_width)
+        self.centerline_width.setValue(initial_settings.centerline_width)
+        self.compass.setChecked(initial_settings.show_compass)
+        self.page_count.setValue(initial_settings.page_count)
         self.current_page = 0
         self._refreshing = False
         self._refresh_timer = QTimer(self)
@@ -78,6 +97,7 @@ class ExcelExportDialog(QDialog):
         form = QFormLayout()
         form.addRow("Project title", self.project_title)
         form.addRow("Location", self.location)
+        form.addRow("Work description", self.work_description)
         form.addRow("Prepared by", self.prepared_by)
         form.addRow("Drawing number", self.drawing_number)
         form.addRow("Paper size", self.paper_size)
@@ -119,6 +139,7 @@ class ExcelExportDialog(QDialog):
         for control in (
             self.project_title,
             self.location,
+            self.work_description,
             self.prepared_by,
             self.drawing_number,
         ):
@@ -136,19 +157,20 @@ class ExcelExportDialog(QDialog):
 
     def settings(self) -> ExcelExportSettings:
         return ExcelExportSettings(
-            self.project_title.text().strip(),
-            self.location.text().strip(),
-            self.prepared_by.text().strip(),
-            self.drawing_number.text().strip(),
-            self.paper_size.currentText(),
-            self.orientation.currentText().lower(),
-            self.frame_style.currentData(),
-            self.centerline.currentData(),
-            self.pole_size.value(),
-            self.compass.isChecked(),
-            self.road_edge_width.value(),
-            self.centerline_width.value(),
-            self.page_count.value(),
+            project_title=self.project_title.text().strip(),
+            location=self.location.text().strip(),
+            prepared_by=self.prepared_by.text().strip(),
+            drawing_number=self.drawing_number.text().strip(),
+            paper_size=self.paper_size.currentText(),
+            orientation=self.orientation.currentText().lower(),
+            frame_style=self.frame_style.currentData(),
+            centerline_mode=self.centerline.currentData(),
+            pole_size_mm=self.pole_size.value(),
+            show_compass=self.compass.isChecked(),
+            road_edge_width=self.road_edge_width.value(),
+            centerline_width=self.centerline_width.value(),
+            page_count=self.page_count.value(),
+            work_description=self.work_description.text().strip(),
         )
 
     def _page_count_changed(self) -> None:

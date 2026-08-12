@@ -78,6 +78,20 @@ def test_monochrome_style_frame_and_pole_paper_size(qapp) -> None:
     assert any(item.role == "title" and item.text == "Test Project" for item in objects)
 
 
+def test_work_description_is_rendered_as_third_header_row(qapp) -> None:
+    objects = prepare_excel_pages(
+        [ExcelObject("line", ((0, 0), (100, 0)), role="road_edge")],
+        ExcelExportSettings(
+            project_title="Project",
+            location="Route",
+            work_description="144 poles and New Cable Tray 1 Set",
+        ),
+    )[0]
+
+    description = next(item for item in objects if item.role == "work_description")
+    assert description.text == "144 poles and New Cable Tray 1 Set"
+
+
 def test_collecting_export_snapshot_retains_renderer_owned_canvas_items(qapp) -> None:
     scene = QGraphicsScene()
     route = Route("Road", "route.kml", (GeoPoint(100, 13), GeoPoint(100.01, 13)))
