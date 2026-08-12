@@ -20,6 +20,7 @@ OVERPASS_URLS = (
     "https://overpass.kumi.systems/api/interpreter",
 )
 DEFAULT_CORRIDOR_METRES = 15.0
+CONTEXT_ROAD_EXTENSION_METRES = 35.0
 
 
 class OSMContextError(RuntimeError):
@@ -104,8 +105,8 @@ def parse_osm_context(
             station = candidate.project(point_on_candidate)
             clipped = substring(
                 candidate,
-                max(0.0, station - corridor_metres),
-                min(candidate.length, station + corridor_metres),
+                max(0.0, station - CONTEXT_ROAD_EXTENSION_METRES),
+                min(candidate.length, station + CONTEXT_ROAD_EXTENSION_METRES),
             )
             if not isinstance(clipped, LineString) or clipped.length < 5.0:
                 continue

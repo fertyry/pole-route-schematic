@@ -8,6 +8,8 @@
 - Limit fetched and imported surroundings to 15 m from the Main route, clipping each road
   to approximately 15 m on either side of its nearest connection point.
 - Add Select all and Clear all controls to the surroundings review.
+- Extend each accepted context road approximately 35 m from its nearest Main-route
+  connection while retaining the 15 m OSM search corridor.
 
 All notable changes to PoleRoute Schematic will be documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project intends to use semantic versioning after its first release.
 

@@ -11,16 +11,16 @@ def _main_route() -> Route:
 def test_parse_osm_context_keeps_and_clips_nearby_roads_and_named_places() -> None:
     document = {
         "elements": [
-            {"type": "node", "id": 1, "lat": 13.005, "lon": 99.9998},
-            {"type": "node", "id": 2, "lat": 13.005, "lon": 100.0002},
+            {"type": "node", "id": 1, "lat": 13.005, "lon": 99.999},
+            {"type": "node", "id": 2, "lat": 13.005, "lon": 100.001},
             {"type": "node", "id": 3, "lat": 13.005, "lon": 100.02},
             {"type": "node", "id": 4, "lat": 13.006, "lon": 100.02},
             {
                 "type": "way",
                 "id": 10,
                 "geometry": [
-                    {"lat": 13.005, "lon": 99.9998},
-                    {"lat": 13.005, "lon": 100.0002},
+                    {"lat": 13.005, "lon": 99.999},
+                    {"lat": 13.005, "lon": 100.001},
                 ],
                 "tags": {"highway": "residential", "name": "Soi Test"},
             },
@@ -39,8 +39,8 @@ def test_parse_osm_context_keeps_and_clips_nearby_roads_and_named_places() -> No
 
     assert [road.route.name for road in context.roads] == ["Soi Test"]
     assert context.roads[0].suggested_width_metres == 6.0
-    assert context.roads[0].route.points[0].longitude > 99.9998
-    assert context.roads[0].route.points[-1].longitude < 100.0002
+    assert context.roads[0].route.points[0].longitude > 99.999
+    assert context.roads[0].route.points[-1].longitude < 100.001
     assert [(place.name, place.category) for place in context.places] == [("Test School", "school")]
 
 
