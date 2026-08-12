@@ -9,6 +9,7 @@ from pole_route.domain.pole import Pole, PoleSide
 from pole_route.domain.route import GeoPoint, Route
 from pole_route.exporters.excel_exporter import (
     ExcelExportSettings,
+    ExcelObject,
     collect_excel_objects,
     collect_scene_objects,
     prepare_excel_pages,
@@ -113,3 +114,46 @@ def test_drawing_can_be_split_into_numbered_paper_sheets(qapp) -> None:
     footers = [next(item.text for item in page if item.role == "footer") for page in pages]
     assert "Sheet 1 / 2" in footers[0]
     assert "Sheet 2 / 2" in footers[1]
+
+
+def test_tagged_main_route_is_split_start_to_end_and_rotated_horizontal(qapp) -> None:
+    objects = [
+        ExcelObject(
+            "line",
+            ((index * 100, index * 100), ((index + 1) * 100, (index + 1) * 100)),
+            role="main_centerline",
+            group_id="main-0",
+        )
+        for index in range(4)
+    ]
+    for index, position in enumerate((50, 150, 250, 350), start=1):
+        objects.extend(
+            [
+                ExcelObject(
+                    "rectangle",
+                    ((position - 5, position - 5), (position + 5, position + 5)),
+                    role="pole",
+                    group_id=f"P-{index}",
+                ),
+                ExcelObject(
+                    "text",
+                    ((position + 10, position + 10), (position + 30, position + 20)),
+                    text=f"P-{index}",
+                    role="label",
+                    group_id=f"P-{index}",
+                ),
+            ]
+        )
+
+    pages = prepare_excel_pages(
+        objects, ExcelExportSettings(page_count=2)
+    )
+
+    assert [sum(item.role == "pole" for item in page) for page in pages] == [2, 2]
+    assert [sum(item.role == "label" for item in page) for page in pages] == [2, 2]
+    for page in pages:
+        main_lines = [item for item in page if item.role == "main_centerline"]
+        assert main_lines
+        assert all(abs(a[1] - b[1]) < 1e-6 for item in main_lines for a, b in [item.points])
+    assert any(item.text == "Sheet 2 →" for item in pages[0])
+    assert any(item.text == "← Sheet 1" for item in pages[1])

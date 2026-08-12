@@ -154,7 +154,7 @@ def _item_to_data(item: QGraphicsItem) -> dict[str, Any]:
         "rotation": item.rotation(),
         "z": item.zValue(),
         "visible": item.isVisible(),
-        "data": {str(index): _json_value(item.data(index)) for index in range(5)},
+        "data": {str(index): _json_value(item.data(index)) for index in range(7)},
     }
     if isinstance(item, QGraphicsItemGroup):
         return {"kind": "group", **common, "children": [_item_to_data(x) for x in item.childItems()]}

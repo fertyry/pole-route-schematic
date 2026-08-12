@@ -4,6 +4,13 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ## [Unreleased]
 
+- Replaced Canvas-X sheet cutting with START-to-END Main-route station cutting for
+  newly generated schematics, rotating each sheet's content to a horizontal road axis.
+- Kept pole markers and their labels on the same sheet and added previous/next sheet
+  continuation arrows plus a north arrow adjusted for each sheet's content rotation.
+- Persisted Main-route export metadata in saved projects so reopened schematics retain
+  route-aware sheet cutting.
+
 - Stabilized Excel export review for large drawings by reusing one preview scene,
   coalescing rapid settings changes, and preventing overlapping redraws.
 

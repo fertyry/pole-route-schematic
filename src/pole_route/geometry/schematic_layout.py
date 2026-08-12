@@ -181,6 +181,7 @@ def _create_network_layout(
             line_points(road.centerline),
             line_points(road.left_edge),
             line_points(road.right_edge),
+            road.is_main_route,
         )
         for road in geometry.roads
     )

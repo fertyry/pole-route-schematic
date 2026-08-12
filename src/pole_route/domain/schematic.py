@@ -22,6 +22,7 @@ class SchematicRoad:
     centerline: tuple[tuple[float, float], ...]
     left_edge: tuple[tuple[float, float], ...]
     right_edge: tuple[tuple[float, float], ...]
+    is_main_route: bool = False
 
 
 @dataclass(frozen=True, slots=True)

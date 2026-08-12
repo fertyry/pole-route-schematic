@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import atan2, degrees, hypot
+from math import atan2, cos, degrees, hypot, radians, sin
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QGraphicsScene,
     QGraphicsSimpleTextItem,
 )
+from shapely.geometry import LineString, Point
 
 
 class ExcelExportError(RuntimeError):
@@ -35,6 +36,7 @@ class ExcelObject:
     font_size: float = 10.0
     line_style: str = "solid"
     role: str = "drawing"
+    group_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,6 +215,7 @@ def _collect_item(item: QGraphicsItem, objects: list[ExcelObject]) -> None:
                 rotation=_scene_rotation(item),
                 font_size=max(item.font().pointSizeF(), 8.0),
                 role=item.data(0) or "label",
+                group_id=str(item.data(1) or ""),
             )
         )
         return
@@ -233,6 +236,7 @@ def _collect_item(item: QGraphicsItem, objects: list[ExcelObject]) -> None:
                 line_width=max(pen.widthF(), 0.5),
                 rotation=_scene_rotation(item),
                 role=item.data(0) or "drawing",
+                group_id=str(item.data(1) or ""),
             )
         )
         return
@@ -249,7 +253,14 @@ def _line_object(item, start: QPointF, end: QPointF) -> ExcelObject:
         line_color=_office_color(pen.color()),
         line_width=max(pen.widthF(), 0.5),
         line_style="dashed" if pen.style() is not Qt.PenStyle.SolidLine else "solid",
-        role="centerline" if pen.style() is not Qt.PenStyle.SolidLine else "road_edge",
+        role=(
+            "main_centerline"
+            if item.data(5) == "main_centerline"
+            else "centerline"
+            if pen.style() is not Qt.PenStyle.SolidLine
+            else "road_edge"
+        ),
+        group_id=str(item.data(6) or ""),
     )
 
 
@@ -257,7 +268,10 @@ def prepare_excel_objects(
     objects: list[ExcelObject], settings: ExcelExportSettings
 ) -> list[ExcelObject]:
     """Apply print styling, paper fit, frame, title block, and compass."""
-    objects = [item for item in objects if not (item.role == "centerline" and settings.centerline_mode == "hide")]
+    objects = [
+        item for item in objects
+        if not (item.role in {"centerline", "main_centerline"} and settings.centerline_mode == "hide")
+    ]
     coordinates = [point for item in objects for point in item.points]
     if not coordinates:
         return objects
@@ -279,45 +293,146 @@ def prepare_excel_objects(
             item.text,
             0,
             0 if item.fill_color is not None or item.role == "pole" else None,
-            settings.centerline_width if item.role == "centerline" else settings.road_edge_width,
+            settings.centerline_width if item.role in {"centerline", "main_centerline"} else settings.road_edge_width,
             item.rotation,
             item.font_size,
-            "dashed" if item.role == "centerline" else item.line_style,
+            "dashed" if item.role in {"centerline", "main_centerline"} else item.line_style,
             item.role,
+            item.group_id,
         ), settings.pole_size_mm)
         for item in objects
     ]
-    frame = _frame_objects(settings, paper_w, paper_h, margin, 1, 1)
+    frame = _frame_objects(settings, paper_w, paper_h, margin, 1, 1, 0.0)
     return [*frame, *drawing]
 
 
 def prepare_excel_pages(
     objects: list[ExcelObject], settings: ExcelExportSettings
 ) -> list[list[ExcelObject]]:
-    """Split the drawing along its main horizontal extent and style every paper sheet."""
+    """Split START-to-END along the tagged Main route and lay each section horizontally."""
     page_count = max(1, int(settings.page_count))
     if page_count == 1:
         return [prepare_excel_objects(objects, settings)]
+    axis = _main_route_axis(objects)
     content = [
         item
         for item in objects
-        if not (item.role == "centerline" and settings.centerline_mode == "hide")
+        if not (
+            item.role in {"centerline", "main_centerline"}
+            and settings.centerline_mode == "hide"
+        )
     ]
+    if axis is None:
+        return _prepare_pages_by_x(content, settings, page_count)
+    step = axis.length / page_count
+    stations = {_object_key(item): axis.project(Point(_object_center(item))) for item in content}
+    pole_stations = {
+        item.group_id: stations[_object_key(item)]
+        for item in content
+        if item.role == "pole" and item.group_id
+    }
+    pages = []
+    for page_index in range(page_count):
+        start_station = step * page_index
+        end_station = step * (page_index + 1)
+        include_end = page_index == page_count - 1
+        selected = []
+        for item in content:
+            station = pole_stations.get(item.group_id, stations[_object_key(item)])
+            if item.kind == "line":
+                line_stations = [axis.project(Point(point)) for point in item.points]
+                belongs = max(line_stations) >= start_station and min(line_stations) <= end_station
+            else:
+                belongs = (
+                    start_station <= station <= end_station
+                    if include_end
+                    else start_station <= station < end_station
+                )
+            if belongs:
+                selected.append(item)
+        start = axis.interpolate(start_station)
+        end = axis.interpolate(end_station)
+        angle = degrees(atan2(end.y - start.y, end.x - start.x))
+        rotated = [_rotate_object(item, -angle, start.x, start.y) for item in selected]
+        pages.append(
+            _prepare_page(
+                rotated,
+                settings,
+                page_index + 1,
+                page_count,
+                content_rotation=-angle,
+            )
+        )
+    return pages
+
+
+def _main_route_axis(objects: list[ExcelObject]) -> LineString | None:
+    groups: dict[str, list[ExcelObject]] = {}
+    for item in objects:
+        if item.role == "main_centerline" and item.kind == "line":
+            groups.setdefault(item.group_id or "main", []).append(item)
+    if not groups:
+        return None
+    segments = max(
+        groups.values(),
+        key=lambda items: sum(hypot(b[0] - a[0], b[1] - a[1]) for item in items for a, b in [item.points]),
+    )
+    points = [segments[0].points[0], *[item.points[1] for item in segments]]
+    return LineString(points) if len(points) >= 2 else None
+
+
+def _object_key(item: ExcelObject) -> int:
+    return id(item)
+
+
+def _object_center(item: ExcelObject) -> tuple[float, float]:
+    xs = [x for x, _ in item.points]
+    ys = [y for _, y in item.points]
+    return (sum(xs) / len(xs), sum(ys) / len(ys))
+
+
+def _rotate_point(x: float, y: float, angle: float, origin_x: float, origin_y: float):
+    theta = radians(angle)
+    dx, dy = x - origin_x, y - origin_y
+    return (
+        origin_x + dx * cos(theta) - dy * sin(theta),
+        origin_y + dx * sin(theta) + dy * cos(theta),
+    )
+
+
+def _rotate_object(
+    item: ExcelObject, angle: float, origin_x: float, origin_y: float
+) -> ExcelObject:
+    if item.kind == "line":
+        points = tuple(_rotate_point(x, y, angle, origin_x, origin_y) for x, y in item.points)
+        rotation = item.rotation
+    else:
+        center_x, center_y = _object_center(item)
+        new_x, new_y = _rotate_point(center_x, center_y, angle, origin_x, origin_y)
+        (left, top), (right, bottom) = item.points
+        half_width, half_height = (right - left) / 2, (bottom - top) / 2
+        points = ((new_x - half_width, new_y - half_height), (new_x + half_width, new_y + half_height))
+        rotation = 0.0 if item.kind == "text" else item.rotation + angle
+    return ExcelObject(
+        item.kind, points, item.text, item.line_color, item.fill_color, item.line_width,
+        rotation, item.font_size, item.line_style, item.role, item.group_id
+    )
+
+
+def _prepare_pages_by_x(
+    content: list[ExcelObject], settings: ExcelExportSettings, page_count: int
+) -> list[list[ExcelObject]]:
     coordinates = [point for item in content for point in item.points]
     if not coordinates:
         return [[]]
-    min_x = min(x for x, _ in coordinates)
-    max_x = max(x for x, _ in coordinates)
-    width = max(max_x - min_x, 1.0)
-    step = width / page_count
+    min_x, max_x = min(x for x, _ in coordinates), max(x for x, _ in coordinates)
+    step = max(max_x - min_x, 1.0) / page_count
     pages = []
     for page_index in range(page_count):
-        core_left = min_x + step * page_index
-        core_right = min_x + step * (page_index + 1)
+        left, right = min_x + step * page_index, min_x + step * (page_index + 1)
         selected = [
-            item
-            for item in content
-            if _object_belongs_to_page(item, core_left, core_right, page_index == page_count - 1)
+            item for item in content
+            if _object_belongs_to_page(item, left, right, page_index == page_count - 1)
         ]
         pages.append(_prepare_page(selected, settings, page_index + 1, page_count))
     return pages
@@ -340,6 +455,7 @@ def _prepare_page(
     settings: ExcelExportSettings,
     page_number: int,
     page_count: int,
+    content_rotation: float = 0.0,
 ) -> list[ExcelObject]:
     coordinates = [point for item in objects for point in item.points]
     if not coordinates:
@@ -362,16 +478,20 @@ def _prepare_page(
                 tuple(((x - min_x) * scale + margin, (y - min_y) * scale + margin + header) for x, y in item.points),
                 item.text, 0,
                 0 if item.fill_color is not None or item.role == "pole" else None,
-                settings.centerline_width if item.role == "centerline" else settings.road_edge_width,
+                settings.centerline_width if item.role in {"centerline", "main_centerline"} else settings.road_edge_width,
                 item.rotation, item.font_size,
-                "dashed" if item.role == "centerline" else item.line_style,
+                "dashed" if item.role in {"centerline", "main_centerline"} else item.line_style,
                 item.role,
+                item.group_id,
             ),
             settings.pole_size_mm,
         )
         for item in objects
     ]
-    return [*_frame_objects(settings, paper_w, paper_h, margin, page_number, page_count), *drawing]
+    frame = _frame_objects(
+        settings, paper_w, paper_h, margin, page_number, page_count, content_rotation
+    )
+    return [*frame, *drawing, *_continuation_objects(page_number, page_count, paper_w, paper_h, margin)]
 
 
 def _write_shapes(sheet, objects: list[ExcelObject]) -> None:
@@ -448,6 +568,7 @@ def _frame_objects(
     margin: float,
     page_number: int,
     page_count: int,
+    north_rotation: float,
 ) -> list[ExcelObject]:
     if settings.frame_style == "none":
         return []
@@ -490,24 +611,50 @@ def _frame_objects(
         )
     if settings.show_compass:
         cx, cy = paper_w - margin - 24, margin + 30
+        direction = radians(-90 + north_rotation)
+        tip = (cx + cos(direction) * 32, cy + sin(direction) * 32)
         objects.extend(
             [
                 ExcelObject(
                     "line",
-                    ((cx, cy + 22), (cx, cy - 10)),
+                    ((cx, cy), tip),
                     line_color=black,
                     line_width=1.5,
                     role="compass",
                 ),
                 ExcelObject(
                     "text",
-                    ((cx - 6, cy - 28), (cx + 12, cy - 10)),
+                    ((tip[0] - 6, tip[1] - 16), (tip[0] + 12, tip[1] + 2)),
                     "N",
                     fill_color=black,
                     font_size=10.0,
                     role="compass",
                 ),
             ]
+        )
+    return objects
+
+
+def _continuation_objects(
+    page_number: int, page_count: int, paper_w: float, paper_h: float, margin: float
+) -> list[ExcelObject]:
+    objects = []
+    y = paper_h - margin - 42
+    if page_number > 1:
+        objects.append(
+            ExcelObject(
+                "text", ((margin, y), (margin + 110, y + 18)),
+                f"← Sheet {page_number - 1}", fill_color=0, font_size=8.0,
+                role="continuation",
+            )
+        )
+    if page_number < page_count:
+        objects.append(
+            ExcelObject(
+                "text", ((paper_w - margin - 110, y), (paper_w - margin, y + 18)),
+                f"Sheet {page_number + 1} →", fill_color=0, font_size=8.0,
+                role="continuation",
+            )
         )
     return objects
 
@@ -538,4 +685,5 @@ def _apply_pole_size(item: ExcelObject, size_mm: float) -> ExcelObject:
         item.font_size,
         item.line_style,
         item.role,
+        item.group_id,
     )

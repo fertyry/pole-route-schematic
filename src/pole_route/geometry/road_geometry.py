@@ -38,6 +38,7 @@ class RoadGeometry:
     road_width_metres: float
     pole_offset_metres: float
     pole_line_enabled: bool = True
+    is_main_route: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +102,8 @@ def build_road_geometry(
         tuple(unplaced),
         road_width_metres,
         pole_offset_metres,
+        True,
+        True,
     )
 
 
@@ -173,6 +176,7 @@ def _build_road_with_projection(
         width,
         pole_offset,
         item.create_pole_line,
+        item.type is RouteType.MAIN_ROUTE,
     )
 
 

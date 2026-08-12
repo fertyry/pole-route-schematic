@@ -36,7 +36,7 @@ def render_schematic(scene: QGraphicsScene, layout: SchematicLayout, undo_stack:
                 for point in points[1:]:
                     path.lineTo(*point)
                 road_group.addToGroup(scene.addPath(path, road_pen))
-        for road in layout.roads:
+        for road_index, road in enumerate(layout.roads):
             road_parts = (
                 ((road.centerline, center_pen),)
                 if layout.road_boundaries
@@ -52,6 +52,9 @@ def render_schematic(scene: QGraphicsScene, layout: SchematicLayout, undo_stack:
                 for point in points[1:]:
                     path.lineTo(*point)
                 road_line = scene.addPath(path, pen)
+                if points is road.centerline and road.is_main_route:
+                    road_line.setData(5, "main_centerline")
+                    road_line.setData(6, f"main-{road_index}")
                 road_group.addToGroup(road_line)
     else:
         for y, pen in (
