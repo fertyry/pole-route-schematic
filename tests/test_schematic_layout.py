@@ -3,8 +3,8 @@ from PySide6.QtGui import QUndoStack
 from PySide6.QtWidgets import QGraphicsScene
 
 from pole_route.domain.pole import Pole, PoleSide
-from pole_route.domain.route import GeoPoint, Route
-from pole_route.geometry.road_geometry import build_road_geometry
+from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
+from pole_route.geometry.road_geometry import build_road_geometry, build_road_network_geometry
 from pole_route.geometry.schematic_layout import (
     DEFAULT_POLE_SPACING,
     PoleSpacingMode,
@@ -93,3 +93,28 @@ def test_poles_snapped_to_same_location_are_stacked() -> None:
 
     assert layout.poles[0].x == layout.poles[1].x
     assert layout.poles[0].y == layout.poles[1].y
+
+
+def test_network_schematic_contains_every_road() -> None:
+    routes = [
+        ClassifiedRoute(
+            Route("Main", "route.kml", (GeoPoint(100, 13), GeoPoint(100.01, 13))),
+            RouteType.MAIN_ROUTE,
+            6.0,
+            2.0,
+        ),
+        ClassifiedRoute(
+            Route("Soi", "route.kml", (GeoPoint(100.005, 13), GeoPoint(100.005, 13.01))),
+            RouteType.ROAD,
+            4.0,
+            0.0,
+        ),
+    ]
+    layout = create_schematic_layout(build_road_network_geometry(routes, []))
+    scene = QGraphicsScene()
+
+    render_schematic(scene, layout, QUndoStack())
+
+    assert len(layout.roads) == 2
+    road_group = next(item for item in scene.items() if item.data(0) == "road")
+    assert len(road_group.childItems()) == 6

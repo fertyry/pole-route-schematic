@@ -31,7 +31,8 @@ class RouteImportDialog(QDialog):
 
         intro = QLabel(
             "Choose every LineString to import, assign its meaning, and set road widths. "
-            "One or more used lines may be Main routes."
+            "One or more used lines may be Main routes. Pole offset 0 m places the pole "
+            "projection line on the road edge; it does not disable pole projection."
         )
         intro.setWordWrap(True)
 
@@ -99,9 +100,12 @@ class RouteImportDialog(QDialog):
         layout.addWidget(intro)
         layout.addWidget(self.table)
         layout.addWidget(self.details)
-        layout.addWidget(self.preview_all_button)
         layout.addWidget(QLabel("Selected LineString preview (geographic shape, not to scale)"))
         layout.addWidget(self.preview, 1)
+        buttons.addButton(
+            self.preview_all_button,
+            QDialogButtonBox.ButtonRole.ActionRole,
+        )
         layout.addWidget(buttons)
         self._update_preview()
 

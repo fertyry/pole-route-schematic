@@ -1,7 +1,7 @@
 """Render editable Qt objects for a non-scale schematic."""
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QBrush, QColor, QPen, QUndoStack
+from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen, QUndoStack
 from PySide6.QtWidgets import (
     QGraphicsItem,
     QGraphicsLineItem,
@@ -28,14 +28,28 @@ def render_schematic(scene: QGraphicsScene, layout: SchematicLayout, undo_stack:
     road_group.setData(2, road_group.pos())
     road_pen = QPen(QColor("#d0d0d0"), 3)
     center_pen = QPen(QColor("#6fa8dc"), 2, Qt.PenStyle.DashLine)
-    for y, pen in (
-        (layout.road_top, road_pen),
-        ((layout.road_top + layout.road_bottom) / 2, center_pen),
-        (layout.road_bottom, road_pen),
-    ):
-        road_line = QGraphicsLineItem(layout.road_left, y, layout.road_right, y)
-        road_line.setPen(pen)
-        road_group.addToGroup(road_line)
+    if layout.roads:
+        for road in layout.roads:
+            for points, pen in (
+                (road.left_edge, road_pen),
+                (road.centerline, center_pen),
+                (road.right_edge, road_pen),
+            ):
+                path = QPainterPath()
+                path.moveTo(*points[0])
+                for point in points[1:]:
+                    path.lineTo(*point)
+                road_line = scene.addPath(path, pen)
+                road_group.addToGroup(road_line)
+    else:
+        for y, pen in (
+            (layout.road_top, road_pen),
+            ((layout.road_top + layout.road_bottom) / 2, center_pen),
+            (layout.road_bottom, road_pen),
+        ):
+            road_line = QGraphicsLineItem(layout.road_left, y, layout.road_right, y)
+            road_line.setPen(pen)
+            road_group.addToGroup(road_line)
     scene.addItem(road_group)
 
     for pole in layout.poles:

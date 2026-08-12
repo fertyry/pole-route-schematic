@@ -23,7 +23,7 @@ from pole_route.domain.blocks import BLOCK_CATALOG
 from pole_route.domain.pole import Pole
 from pole_route.domain.route import ClassifiedRoute, Route, RouteType
 from pole_route.geometry.road_geometry import RoadGeometryError, build_road_network_geometry
-from pole_route.geometry.schematic_layout import create_schematic_layout
+from pole_route.geometry.schematic_layout import PoleSpacingMode, create_schematic_layout
 from pole_route.importers.kml_importer import RouteImportError, inspect_route_file
 from pole_route.importers.pole_importer import (
     OPTIONAL_FIELDS,
@@ -36,6 +36,7 @@ from pole_route.ui.column_mapping_dialog import ColumnMappingDialog
 from pole_route.ui.drawing_view import DrawingMode, DrawingView
 from pole_route.ui.editor_commands import (
     DeleteItemsCommand,
+    MoveItemCommand,
     ResetLayoutCommand,
     editable_scene_items,
 )
@@ -110,6 +111,11 @@ class MainWindow(QMainWindow):
         self.reset_layout_action.setEnabled(False)
         self.reset_layout_action.triggered.connect(self._reset_layout)
         toolbar.addAction(self.reset_layout_action)
+
+        self.stack_poles_action = QAction("Stack poles", self)
+        self.stack_poles_action.setEnabled(False)
+        self.stack_poles_action.triggered.connect(self._stack_selected_poles)
+        toolbar.addAction(self.stack_poles_action)
 
         toolbar.addSeparator()
         self.drawing_actions: dict[DrawingMode, QAction] = {}
@@ -267,11 +273,15 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(message)
 
     def _generate_schematic(self) -> None:
-        dialog = SchematicSettingsDialog(self)
-        if dialog.exec() != SchematicSettingsDialog.DialogCode.Accepted:
-            self.statusBar().showMessage("Schematic generation cancelled")
-            return
-        spacing_mode = dialog.spacing_mode()
+        is_network = hasattr(self.current_geometry, "roads") and len(self.current_geometry.roads) > 1
+        if is_network:
+            spacing_mode = PoleSpacingMode.PROJECTED_STATION
+        else:
+            dialog = SchematicSettingsDialog(self)
+            if dialog.exec() != SchematicSettingsDialog.DialogCode.Accepted:
+                self.statusBar().showMessage("Schematic generation cancelled")
+                return
+            spacing_mode = dialog.spacing_mode()
         layout = create_schematic_layout(self.current_geometry, spacing_mode)
         self.undo_stack.clear()
         render_schematic(self.route_scene, layout, self.undo_stack)
@@ -282,9 +292,13 @@ class MainWindow(QMainWindow):
         self.drawing_actions[DrawingMode.SELECT].setChecked(True)
         self.canvas.set_mode(DrawingMode.SELECT)
         spacing_description = (
-            "equal visual spacing"
-            if spacing_mode.value == "equal"
-            else "relative projected-station spacing"
+            "multi-road network topology"
+            if is_network
+            else (
+                "equal visual spacing"
+                if spacing_mode.value == "equal"
+                else "relative projected-station spacing"
+            )
         )
         self.workspace_note.setText(
             f"Non-scale schematic using {spacing_description}. Select and drag the road, "
@@ -317,6 +331,27 @@ class MainWindow(QMainWindow):
 
     def _update_editor_actions(self) -> None:
         self.delete_action.setEnabled(bool(self.route_scene.selectedItems()))
+        selected_poles = [
+            item for item in self.route_scene.selectedItems() if item.data(0) == "pole"
+        ]
+        self.stack_poles_action.setEnabled(len(selected_poles) >= 2)
+
+    def _stack_selected_poles(self) -> None:
+        poles = [item for item in self.route_scene.selectedItems() if item.data(0) == "pole"]
+        if len(poles) < 2:
+            return
+        target = poles[0].pos()
+        moved = 0
+        for pole in poles[1:]:
+            before = pole.pos()
+            if before == target:
+                continue
+            pole.setPos(target)
+            self.undo_stack.push(MoveItemCommand(pole, before, target))
+            moved += 1
+        self.statusBar().showMessage(
+            f"Stacked {moved + 1} selected poles - labels remain separately editable"
+        )
 
     def _update_geometry_action(self) -> None:
         self.build_geometry_action.setEnabled(

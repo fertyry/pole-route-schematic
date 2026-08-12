@@ -16,6 +16,13 @@ class SchematicPole:
 
 
 @dataclass(frozen=True, slots=True)
+class SchematicRoad:
+    centerline: tuple[tuple[float, float], ...]
+    left_edge: tuple[tuple[float, float], ...]
+    right_edge: tuple[tuple[float, float], ...]
+
+
+@dataclass(frozen=True, slots=True)
 class SchematicLayout:
     width: float
     height: float
@@ -24,4 +31,4 @@ class SchematicLayout:
     road_top: float
     road_bottom: float
     poles: tuple[SchematicPole, ...]
-
+    roads: tuple[SchematicRoad, ...] = ()
