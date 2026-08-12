@@ -6,6 +6,7 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ### Fixed
 
+- Canvas Fit now derives its bounds from the drawing objects actually rendered
 - Canvas wheel navigation now uses wheel for vertical scroll, Shift+wheel for horizontal
   scroll, Ctrl+wheel for zoom, and ignores middle-button dragging
 - Newly generated schematics automatically fit and recenter after earlier canvas pan or zoom

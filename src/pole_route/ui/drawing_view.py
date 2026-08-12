@@ -215,10 +215,17 @@ class DrawingView(QGraphicsView):
         self.scale(1 / 1.2, 1 / 1.2)
 
     def fit_scene(self) -> None:
+        item_bounds = self.scene().itemsBoundingRect()
+        if item_bounds.isEmpty():
+            return
+        padding = max(item_bounds.width(), item_bounds.height()) * 0.05 + 20.0
+        fitted_bounds = item_bounds.adjusted(-padding, -padding, padding, padding)
+        self.scene().setSceneRect(fitted_bounds)
         self.resetTransform()
         self.rotate(self._rotation_degrees)
-        self.fitInView(self.scene().sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
-        self.centerOn(self.scene().sceneRect().center())
+        self.fitInView(fitted_bounds, Qt.AspectRatioMode.KeepAspectRatio)
+        self.centerOn(fitted_bounds.center())
+        self.viewport().update()
 
     def set_rotation(self, degrees: float) -> None:
         current_scale_x = (self.transform().m11() ** 2 + self.transform().m12() ** 2) ** 0.5

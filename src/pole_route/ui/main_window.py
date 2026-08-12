@@ -368,6 +368,17 @@ class MainWindow(QMainWindow):
         )
         self.undo_stack.clear()
         render_schematic(self.route_scene, layout, self.undo_stack)
+        rendered_objects = [
+            item for item in self.route_scene.items() if item.parentItem() is None
+        ]
+        if not rendered_objects:
+            QMessageBox.warning(
+                self,
+                "Schematic generation failed",
+                "No drawing objects were created. Rebuild geometry and try again.",
+            )
+            self.statusBar().showMessage("Schematic generation failed: empty canvas")
+            return
         self._set_layer_locked("Roads", True)
         self.canvas.fit_scene()
         QTimer.singleShot(0, self.canvas.fit_scene)
