@@ -4,6 +4,9 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ## [Unreleased]
 
+- Added Windows-only editable Excel export using native Line, Shape, and Text Box
+  objects rather than a flattened image.
+
 - Square pole markers are now automatically aligned with the local road direction
   during schematic generation.
 

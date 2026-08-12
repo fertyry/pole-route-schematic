@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 from pole_route.domain.blocks import BLOCK_CATALOG
 from pole_route.domain.pole import Pole
 from pole_route.domain.route import ClassifiedRoute, Route, RouteType
+from pole_route.exporters.excel_exporter import ExcelExportError, export_scene_to_excel
 from pole_route.geometry.road_geometry import RoadGeometryError, build_road_network_geometry
 from pole_route.geometry.schematic_layout import create_schematic_layout
 from pole_route.importers.kml_importer import RouteImportError, inspect_route_file
@@ -168,9 +169,10 @@ class MainWindow(QMainWindow):
         self.blocks_button.setMenu(blocks_menu)
         toolbar.addWidget(self.blocks_button)
 
-        export_action = QAction("Export", self)
-        export_action.setEnabled(False)
-        toolbar.addAction(export_action)
+        self.export_action = QAction("Export Excel", self)
+        self.export_action.setEnabled(False)
+        self.export_action.triggered.connect(self._export_excel)
+        toolbar.addAction(self.export_action)
 
     def _build_workspace(self) -> None:
         self.route_scene = QGraphicsScene(self)
@@ -305,6 +307,7 @@ class MainWindow(QMainWindow):
             action.setEnabled(True)
         self.blocks_button.setEnabled(True)
         self.edit_canvas_action.setEnabled(True)
+        self.export_action.setEnabled(True)
         self.drawing_actions[DrawingMode.SELECT].setChecked(True)
         self.canvas.set_mode(DrawingMode.SELECT)
         spacing_description = layout_mode.value.replace("_", " ")
@@ -314,6 +317,27 @@ class MainWindow(QMainWindow):
         )
         self.statusBar().showMessage(
             f"Generated editable schematic with {len(layout.poles)} poles ({spacing_description})"
+        )
+
+    def _export_excel(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export editable Excel drawing",
+            "PoleRoute-Schematic.xlsx",
+            "Excel workbook (*.xlsx)",
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".xlsx"):
+            path += ".xlsx"
+        try:
+            object_count = export_scene_to_excel(self.route_scene, path)
+        except ExcelExportError as error:
+            QMessageBox.warning(self, "Excel export failed", str(error))
+            self.statusBar().showMessage("Excel export failed")
+            return
+        self.statusBar().showMessage(
+            f"Exported {object_count} editable object(s) to {path}"
         )
 
     def _delete_selected(self) -> None:
@@ -373,6 +397,7 @@ class MainWindow(QMainWindow):
         self.blocks_button.setEnabled(False)
         self.edit_canvas_action.setChecked(False)
         self.edit_canvas_action.setEnabled(False)
+        self.export_action.setEnabled(False)
         self.drawing_actions[DrawingMode.SELECT].setChecked(True)
         self.canvas.set_mode(DrawingMode.SELECT)
 

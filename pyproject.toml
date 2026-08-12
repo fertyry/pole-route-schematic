@@ -13,6 +13,7 @@ dependencies = [
     "Shapely>=2.0,<3",
     "pyproj>=3.6,<4",
     "openpyxl>=3.1,<4",
+    "pywin32>=306,<312; platform_system == 'Windows'",
 ]
 
 [project.optional-dependencies]
@@ -36,4 +37,3 @@ addopts = "-q"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-
