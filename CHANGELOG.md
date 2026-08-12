@@ -4,6 +4,9 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ## [Unreleased]
 
+- Fixed export-preview objects disappearing during setting changes by snapshotting the
+  source canvas and swapping fully rendered preview scenes atomically.
+
 - Added a live Excel export preview with project information, A4/A3 paper and
   orientation controls, monochrome styling, frame/footer, compass, centerline mode,
   and pole symbol size in millimetres.

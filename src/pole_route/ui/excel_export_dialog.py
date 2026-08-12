@@ -19,7 +19,8 @@ from PySide6.QtWidgets import (
 from pole_route.exporters.excel_exporter import (
     ExcelExportSettings,
     ExcelObject,
-    collect_excel_objects,
+    collect_scene_objects,
+    prepare_excel_objects,
 )
 
 
@@ -27,6 +28,7 @@ class ExcelExportDialog(QDialog):
     def __init__(self, source_scene, parent=None) -> None:
         super().__init__(parent)
         self.source_scene = source_scene
+        self.source_objects = collect_scene_objects(source_scene)
         self.setWindowTitle("Excel export preview")
         self.resize(1150, 760)
         self.project_title = QLineEdit("PoleRoute Schematic")
@@ -123,12 +125,18 @@ class ExcelExportDialog(QDialog):
         )
 
     def refresh_preview(self) -> None:
-        self.preview_scene.clear()
-        for item in collect_excel_objects(self.source_scene, self.settings()):
-            _draw_preview_object(self.preview_scene, item)
-        bounds = self.preview_scene.itemsBoundingRect().adjusted(-12, -12, 12, 12)
-        self.preview_scene.setSceneRect(bounds)
+        next_scene = QGraphicsScene(self)
+        for item in prepare_excel_objects(self.source_objects, self.settings()):
+            _draw_preview_object(next_scene, item)
+        if not next_scene.items():
+            return
+        bounds = next_scene.itemsBoundingRect().adjusted(-12, -12, 12, 12)
+        next_scene.setSceneRect(bounds)
+        previous_scene = self.preview_scene
+        self.preview_scene = next_scene
+        self.preview.setScene(next_scene)
         self.preview.fitInView(bounds, Qt.AspectRatioMode.KeepAspectRatio)
+        previous_scene.deleteLater()
 
 
 def _draw_preview_object(scene: QGraphicsScene, item: ExcelObject) -> None:

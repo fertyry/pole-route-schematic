@@ -57,11 +57,16 @@ def collect_excel_objects(
     scene: QGraphicsScene, settings: ExcelExportSettings | None = None
 ) -> list[ExcelObject]:
     """Flatten visible scene graphics into editable Excel-shape descriptions."""
+    return prepare_excel_objects(collect_scene_objects(scene), settings or ExcelExportSettings())
+
+
+def collect_scene_objects(scene: QGraphicsScene) -> list[ExcelObject]:
+    """Snapshot visible scene objects without applying paper or plot styling."""
     objects: list[ExcelObject] = []
     items = [item for item in scene.items() if item.parentItem() is None and item.isVisible()]
     for item in reversed(items):
         _collect_item(item, objects)
-    return prepare_excel_objects(objects, settings or ExcelExportSettings())
+    return objects
 
 
 def export_scene_to_excel(
