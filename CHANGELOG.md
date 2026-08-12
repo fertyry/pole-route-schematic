@@ -6,11 +6,15 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ### Fixed
 
+- Middle-button canvas panning no longer moves a road or object beneath the pointer
+- Editor angle, font-size, and line-width controls always use Arabic digits
 - Schematic spacing confirmation returns a stable spacing mode with PySide6
 - Block placement ignores clicks and very short drags without repeated errors
 
 ### Added
 
+- Multi-object rotation around a shared center with single-step Undo/Redo
+- Fixed Roads, Poles, Labels, Blocks, and Annotations layers with show, lock, and select-all controls
 - Selection-aware Properties panel for text, color, font size, line width/style, and z-order
 - Undoable object appearance edits
 - Canvas zoom, fit, middle-button pan, angle rotation, North up, and align-to-selection controls

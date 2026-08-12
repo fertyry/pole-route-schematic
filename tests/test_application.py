@@ -1,3 +1,4 @@
+import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialogButtonBox,
@@ -248,3 +249,86 @@ def test_canvas_view_zoom_rotation_and_north_up(qtbot) -> None:
 
     window._set_canvas_rotation(0)
     assert window.canvas.rotation_degrees == 0
+
+
+def test_numeric_editor_controls_use_arabic_digits(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    assert window.rotation_angle.locale().zeroDigit() == "0"
+    assert window.properties_panel.rotation.locale().zeroDigit() == "0"
+    assert window.properties_panel.line_width.locale().zeroDigit() == "0"
+    assert window.properties_panel.font_size.locale().zeroDigit() == "0"
+
+
+def test_multi_object_rotation_uses_one_undo_command(qtbot) -> None:
+    from pole_route.ui.editor_commands import EditableEllipseItem
+    from pole_route.ui.schematic_renderer import EDITABLE_FLAGS
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    items = []
+    for x in (100.0, 300.0):
+        item = EditableEllipseItem(-5, -5, 10, 10, undo_stack=window.undo_stack)
+        item.setData(0, "drawing")
+        item.setFlags(EDITABLE_FLAGS)
+        item.setPos(x, 100)
+        window.route_scene.addItem(item)
+        item.setSelected(True)
+        items.append(item)
+
+    window._rotate_selected_objects(90.0)
+
+    assert [item.rotation() for item in items] == [90.0, 90.0]
+    assert items[0].pos().x() == pytest.approx(items[1].pos().x())
+    assert items[0].pos().y() != pytest.approx(items[1].pos().y())
+    window.undo_stack.undo()
+    assert [item.rotation() for item in items] == [0.0, 0.0]
+    assert [item.pos().x() for item in items] == [100.0, 300.0]
+
+
+def test_layer_can_lock_and_select_all_items(qtbot) -> None:
+    from pole_route.ui.editor_commands import EditableEllipseItem
+    from pole_route.ui.schematic_renderer import EDITABLE_FLAGS
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    item = EditableEllipseItem(-5, -5, 10, 10, undo_stack=window.undo_stack)
+    item.setData(0, "pole")
+    item.setFlags(EDITABLE_FLAGS)
+    window.route_scene.addItem(item)
+
+    window._set_layer_locked("Poles", True)
+    assert not item.flags() & item.GraphicsItemFlag.ItemIsMovable
+    window._set_layer_locked("Poles", False)
+    window._select_layer("Poles")
+    assert item.isSelected()
+
+
+def test_middle_button_pan_does_not_move_road_object(qtbot) -> None:
+    from PySide6.QtCore import QLineF, QPoint
+    from PySide6.QtWidgets import QGraphicsLineItem
+
+    from pole_route.ui.editor_commands import EditableItemGroup
+    from pole_route.ui.schematic_renderer import EDITABLE_FLAGS
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(700, 500)
+    window.show()
+    road = EditableItemGroup(window.undo_stack)
+    road.setData(0, "road")
+    road.setFlags(EDITABLE_FLAGS)
+    road.addToGroup(QGraphicsLineItem(QLineF(100, 100, 500, 100)))
+    window.route_scene.addItem(road)
+    window.route_scene.setSceneRect(0, 0, 1200, 800)
+    before = road.pos()
+    start = window.canvas.mapFromScene(300, 100)
+
+    qtbot.mousePress(window.canvas.viewport(), Qt.MouseButton.MiddleButton, pos=start)
+    qtbot.mouseMove(window.canvas.viewport(), pos=start + QPoint(80, 50))
+    qtbot.mouseRelease(
+        window.canvas.viewport(), Qt.MouseButton.MiddleButton, pos=start + QPoint(80, 50)
+    )
+
+    assert road.pos() == before

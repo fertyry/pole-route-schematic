@@ -44,6 +44,7 @@ class DrawingView(QGraphicsView):
         self.block_type = BlockType.SIDE_ROAD
         self._rotation_degrees = 0.0
         self._middle_panning = False
+        self._pan_position = None
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
 
     def set_mode(self, mode: DrawingMode) -> None:
@@ -68,16 +69,9 @@ class DrawingView(QGraphicsView):
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.MiddleButton:
             self._middle_panning = True
-            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-            synthetic = QMouseEvent(
-                event.type(),
-                event.position(),
-                event.globalPosition(),
-                Qt.MouseButton.LeftButton,
-                Qt.MouseButton.LeftButton,
-                event.modifiers(),
-            )
-            super().mousePressEvent(synthetic)
+            self._pan_position = event.position()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
             return
         if self.mode is DrawingMode.SELECT or event.button() != Qt.MouseButton.LeftButton:
             super().mousePressEvent(event)
@@ -96,6 +90,17 @@ class DrawingView(QGraphicsView):
         self.scene().addItem(self._preview)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._middle_panning and self._pan_position is not None:
+            delta = event.position() - self._pan_position
+            self._pan_position = event.position()
+            self.horizontalScrollBar().setValue(
+                self.horizontalScrollBar().value() - round(delta.x())
+            )
+            self.verticalScrollBar().setValue(
+                self.verticalScrollBar().value() - round(delta.y())
+            )
+            event.accept()
+            return
         if self._start is None or self._preview is None:
             super().mouseMoveEvent(event)
             return
@@ -116,21 +121,14 @@ class DrawingView(QGraphicsView):
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.MiddleButton and self._middle_panning:
-            synthetic = QMouseEvent(
-                event.type(),
-                event.position(),
-                event.globalPosition(),
-                Qt.MouseButton.LeftButton,
-                Qt.MouseButton.NoButton,
-                event.modifiers(),
-            )
-            super().mouseReleaseEvent(synthetic)
             self._middle_panning = False
-            self.setDragMode(
-                QGraphicsView.DragMode.RubberBandDrag
+            self._pan_position = None
+            self.setCursor(
+                Qt.CursorShape.ArrowCursor
                 if self.mode is DrawingMode.SELECT
-                else QGraphicsView.DragMode.NoDrag
+                else Qt.CursorShape.CrossCursor
             )
+            event.accept()
             return
         if self._start is None or self._preview is None:
             super().mouseReleaseEvent(event)

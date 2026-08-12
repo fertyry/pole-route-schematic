@@ -1,13 +1,14 @@
 """Main application window."""
 
-from math import atan2, degrees
+from math import atan2, cos, degrees, radians, sin
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QLocale, QPointF, Qt
 from PySide6.QtGui import QAction, QActionGroup, QBrush, QColor, QKeySequence, QPen, QUndoStack
 from PySide6.QtWidgets import (
     QColorDialog,
     QDockWidget,
     QFileDialog,
+    QGraphicsItem,
     QGraphicsScene,
     QHeaderView,
     QLabel,
@@ -47,6 +48,7 @@ from pole_route.ui.editor_commands import (
     editable_scene_items,
 )
 from pole_route.ui.geometry_renderer import render_road_geometry
+from pole_route.ui.layers_panel import LayersPanel, layer_types
 from pole_route.ui.properties_panel import PropertiesPanel
 from pole_route.ui.route_import_dialog import RouteImportDialog, draw_classified_routes_preview
 from pole_route.ui.schematic_renderer import render_schematic
@@ -71,6 +73,7 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self._build_workspace()
         self._build_properties_panel()
+        self._build_layers_panel()
         self._build_view_toolbar()
         self.statusBar().showMessage("Ready - import an Excel or CSV pole-data file")
 
@@ -238,8 +241,21 @@ class MainWindow(QMainWindow):
         self.properties_panel.lineWidthCommitted.connect(self._change_selected_line_width)
         self.properties_panel.lineStyleCommitted.connect(self._change_selected_line_style)
         self.properties_panel.fontSizeCommitted.connect(self._change_selected_font_size)
+        self.properties_panel.rotationCommitted.connect(self._rotate_selected_objects)
         self.properties_panel.bringForwardRequested.connect(lambda: self._change_selected_z(1))
         self.properties_panel.sendBackwardRequested.connect(lambda: self._change_selected_z(-1))
+
+    def _build_layers_panel(self) -> None:
+        self.layers_panel = LayersPanel(self)
+        dock = QDockWidget("Layers", self)
+        dock.setObjectName("layersDock")
+        dock.setWidget(self.layers_panel)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+        self.tabifyDockWidget(self.properties_dock, dock)
+        self.properties_dock.raise_()
+        self.layers_panel.visibilityChanged.connect(self._set_layer_visible)
+        self.layers_panel.lockChanged.connect(self._set_layer_locked)
+        self.layers_panel.selectRequested.connect(self._select_layer)
 
     def _build_view_toolbar(self) -> None:
         self.addToolBarBreak()
@@ -259,6 +275,7 @@ class MainWindow(QMainWindow):
             action.triggered.connect(callback)
             toolbar.addAction(action)
         self.rotation_angle = QSpinBox()
+        self.rotation_angle.setLocale(QLocale.c())
         self.rotation_angle.setRange(-180, 180)
         self.rotation_angle.setSuffix("°")
         self.rotation_angle.setToolTip("Canvas rotation angle")
@@ -394,7 +411,7 @@ class MainWindow(QMainWindow):
             item for item in self.route_scene.selectedItems() if item.data(0) == "pole"
         ]
         self.stack_poles_action.setEnabled(len(selected_poles) >= 2)
-        self.properties_panel.show_for_item(self._selected_editor_item())
+        self.properties_panel.show_for_items(self._selected_editor_items())
 
     def _stack_selected_poles(self) -> None:
         poles = [item for item in self.route_scene.selectedItems() if item.data(0) == "pole"]
@@ -525,10 +542,10 @@ class MainWindow(QMainWindow):
             self.splitter.setSizes([240, 600])
 
     def _selected_editor_item(self):
-        return next(
-            (item for item in self.route_scene.selectedItems() if item.parentItem() is None),
-            None,
-        )
+        return next(iter(self._selected_editor_items()), None)
+
+    def _selected_editor_items(self):
+        return [item for item in self.route_scene.selectedItems() if item.parentItem() is None]
 
     def _pen_items(self, item):
         if item is None:
@@ -574,7 +591,11 @@ class MainWindow(QMainWindow):
         self.undo_stack.push(PropertyChangeCommand("Change color", apply, before, after))
 
     def _change_selected_line_width(self, width: float) -> None:
-        targets = self._pen_items(self._selected_editor_item())
+        targets = [
+            target
+            for item in self._selected_editor_items()
+            for target in self._pen_items(item)
+        ]
         if not targets:
             return
         before = [QPen(target.pen()) for target in targets]
@@ -588,7 +609,11 @@ class MainWindow(QMainWindow):
         self._push_pen_change("Change line width", targets, before, after)
 
     def _change_selected_line_style(self, style: str) -> None:
-        targets = self._pen_items(self._selected_editor_item())
+        targets = [
+            target
+            for item in self._selected_editor_items()
+            for target in self._pen_items(item)
+        ]
         if not targets:
             return
         before = [QPen(target.pen()) for target in targets]
@@ -608,23 +633,109 @@ class MainWindow(QMainWindow):
         self.undo_stack.push(PropertyChangeCommand(description, apply, before, after))
 
     def _change_selected_font_size(self, size: int) -> None:
-        item = self._selected_editor_item()
-        if item is None or not hasattr(item, "font"):
+        items = [item for item in self._selected_editor_items() if hasattr(item, "font")]
+        if not items:
             return
-        before = item.font()
-        after = item.font()
-        after.setPointSize(size)
-        self.undo_stack.push(PropertyChangeCommand("Change font size", item.setFont, before, after))
+        before = [(item, item.font()) for item in items]
+        after = []
+        for item, font in before:
+            changed = type(font)(font)
+            changed.setPointSize(size)
+            after.append((item, changed))
+
+        def apply(values):
+            for target, font in values:
+                target.setFont(font)
+
+        self.undo_stack.push(PropertyChangeCommand("Change font size", apply, before, after))
 
     def _change_selected_z(self, delta: float) -> None:
-        item = self._selected_editor_item()
-        if item is None:
+        items = self._selected_editor_items()
+        if not items:
             return
+        before = [(item, item.zValue()) for item in items]
+        after = [(item, value + delta) for item, value in before]
+
+        def apply(values):
+            for target, value in values:
+                target.setZValue(value)
+
         self.undo_stack.push(
-            PropertyChangeCommand(
-                "Change object order", item.setZValue, item.zValue(), item.zValue() + delta
-            )
+            PropertyChangeCommand("Change object order", apply, before, after)
         )
+
+    def _rotate_selected_objects(self, angle: float) -> None:
+        items = self._selected_editor_items()
+        if not items:
+            return
+        first_angle = items[0].rotation()
+        delta = angle - first_angle
+        if abs(delta) < 1e-9:
+            return
+        bounds = items[0].sceneBoundingRect()
+        for item in items[1:]:
+            bounds = bounds.united(item.sceneBoundingRect())
+        pivot = bounds.center()
+        before = [
+            (item, QPointF(item.pos()), item.rotation(), QPointF(item.transformOriginPoint()))
+            for item in items
+        ]
+        turn = radians(delta)
+        after = []
+        for item in items:
+            scene_center = item.sceneBoundingRect().center()
+            offset = scene_center - pivot
+            desired_center = QPointF(
+                pivot.x() + offset.x() * cos(turn) - offset.y() * sin(turn),
+                pivot.y() + offset.x() * sin(turn) + offset.y() * cos(turn),
+            )
+            origin = item.boundingRect().center()
+            item.setTransformOriginPoint(origin)
+            item.setRotation(item.rotation() + delta)
+            moved_center = item.sceneBoundingRect().center()
+            item.setPos(item.pos() + desired_center - moved_center)
+            after.append(
+                (item, QPointF(item.pos()), item.rotation(), QPointF(item.transformOriginPoint()))
+            )
+
+        def apply(states):
+            for target, position, rotation, origin in states:
+                target.setTransformOriginPoint(origin)
+                target.setRotation(rotation)
+                target.setPos(position)
+
+        apply(before)
+        self.undo_stack.push(PropertyChangeCommand("Rotate objects", apply, before, after))
+
+    def _layer_items(self, name: str):
+        types = layer_types(name)
+        return [
+            item
+            for item in self.route_scene.items()
+            if item.parentItem() is None and item.data(0) in types
+        ]
+
+    def _set_layer_visible(self, name: str, visible: bool) -> None:
+        for item in self._layer_items(name):
+            item.setVisible(visible)
+
+    def _set_layer_locked(self, name: str, locked: bool) -> None:
+        editable_flags = (
+            QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
+            | QGraphicsItem.GraphicsItemFlag.ItemIsMovable
+        )
+        for item in self._layer_items(name):
+            if locked:
+                item.setSelected(False)
+                item.setFlags(item.flags() & ~editable_flags)
+            else:
+                item.setFlags(item.flags() | editable_flags)
+
+    def _select_layer(self, name: str) -> None:
+        self.route_scene.clearSelection()
+        for item in self._layer_items(name):
+            if item.isVisible() and item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable:
+                item.setSelected(True)
 
     def _set_canvas_rotation(self, angle: float) -> None:
         normalized = int(((angle + 180) % 360) - 180)

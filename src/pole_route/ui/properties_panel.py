@@ -1,6 +1,6 @@
 """Selection-aware controls for editing schematic object appearance."""
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QLocale, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
@@ -20,6 +20,7 @@ class PropertiesPanel(QWidget):
     lineWidthCommitted = Signal(float)
     lineStyleCommitted = Signal(str)
     fontSizeCommitted = Signal(int)
+    rotationCommitted = Signal(float)
     bringForwardRequested = Signal()
     sendBackwardRequested = Signal()
 
@@ -33,6 +34,7 @@ class PropertiesPanel(QWidget):
         self.color = QPushButton("Choose color...")
         self.color.clicked.connect(self.colorRequested)
         self.line_width = QDoubleSpinBox()
+        self.line_width.setLocale(QLocale.c())
         self.line_width.setRange(0.25, 20.0)
         self.line_width.setSingleStep(0.25)
         self.line_width.editingFinished.connect(
@@ -45,9 +47,18 @@ class PropertiesPanel(QWidget):
             lambda: self.lineStyleCommitted.emit(self.line_style.currentData())
         )
         self.font_size = QSpinBox()
+        self.font_size.setLocale(QLocale.c())
         self.font_size.setRange(6, 96)
         self.font_size.editingFinished.connect(
             lambda: self.fontSizeCommitted.emit(self.font_size.value())
+        )
+        self.rotation = QDoubleSpinBox()
+        self.rotation.setLocale(QLocale.c())
+        self.rotation.setRange(-360.0, 360.0)
+        self.rotation.setDecimals(1)
+        self.rotation.setSuffix("°")
+        self.rotation.editingFinished.connect(
+            lambda: self.rotationCommitted.emit(self.rotation.value())
         )
         self.forward = QPushButton("Bring forward")
         self.forward.clicked.connect(self.bringForwardRequested)
@@ -60,6 +71,7 @@ class PropertiesPanel(QWidget):
         self.form.addRow("Line width", self.line_width)
         self.form.addRow("Line style", self.line_style)
         self.form.addRow("Font size", self.font_size)
+        self.form.addRow("Object rotation", self.rotation)
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.kind)
@@ -69,8 +81,10 @@ class PropertiesPanel(QWidget):
         layout.addStretch(1)
         self.show_for_item(None)
 
-    def show_for_item(self, item) -> None:
+    def show_for_items(self, items) -> None:
         """Show only controls supported by the selected graphics item."""
+        items = list(items)
+        item = items[0] if items else None
         has_item = item is not None
         item_type = item.data(0) if has_item else None
         is_text = has_item and hasattr(item, "text") and hasattr(item, "setText")
@@ -78,7 +92,11 @@ class PropertiesPanel(QWidget):
             hasattr(item, "pen") or any(hasattr(child, "pen") for child in item.childItems())
         )
         self.kind.setText(
-            f"Selected: {str(item_type).replace('_', ' ').title()}"
+            (
+                f"Selected: {len(items)} objects"
+                if len(items) > 1
+                else f"Selected: {str(item_type).replace('_', ' ').title()}"
+            )
             if has_item
             else "No object selected"
         )
@@ -93,6 +111,11 @@ class PropertiesPanel(QWidget):
         self.form.labelForField(self.line_style).setVisible(has_pen)
         self.forward.setEnabled(has_item)
         self.backward.setEnabled(has_item)
+        self.rotation.setEnabled(has_item)
+        rotations = {round(selected.rotation(), 3) for selected in items}
+        self.rotation.setSpecialValueText("Mixed" if len(rotations) > 1 else "")
+        if rotations:
+            self.rotation.setValue(next(iter(rotations)) if len(rotations) == 1 else -360.0)
 
         if is_text:
             self.text.blockSignals(True)
@@ -106,6 +129,9 @@ class PropertiesPanel(QWidget):
             self.line_style.blockSignals(True)
             self.line_style.setCurrentIndex(self.line_style.findData(style))
             self.line_style.blockSignals(False)
+
+    def show_for_item(self, item) -> None:
+        self.show_for_items([] if item is None else [item])
 
 
 def _first_pen_item(item):
