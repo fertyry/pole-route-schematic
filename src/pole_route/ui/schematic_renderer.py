@@ -29,12 +29,24 @@ def render_schematic(scene: QGraphicsScene, layout: SchematicLayout, undo_stack:
     road_pen = QPen(QColor("#d0d0d0"), 3)
     center_pen = QPen(QColor("#6fa8dc"), 2, Qt.PenStyle.DashLine)
     if layout.roads:
+        if layout.road_boundaries:
+            for points in layout.road_boundaries:
+                path = QPainterPath()
+                path.moveTo(*points[0])
+                for point in points[1:]:
+                    path.lineTo(*point)
+                road_group.addToGroup(scene.addPath(path, road_pen))
         for road in layout.roads:
-            for points, pen in (
-                (road.left_edge, road_pen),
-                (road.centerline, center_pen),
-                (road.right_edge, road_pen),
-            ):
+            road_parts = (
+                ((road.centerline, center_pen),)
+                if layout.road_boundaries
+                else (
+                    (road.left_edge, road_pen),
+                    (road.centerline, center_pen),
+                    (road.right_edge, road_pen),
+                )
+            )
+            for points, pen in road_parts:
                 path = QPainterPath()
                 path.moveTo(*points[0])
                 for point in points[1:]:
@@ -52,21 +64,25 @@ def render_schematic(scene: QGraphicsScene, layout: SchematicLayout, undo_stack:
             road_group.addToGroup(road_line)
     scene.addItem(road_group)
 
+    rendered_markers: set[str] = set()
     for pole in layout.poles:
         color = QColor("#27ae60" if pole.side is PoleSide.LEFT else "#eb5757")
-        pole_item = EditableEllipseItem(-7, -7, 14, 14, undo_stack=undo_stack)
-        pole_item.setData(0, "pole")
-        pole_item.setData(1, pole.number)
-        pole_item.setPos(pole.x, pole.y)
-        pole_item.setData(2, pole_item.pos())
-        pole_item.setPen(QPen(color, 2))
-        pole_item.setBrush(QBrush(QColor("#202020")))
-        pole_item.setFlags(EDITABLE_FLAGS)
-        pole_item.setToolTip(
-            f"Pole {pole.number}\nSide: {pole.side.value}\n"
-            f"Source station: {pole.source_station_metres:.2f} m"
-        )
-        scene.addItem(pole_item)
+        marker_id = pole.marker_id or pole.number
+        if marker_id not in rendered_markers:
+            rendered_markers.add(marker_id)
+            pole_item = EditableEllipseItem(-7, -7, 14, 14, undo_stack=undo_stack)
+            pole_item.setData(0, "pole")
+            pole_item.setData(1, marker_id)
+            pole_item.setPos(pole.x, pole.y)
+            pole_item.setData(2, pole_item.pos())
+            pole_item.setPen(QPen(color, 2))
+            pole_item.setBrush(QBrush(QColor("#202020")))
+            pole_item.setFlags(EDITABLE_FLAGS)
+            pole_item.setToolTip(
+                f"Physical pole: {marker_id}\nSide: {pole.side.value}\n"
+                f"Source station: {pole.source_station_metres:.2f} m"
+            )
+            scene.addItem(pole_item)
 
         label_text = pole.number + (f"  {pole.detail}" if pole.detail else "")
         label = EditableTextItem(label_text, undo_stack)

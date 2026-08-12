@@ -13,6 +13,7 @@ class SchematicPole:
     x: float
     y: float
     source_station_metres: float
+    marker_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,3 +33,4 @@ class SchematicLayout:
     road_bottom: float
     poles: tuple[SchematicPole, ...]
     roads: tuple[SchematicRoad, ...] = ()
+    road_boundaries: tuple[tuple[tuple[float, float], ...], ...] = ()

@@ -2,7 +2,7 @@
 
 from PySide6.QtWidgets import QComboBox, QDialog, QDialogButtonBox, QFormLayout, QLabel, QVBoxLayout
 
-from pole_route.geometry.schematic_layout import PoleSpacingMode
+from pole_route.geometry.schematic_layout import PoleSpacingMode, SchematicLayoutMode
 
 
 class SchematicSettingsDialog(QDialog):
@@ -18,10 +18,17 @@ class SchematicSettingsDialog(QDialog):
         intro.setWordWrap(True)
 
         self.spacing = QComboBox()
-        self.spacing.addItem("Equal spacing (clear diagram)", PoleSpacingMode.EQUAL)
         self.spacing.addItem(
-            "Projected station spacing (preserve relative gaps)",
-            PoleSpacingMode.PROJECTED_STATION,
+            "Network layout (keep roads and junctions)",
+            SchematicLayoutMode.NETWORK,
+        )
+        self.spacing.addItem(
+            "Straight schematic - equal pole spacing",
+            SchematicLayoutMode.STRAIGHT_EQUAL,
+        )
+        self.spacing.addItem(
+            "Straight schematic - relative pole spacing",
+            SchematicLayoutMode.STRAIGHT_RELATIVE,
         )
         self.explanation = QLabel()
         self.explanation.setWordWrap(True)
@@ -45,14 +52,24 @@ class SchematicSettingsDialog(QDialog):
         self._update_explanation()
 
     def spacing_mode(self) -> PoleSpacingMode:
-        return PoleSpacingMode(self.spacing.currentData())
+        return (
+            PoleSpacingMode.EQUAL
+            if self.layout_mode() is SchematicLayoutMode.STRAIGHT_EQUAL
+            else PoleSpacingMode.PROJECTED_STATION
+        )
+
+    def layout_mode(self) -> SchematicLayoutMode:
+        return SchematicLayoutMode(self.spacing.currentData())
 
     def _update_explanation(self) -> None:
-        if self.spacing_mode() is PoleSpacingMode.EQUAL:
-            text = "Every pole receives the same visual gap, regardless of its measured location."
+        if self.layout_mode() is SchematicLayoutMode.NETWORK:
+            text = (
+                "Keeps all imported roads, junctions, and pole positions in their shared topology."
+            )
+        elif self.layout_mode() is SchematicLayoutMode.STRAIGHT_EQUAL:
+            text = "Straightens the main road and gives every physical pole the same visual gap."
         else:
             text = (
-                "Gaps follow each pole's nearest projected station on the route. "
-                "Close structures remain close and larger crossings remain wider."
+                "Straightens the main road while preserving relative projected gaps between poles."
             )
         self.explanation.setText(text)

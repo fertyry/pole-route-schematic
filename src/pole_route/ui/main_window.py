@@ -23,7 +23,7 @@ from pole_route.domain.blocks import BLOCK_CATALOG
 from pole_route.domain.pole import Pole
 from pole_route.domain.route import ClassifiedRoute, Route, RouteType
 from pole_route.geometry.road_geometry import RoadGeometryError, build_road_network_geometry
-from pole_route.geometry.schematic_layout import PoleSpacingMode, create_schematic_layout
+from pole_route.geometry.schematic_layout import create_schematic_layout
 from pole_route.importers.kml_importer import RouteImportError, inspect_route_file
 from pole_route.importers.pole_importer import (
     OPTIONAL_FIELDS,
@@ -57,6 +57,7 @@ class MainWindow(QMainWindow):
         self.current_road_width = 6.0
         self.current_poles: list[Pole] = []
         self.current_geometry = None
+        self.same_pole_groups: list[frozenset[str]] = []
         self.undo_stack = QUndoStack(self)
         self.setWindowTitle("PoleRoute Schematic - Sprint 3")
         self.resize(1100, 720)
@@ -91,6 +92,17 @@ class MainWindow(QMainWindow):
         self.generate_schematic_action.setEnabled(False)
         self.generate_schematic_action.triggered.connect(self._generate_schematic)
         toolbar.addAction(self.generate_schematic_action)
+
+        self.same_pole_action = QAction("Same pole", self)
+        self.same_pole_action.setEnabled(False)
+        self.same_pole_action.triggered.connect(self._mark_selected_rows_as_same_pole)
+        toolbar.addAction(self.same_pole_action)
+
+        self.edit_canvas_action = QAction("Edit canvas", self)
+        self.edit_canvas_action.setCheckable(True)
+        self.edit_canvas_action.setEnabled(False)
+        self.edit_canvas_action.toggled.connect(self._toggle_canvas_editor)
+        toolbar.addAction(self.edit_canvas_action)
 
         toolbar.addSeparator()
         self.undo_action = self.undo_stack.createUndoAction(self, "Undo")
@@ -169,10 +181,10 @@ class MainWindow(QMainWindow):
         self.canvas.setObjectName("schematicCanvas")
         self.canvas.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        heading = QLabel("Schematic canvas")
-        heading.setObjectName("canvasHeading")
-        heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        heading.setStyleSheet("font-size: 20px; font-weight: 600; padding: 6px;")
+        self.heading = QLabel("Schematic canvas")
+        self.heading.setObjectName("canvasHeading")
+        self.heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.heading.setStyleSheet("font-size: 20px; font-weight: 600; padding: 6px;")
 
         self.workspace_note = QLabel(
             "Import a route and pole data, then build the metric road-geometry preview."
@@ -180,24 +192,25 @@ class MainWindow(QMainWindow):
         self.workspace_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.workspace_note.setWordWrap(True)
 
-        self.pole_table = QTableWidget(0, 5)
+        self.pole_table = QTableWidget(0, 6)
         self.pole_table.setObjectName("poleTable")
         self.pole_table.setHorizontalHeaderLabels(
-            ["Pole No.", "Latitude", "Longitude", "Detail", "Side"]
+            ["Pole No.", "Latitude", "Longitude", "Detail", "Side", "Physical pole"]
         )
         self.pole_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.pole_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.pole_table.itemSelectionChanged.connect(self._update_same_pole_action)
         self.pole_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.addWidget(self.pole_table)
-        splitter.addWidget(self.canvas)
-        splitter.setSizes([240, 360])
+        self.splitter = QSplitter(Qt.Orientation.Vertical)
+        self.splitter.addWidget(self.pole_table)
+        self.splitter.addWidget(self.canvas)
+        self.splitter.setSizes([240, 360])
 
         layout = QVBoxLayout()
-        layout.addWidget(heading)
+        layout.addWidget(self.heading)
         layout.addWidget(self.workspace_note)
-        layout.addWidget(splitter, 1)
+        layout.addWidget(self.splitter, 1)
 
         central_widget = QWidget()
         central_widget.setLayout(layout)
@@ -273,33 +286,28 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(message)
 
     def _generate_schematic(self) -> None:
-        is_network = hasattr(self.current_geometry, "roads") and len(self.current_geometry.roads) > 1
-        if is_network:
-            spacing_mode = PoleSpacingMode.PROJECTED_STATION
-        else:
-            dialog = SchematicSettingsDialog(self)
-            if dialog.exec() != SchematicSettingsDialog.DialogCode.Accepted:
-                self.statusBar().showMessage("Schematic generation cancelled")
-                return
-            spacing_mode = dialog.spacing_mode()
-        layout = create_schematic_layout(self.current_geometry, spacing_mode)
+        dialog = SchematicSettingsDialog(self)
+        if dialog.exec() != SchematicSettingsDialog.DialogCode.Accepted:
+            self.statusBar().showMessage("Schematic generation cancelled")
+            return
+        layout_mode = dialog.layout_mode()
+        spacing_mode = dialog.spacing_mode()
+        layout = create_schematic_layout(
+            self.current_geometry,
+            spacing_mode,
+            layout_mode,
+            tuple(self.same_pole_groups),
+        )
         self.undo_stack.clear()
         render_schematic(self.route_scene, layout, self.undo_stack)
         self.reset_layout_action.setEnabled(True)
         for action in self.drawing_actions.values():
             action.setEnabled(True)
         self.blocks_button.setEnabled(True)
+        self.edit_canvas_action.setEnabled(True)
         self.drawing_actions[DrawingMode.SELECT].setChecked(True)
         self.canvas.set_mode(DrawingMode.SELECT)
-        spacing_description = (
-            "multi-road network topology"
-            if is_network
-            else (
-                "equal visual spacing"
-                if spacing_mode.value == "equal"
-                else "relative projected-station spacing"
-            )
-        )
+        spacing_description = layout_mode.value.replace("_", " ")
         self.workspace_note.setText(
             f"Non-scale schematic using {spacing_description}. Select and drag the road, "
             "individual poles, labels, or drawing objects to edit."
@@ -363,6 +371,8 @@ class MainWindow(QMainWindow):
         for action in self.drawing_actions.values():
             action.setEnabled(False)
         self.blocks_button.setEnabled(False)
+        self.edit_canvas_action.setChecked(False)
+        self.edit_canvas_action.setEnabled(False)
         self.drawing_actions[DrawingMode.SELECT].setChecked(True)
         self.canvas.set_mode(DrawingMode.SELECT)
 
@@ -404,6 +414,7 @@ class MainWindow(QMainWindow):
 
         self.show_poles(poles)
         self.current_poles = poles
+        self.same_pole_groups = []
         self._update_geometry_action()
         optional_missing = [field for field in OPTIONAL_FIELDS if not mapping[field]]
         suffix = " (optional fields omitted)" if optional_missing else ""
@@ -419,6 +430,44 @@ class MainWindow(QMainWindow):
                 f"{pole.longitude:.7f}",
                 pole.detail,
                 pole.side.value,
+                "",
             )
             for column_index, value in enumerate(values):
                 self.pole_table.setItem(row_index, column_index, QTableWidgetItem(value))
+
+    def _update_same_pole_action(self) -> None:
+        rows = {index.row() for index in self.pole_table.selectedIndexes()}
+        self.same_pole_action.setEnabled(len(rows) >= 2)
+
+    def _mark_selected_rows_as_same_pole(self) -> None:
+        rows = sorted({index.row() for index in self.pole_table.selectedIndexes()})
+        if len(rows) < 2:
+            return
+        numbers = frozenset(self.current_poles[row].number for row in rows)
+        merged = set(numbers)
+        remaining = []
+        for group in self.same_pole_groups:
+            if group & numbers:
+                merged.update(group)
+            else:
+                remaining.append(group)
+        group = frozenset(merged)
+        self.same_pole_groups = [*remaining, group]
+        label = " / ".join(sorted(group))
+        for row, pole in enumerate(self.current_poles):
+            if pole.number in group:
+                self.pole_table.setItem(row, 5, QTableWidgetItem(label))
+        self.statusBar().showMessage(
+            f"Marked {len(group)} records as one physical pole; regenerate the schematic"
+        )
+
+    def _toggle_canvas_editor(self, enabled: bool) -> None:
+        self.heading.setVisible(not enabled)
+        self.workspace_note.setVisible(not enabled)
+        self.pole_table.setVisible(not enabled)
+        self.edit_canvas_action.setText("Exit canvas" if enabled else "Edit canvas")
+        if enabled:
+            self.splitter.setSizes([0, max(self.height(), 700)])
+            self.canvas.fitInView(self.route_scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+        else:
+            self.splitter.setSizes([240, 600])

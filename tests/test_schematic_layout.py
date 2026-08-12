@@ -117,4 +117,33 @@ def test_network_schematic_contains_every_road() -> None:
 
     assert len(layout.roads) == 2
     road_group = next(item for item in scene.items() if item.data(0) == "road")
-    assert len(road_group.childItems()) == 6
+    assert len(layout.road_boundaries) == 1
+    assert len(road_group.childItems()) == 3
+
+
+def test_same_pole_records_render_one_marker_and_keep_both_labels() -> None:
+    route = ClassifiedRoute(
+        Route("Main", "route.kml", (GeoPoint(100, 13), GeoPoint(100.01, 13))),
+        RouteType.MAIN_ROUTE,
+        6.0,
+        2.0,
+    )
+    poles = [
+        Pole("6", 13.0001, 100.005, "ชุดที่ 1", PoleSide.LEFT),
+        Pole("7", 13.0002, 100.006, "ชุดที่ 2", PoleSide.LEFT),
+    ]
+    layout = create_schematic_layout(
+        build_road_network_geometry([route], poles),
+        layout_mode=None,
+        same_pole_groups=(frozenset({"6", "7"}),),
+    )
+    scene = QGraphicsScene()
+
+    render_schematic(scene, layout, QUndoStack())
+
+    markers = [item for item in scene.items() if item.data(0) == "pole"]
+    labels = [item for item in scene.items() if item.data(0) == "label"]
+    assert len(markers) == 1
+    assert len(labels) == 2
+    assert layout.poles[0].x == layout.poles[1].x
+    assert layout.poles[0].y == layout.poles[1].y

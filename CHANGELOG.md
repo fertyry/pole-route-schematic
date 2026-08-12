@@ -11,6 +11,10 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ### Added
 
+- Dedicated Edit canvas mode that expands the drawing workspace and restores the data view
+- Explicit Same pole grouping for multiple equipment records on one physical pole
+- Network, straight equal-spacing, and straight relative-spacing generation choices
+- Unified road-surface boundaries that clean up side-road, T-junction, and crossroad mouths
 - Multi-LineString KML/KMZ classification with per-line Use, Type, and Width settings
 - Main route validation plus multiple retained context routes
 - Shift-modified angle snapping for semantic Blocks

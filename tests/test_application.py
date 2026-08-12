@@ -1,5 +1,10 @@
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QDialogButtonBox, QGraphicsPathItem, QGraphicsView
+from PySide6.QtWidgets import (
+    QDialogButtonBox,
+    QGraphicsPathItem,
+    QGraphicsView,
+    QTableWidgetSelectionRange,
+)
 
 from pole_route.importers.pole_importer import PoleTable
 from pole_route.main import create_application
@@ -164,11 +169,44 @@ def test_geometry_settings_use_arabic_digits(qtbot) -> None:
 
 
 def test_schematic_spacing_dialog_returns_spacing_enum(qtbot) -> None:
-    from pole_route.geometry.schematic_layout import PoleSpacingMode
+    from pole_route.geometry.schematic_layout import PoleSpacingMode, SchematicLayoutMode
 
     dialog = SchematicSettingsDialog()
     qtbot.addWidget(dialog)
 
-    assert dialog.spacing_mode() is PoleSpacingMode.EQUAL
-    dialog.spacing.setCurrentIndex(1)
+    assert dialog.layout_mode() is SchematicLayoutMode.NETWORK
     assert dialog.spacing_mode() is PoleSpacingMode.PROJECTED_STATION
+    dialog.spacing.setCurrentIndex(1)
+    assert dialog.layout_mode() is SchematicLayoutMode.STRAIGHT_EQUAL
+    assert dialog.spacing_mode() is PoleSpacingMode.EQUAL
+
+
+def test_main_window_marks_selected_rows_as_one_physical_pole(qtbot) -> None:
+    from pole_route.domain.pole import Pole
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    poles = [Pole("6", 13.0, 100.0), Pole("7", 13.1, 100.1)]
+    window.current_poles = poles
+    window.show_poles(poles)
+    window.pole_table.setRangeSelected(QTableWidgetSelectionRange(0, 0, 1, 5), True)
+
+    window._mark_selected_rows_as_same_pole()
+
+    assert window.same_pole_groups == [frozenset({"6", "7"})]
+    assert window.pole_table.item(0, 5).text() == "6 / 7"
+    assert window.pole_table.item(1, 5).text() == "6 / 7"
+
+
+def test_canvas_editor_hides_table_and_restores_workspace(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+
+    window._toggle_canvas_editor(True)
+    assert window.pole_table.isHidden()
+    assert window.heading.isHidden()
+
+    window._toggle_canvas_editor(False)
+    assert not window.pole_table.isHidden()
+    assert not window.heading.isHidden()

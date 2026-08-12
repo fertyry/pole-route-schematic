@@ -2,6 +2,8 @@
 
 from enum import StrEnum
 
+from shapely.ops import unary_union
+
 from pole_route.domain.pole import PoleSide
 from pole_route.domain.schematic import SchematicLayout, SchematicPole, SchematicRoad
 from pole_route.geometry.road_geometry import RoadGeometry, RoadNetworkGeometry
@@ -19,13 +21,44 @@ class PoleSpacingMode(StrEnum):
     PROJECTED_STATION = "projected_station"
 
 
+class SchematicLayoutMode(StrEnum):
+    NETWORK = "network"
+    STRAIGHT_EQUAL = "straight_equal"
+    STRAIGHT_RELATIVE = "straight_relative"
+
+
 def create_schematic_layout(
     geometry: RoadGeometry | RoadNetworkGeometry,
     spacing_mode: PoleSpacingMode = PoleSpacingMode.EQUAL,
+    layout_mode: SchematicLayoutMode | None = None,
+    same_pole_groups: tuple[frozenset[str], ...] = (),
 ) -> SchematicLayout:
     """Order poles by route station and apply the selected visual spacing."""
+    if isinstance(geometry, RoadNetworkGeometry) and layout_mode in {
+        None,
+        SchematicLayoutMode.NETWORK,
+    }:
+        return _create_network_layout(geometry, same_pole_groups)
+
     if isinstance(geometry, RoadNetworkGeometry):
-        return _create_network_layout(geometry)
+        spacing_mode = (
+            PoleSpacingMode.EQUAL
+            if layout_mode is SchematicLayoutMode.STRAIGHT_EQUAL
+            else PoleSpacingMode.PROJECTED_STATION
+        )
+        geometry = RoadGeometry(
+            geometry.projection,
+            geometry.roads[0].centerline,
+            geometry.roads[0].left_edge,
+            geometry.roads[0].right_edge,
+            geometry.roads[0].left_pole_line,
+            geometry.roads[0].right_pole_line,
+            geometry.projected_poles,
+            geometry.unplaced_poles,
+            geometry.roads[0].road_width_metres,
+            geometry.roads[0].pole_offset_metres,
+            geometry.roads[0].pole_line_enabled,
+        )
 
     def source_station(item):
         if isinstance(geometry, RoadNetworkGeometry):
@@ -92,6 +125,7 @@ def create_schematic_layout(
                 ),
                 y,
                 stations[index],
+                _marker_id(projected.pole.number, same_pole_groups),
             )
         )
 
@@ -106,7 +140,10 @@ def create_schematic_layout(
     )
 
 
-def _create_network_layout(geometry: RoadNetworkGeometry) -> SchematicLayout:
+def _create_network_layout(
+    geometry: RoadNetworkGeometry,
+    same_pole_groups: tuple[frozenset[str], ...],
+) -> SchematicLayout:
     """Preserve the shared topology of every imported road in one editable schematic."""
     canvas_width = 1600.0
     canvas_height = 850.0
@@ -145,16 +182,43 @@ def _create_network_layout(geometry: RoadNetworkGeometry) -> SchematicLayout:
         )
         for road in geometry.roads
     )
-    poles = tuple(
+    road_surface = unary_union([
+        road.centerline.buffer(road.road_width_metres / 2.0, cap_style="flat", join_style="round")
+        for road in geometry.roads
+    ])
+    polygons = list(road_surface.geoms) if hasattr(road_surface, "geoms") else [road_surface]
+    boundaries = tuple(
+        line_points(ring)
+        for polygon in polygons
+        for ring in (polygon.exterior, *polygon.interiors)
+    )
+
+    raw_poles = [
         SchematicPole(
             projected.pole.number,
             projected.pole.detail,
             projected.pole.side,
             *point_xy(projected.snapped.x, projected.snapped.y),
             geometry.roads[projected.route_index].centerline.project(projected.snapped),
+            _marker_id(projected.pole.number, same_pole_groups),
         )
         for projected in geometry.projected_poles
-    )
+    ]
+    marker_positions: dict[str, tuple[float, float]] = {}
+    poles = []
+    for pole in raw_poles:
+        position = marker_positions.setdefault(pole.marker_id or pole.number, (pole.x, pole.y))
+        poles.append(
+            SchematicPole(
+                pole.number,
+                pole.detail,
+                pole.side,
+                position[0],
+                position[1],
+                pole.source_station_metres,
+                pole.marker_id,
+            )
+        )
     return SchematicLayout(
         canvas_width,
         canvas_height,
@@ -162,6 +226,14 @@ def _create_network_layout(geometry: RoadNetworkGeometry) -> SchematicLayout:
         canvas_width - margin,
         canvas_height / 2 - ROAD_HALF_HEIGHT,
         canvas_height / 2 + ROAD_HALF_HEIGHT,
-        poles,
+        tuple(poles),
         roads,
+        boundaries,
     )
+
+
+def _marker_id(number: str, groups: tuple[frozenset[str], ...]) -> str:
+    for index, group in enumerate(groups, start=1):
+        if number in group:
+            return f"same-pole-{index}"
+    return number
