@@ -8,7 +8,7 @@ from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
 from pole_route.geometry.road_geometry import build_road_geometry, build_road_network_geometry
 from pole_route.geometry.schematic_layout import (
     DEFAULT_POLE_SPACING,
-    MIN_CONTEXT_ROAD_DISPLAY_LENGTH,
+    CONTEXT_ROAD_DISPLAY_LENGTH,
     PoleSpacingMode,
     create_schematic_layout,
     _longest_line,
@@ -122,7 +122,9 @@ def test_network_schematic_contains_every_road() -> None:
 
     assert len(layout.roads) == 2
     context_road = layout.roads[1]
-    assert LineString(context_road.centerline).length >= MIN_CONTEXT_ROAD_DISPLAY_LENGTH - 1e-6
+    assert LineString(context_road.centerline).length == pytest.approx(
+        CONTEXT_ROAD_DISPLAY_LENGTH
+    )
     assert context_road.name == "Soi"
     road_names = [item for item in scene.items() if item.data(0) == "road_name"]
     assert len(road_names) == 1

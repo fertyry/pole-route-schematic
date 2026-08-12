@@ -4,7 +4,7 @@ from enum import StrEnum
 from math import atan2, degrees
 
 from shapely.geometry import LineString
-from shapely.ops import unary_union
+from shapely.ops import substring, unary_union
 
 from pole_route.domain.pole import PoleSide
 from pole_route.domain.schematic import SchematicLayout, SchematicPole, SchematicRoad
@@ -16,7 +16,7 @@ POLE_DISTANCE_FROM_EDGE = 72.0
 HORIZONTAL_MARGIN = 120.0
 VERTICAL_CENTER = 250.0
 PROJECTED_LAYOUT_LENGTH = 1200.0
-MIN_CONTEXT_ROAD_DISPLAY_LENGTH = 110.0
+CONTEXT_ROAD_DISPLAY_LENGTH = 70.0
 
 
 class PoleSpacingMode(StrEnum):
@@ -183,7 +183,9 @@ def _create_network_layout(
     for road in geometry.roads:
         centerline = LineString(line_points(road.centerline))
         if not road.is_main_route:
-            centerline = _minimum_display_length(centerline, MIN_CONTEXT_ROAD_DISPLAY_LENGTH)
+            centerline = _fit_context_display_length(
+                centerline, CONTEXT_ROAD_DISPLAY_LENGTH
+            )
         display_width = max(road.road_width_metres * scale, 3.0)
         half_width = display_width / 2.0
         left_edge = _longest_line(
@@ -287,16 +289,23 @@ def _open_road_boundaries(road_surface, geometry: RoadNetworkGeometry):
     return list(opened.geoms) if hasattr(opened, "geoms") else [opened]
 
 
-def _minimum_display_length(line: LineString, minimum_length: float) -> LineString:
-    """Lengthen a short context road only in the non-scale drawing."""
-    if line.length >= minimum_length or line.length <= 1e-9:
+def _fit_context_display_length(line: LineString, target_length: float) -> LineString:
+    """Keep context roads readable without letting them dominate the page."""
+    if line.length <= 1e-9:
+        return line
+    if line.length > target_length:
+        midpoint = line.length / 2.0
+        half_length = target_length / 2.0
+        clipped = substring(line, midpoint - half_length, midpoint + half_length)
+        return clipped if isinstance(clipped, LineString) else line
+    if line.length == target_length:
         return line
     coordinates = list(line.coords)
     start_x, start_y = coordinates[0]
     end_x, end_y = coordinates[-1]
     dx, dy = end_x - start_x, end_y - start_y
     chord = max((dx * dx + dy * dy) ** 0.5, 1e-9)
-    extension = (minimum_length - line.length) / 2.0
+    extension = (target_length - line.length) / 2.0
     unit_x, unit_y = dx / chord, dy / chord
     coordinates[0] = (start_x - unit_x * extension, start_y - unit_y * extension)
     coordinates[-1] = (end_x + unit_x * extension, end_y + unit_y * extension)
