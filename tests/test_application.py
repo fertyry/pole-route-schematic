@@ -15,6 +15,7 @@ from pole_route.ui.column_mapping_dialog import ColumnMappingDialog
 from pole_route.ui.geometry_settings_dialog import GeometrySettingsDialog
 from pole_route.ui.main_window import MainWindow
 from pole_route.ui.route_import_dialog import RouteImportDialog
+from pole_route.ui.osm_context_dialog import OSMContextDialog
 from pole_route.ui.schematic_settings_dialog import SchematicSettingsDialog
 
 
@@ -92,6 +93,32 @@ def test_geometry_action_requires_route_and_poles(qtbot) -> None:
     window.current_poles = [Pole("1", 13.0, 100.001)]
     window._update_geometry_action()
     assert window.build_geometry_action.isEnabled()
+
+
+def test_fetch_surroundings_requires_a_main_route(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    assert not window.fetch_surroundings_action.isEnabled()
+
+
+def test_osm_context_dialog_requires_confirmation_and_returns_checked_roads(qtbot) -> None:
+    from pole_route.domain.context import ContextRoad, OSMContext
+    from pole_route.domain.route import GeoPoint, Route
+
+    main = Route("Main", "A003.kml", (GeoPoint(100, 13), GeoPoint(100, 13.01)))
+    soi = Route("Soi Test", "OpenStreetMap:way/1", (GeoPoint(99.999, 13.005), GeoPoint(100.001, 13.005)))
+    context = OSMContext((ContextRoad(soi, "residential", 6.0),), ())
+    dialog = OSMContextDialog(main, context)
+    qtbot.addWidget(dialog)
+
+    buttons = dialog.findChild(QDialogButtonBox)
+    selected = dialog.selected_routes()
+
+    assert buttons.button(QDialogButtonBox.StandardButton.Ok).text() == "Add selected surroundings"
+    assert len(selected) == 1
+    assert selected[0].route.name == "Soi Test"
+    assert selected[0].create_pole_line is False
 
 
 def test_mapping_dialog_uses_explicit_confirmation(qtbot) -> None:

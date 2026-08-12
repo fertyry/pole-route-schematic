@@ -38,6 +38,7 @@ from pole_route.exporters.excel_exporter import (
 from pole_route.geometry.road_geometry import RoadGeometryError, build_road_network_geometry
 from pole_route.geometry.schematic_layout import create_schematic_layout
 from pole_route.importers.kml_importer import RouteImportError, inspect_route_file
+from pole_route.importers.osm_context import OSMContextError, fetch_osm_context
 from pole_route.importers.pole_importer import (
     OPTIONAL_FIELDS,
     PoleImportError,
@@ -68,6 +69,7 @@ from pole_route.ui.excel_export_dialog import ExcelExportDialog
 from pole_route.ui.geometry_renderer import render_road_geometry
 from pole_route.ui.project_info_dialog import ProjectInfoDialog
 from pole_route.ui.route_import_dialog import RouteImportDialog, draw_classified_routes_preview
+from pole_route.ui.osm_context_dialog import OSMContextDialog
 from pole_route.ui.schematic_renderer import render_schematic
 from pole_route.ui.schematic_settings_dialog import SchematicSettingsDialog
 
@@ -137,6 +139,14 @@ class MainWindow(QMainWindow):
         self.import_route_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DriveNetIcon))
         self.import_route_action.triggered.connect(self._choose_route_file)
         toolbar.addAction(self.import_route_action)
+
+        self.fetch_surroundings_action = QAction("Fetch surroundings", self)
+        self.fetch_surroundings_action.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DirLinkIcon)
+        )
+        self.fetch_surroundings_action.setEnabled(False)
+        self.fetch_surroundings_action.triggered.connect(self._fetch_surroundings)
+        toolbar.addAction(self.fetch_surroundings_action)
 
         self.import_poles_action = QAction("Import poles", self)
         self.import_poles_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
@@ -277,7 +287,12 @@ class MainWindow(QMainWindow):
         data_menu = self.menuBar().addMenu("Data")
         data_menu.setObjectName("dataMenu")
         data_menu.addActions(
-            [self.import_route_action, self.import_poles_action, self.same_pole_action]
+            [
+                self.import_route_action,
+                self.fetch_surroundings_action,
+                self.import_poles_action,
+                self.same_pole_action,
+            ]
         )
 
         geometry_menu = self.menuBar().addMenu("Geometry")
@@ -419,12 +434,62 @@ class MainWindow(QMainWindow):
         self.current_routes = classified
         self.current_context_routes = [item for item in classified if item.type is not RouteType.MAIN_ROUTE]
         self.current_road_width = main_routes[0].width_metres or 6.0
+        self.fetch_surroundings_action.setEnabled(True)
         self._update_geometry_action()
         self.statusBar().showMessage(
             f"Imported {len(main_routes)} main route(s) and "
             f"{len(self.current_context_routes)} context line(s)"
         )
         self._mark_dirty()
+
+    def _fetch_surroundings(self) -> None:
+        """Download and explicitly review OSM context around the main route."""
+        if self.current_route is None:
+            return
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self.statusBar().showMessage("Fetching nearby roads and places from OpenStreetMap...")
+        try:
+            context = fetch_osm_context(self.current_route)
+        except OSMContextError as error:
+            QMessageBox.warning(self, "OpenStreetMap fetch failed", str(error))
+            self.statusBar().showMessage("Could not fetch OpenStreetMap surroundings")
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        if not context.roads and not context.places:
+            QMessageBox.information(
+                self,
+                "No surroundings found",
+                "OpenStreetMap returned no nearby roads or named places for this route.",
+            )
+            self.statusBar().showMessage("No OpenStreetMap surroundings found")
+            return
+        dialog = OSMContextDialog(self.current_route, context, self)
+        if dialog.exec() != OSMContextDialog.DialogCode.Accepted:
+            self.statusBar().showMessage("OpenStreetMap surroundings cancelled")
+            return
+        discovered = dialog.selected_routes()
+        existing_osm_ids = {
+            item.route.source_path
+            for item in self.current_routes
+            if item.route.source_path.startswith("OpenStreetMap:")
+        }
+        discovered = [
+            item for item in discovered if item.route.source_path not in existing_osm_ids
+        ]
+        self.current_routes.extend(discovered)
+        self.current_context_routes.extend(discovered)
+        self.show_routes(self.current_routes)
+        self.current_geometry = None
+        self.generate_schematic_action.setEnabled(False)
+        self._update_geometry_action()
+        self.statusBar().showMessage(
+            f"Added {len(discovered)} nearby road(s); "
+            f"reviewed {len(context.places)} named place(s)"
+        )
+        if discovered:
+            self._mark_dirty()
 
     def show_routes(self, routes: list[ClassifiedRoute]) -> None:
         """Display every confirmed LineString in one geographic preview."""
@@ -751,6 +816,7 @@ class MainWindow(QMainWindow):
             self.route_scene.setSceneRect(0, 0, 1000, 600)
             self.pole_table.setRowCount(0)
             self.undo_stack.clear()
+            self.fetch_surroundings_action.setEnabled(False)
             self._update_geometry_action()
             self.generate_schematic_action.setEnabled(False)
             self.workspace_note.setText(
@@ -837,6 +903,7 @@ class MainWindow(QMainWindow):
             self.project_path = path
             has_schematic = bool(document.get("has_schematic"))
             self.build_geometry_action.setEnabled(bool(routes) and bool(poles))
+            self.fetch_surroundings_action.setEnabled(bool(main_routes))
             self.generate_schematic_action.setEnabled(bool(geometry and geometry.projected_poles))
             self.reset_layout_action.setEnabled(has_schematic)
             self.edit_canvas_action.setEnabled(has_schematic)

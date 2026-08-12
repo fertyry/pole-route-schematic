@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add an explicit OpenStreetMap surroundings review after importing a Main route.
+- Discover nearby connecting roads/sois and named landmarks along a metric route corridor.
+- Preselect only named local roads; major and unnamed roads remain available for manual review.
+
 All notable changes to PoleRoute Schematic will be documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project intends to use semantic versioning after its first release.
 
 ## [Unreleased]
