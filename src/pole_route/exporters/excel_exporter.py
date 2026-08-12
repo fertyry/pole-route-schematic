@@ -895,10 +895,13 @@ def _write_shapes(sheet, objects: list[ExcelObject]) -> None:
             shape.TextFrame2.AutoSize = 1
             shape.Line.Visible = 0
             shape.Fill.Visible = 0
+            shape.Rotation = item.rotation
             if item.role == "road_name":
+                # Excel recalculates a text box's displayed bounds when Rotation
+                # changes.  Re-centre only after AutoSize and Rotation so the
+                # native shape stays on the same junction shown in the preview.
                 shape.Left = desired_center_x - shape.Width / 2.0
                 shape.Top = desired_center_y - shape.Height / 2.0
-            shape.Rotation = item.rotation
         else:
             left, top, width, height = _bounds(item.points)
             shape_type = 1 if item.kind == "rectangle" else 9

@@ -239,6 +239,85 @@ def test_context_roads_are_clipped_to_export_corridor(qapp) -> None:
     assert road_name_center_x == pytest.approx(context_center_x, abs=35.0)
 
 
+def test_excel_road_name_is_recentred_after_rotation() -> None:
+    from pole_route.exporters.excel_exporter import _write_shapes
+
+    events: list[str] = []
+
+    class FakeFontFill:
+        class ForeColorType:
+            RGB = 0
+
+        ForeColor = ForeColorType()
+
+    class FakeFont:
+        Size = 0
+        Fill = FakeFontFill()
+
+    class FakeTextRange:
+        Text = ""
+        Font = FakeFont()
+
+    class FakeTextFrame:
+        TextRange = FakeTextRange()
+
+        @property
+        def AutoSize(self):
+            return 1
+
+        @AutoSize.setter
+        def AutoSize(self, value):
+            events.append("autosize")
+
+    class FakeVisibility:
+        Visible = 0
+
+    class FakeShape:
+        TextFrame2 = FakeTextFrame()
+        Line = FakeVisibility()
+        Fill = FakeVisibility()
+        Width = 80.0
+        Height = 14.0
+        Left = 0.0
+        Top = 0.0
+        _rotation = 0.0
+
+        @property
+        def Rotation(self):
+            return self._rotation
+
+        @Rotation.setter
+        def Rotation(self, value):
+            self._rotation = value
+            events.append("rotation")
+
+    shape = FakeShape()
+
+    class FakeShapes:
+        def AddTextbox(self, *_args):
+            return shape
+
+    class FakeSheet:
+        Shapes = FakeShapes()
+
+    _write_shapes(
+        FakeSheet(),
+        [
+            ExcelObject(
+                "text",
+                ((90.0, 190.0), (110.0, 210.0)),
+                "Soi Test",
+                rotation=90.0,
+                role="road_name",
+            )
+        ],
+    )
+
+    assert events == ["autosize", "rotation"]
+    assert shape.Left + shape.Width / 2.0 == pytest.approx(100.0)
+    assert shape.Top + shape.Height / 2.0 == pytest.approx(200.0)
+
+
 def test_legacy_road_name_without_group_uses_nearest_context_road(qapp) -> None:
     objects = [
         ExcelObject("line", ((0, 0), (500, 0)), role="main_centerline", group_id="main"),
