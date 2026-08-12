@@ -6,6 +6,7 @@ from pole_route.ui.column_mapping_dialog import ColumnMappingDialog
 from pole_route.ui.geometry_settings_dialog import GeometrySettingsDialog
 from pole_route.ui.main_window import MainWindow
 from pole_route.ui.route_import_dialog import RouteImportDialog
+from pole_route.ui.schematic_settings_dialog import SchematicSettingsDialog
 
 
 def test_application_metadata(qtbot) -> None:
@@ -90,3 +91,14 @@ def test_geometry_settings_use_arabic_digits(qtbot) -> None:
 
     assert dialog.road_width.locale().zeroDigit() == "0"
     assert dialog.pole_offset.locale().zeroDigit() == "0"
+
+
+def test_schematic_spacing_dialog_returns_spacing_enum(qtbot) -> None:
+    from pole_route.geometry.schematic_layout import PoleSpacingMode
+
+    dialog = SchematicSettingsDialog()
+    qtbot.addWidget(dialog)
+
+    assert dialog.spacing_mode() is PoleSpacingMode.EQUAL
+    dialog.spacing.setCurrentIndex(1)
+    assert dialog.spacing_mode() is PoleSpacingMode.PROJECTED_STATION

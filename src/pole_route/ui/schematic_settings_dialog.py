@@ -45,7 +45,7 @@ class SchematicSettingsDialog(QDialog):
         self._update_explanation()
 
     def spacing_mode(self) -> PoleSpacingMode:
-        return self.spacing.currentData()
+        return PoleSpacingMode(self.spacing.currentData())
 
     def _update_explanation(self) -> None:
         if self.spacing_mode() is PoleSpacingMode.EQUAL:

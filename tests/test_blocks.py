@@ -9,7 +9,7 @@ from pole_route.domain.route import GeoPoint, Route
 from pole_route.geometry.road_geometry import build_road_geometry
 from pole_route.geometry.schematic_layout import create_schematic_layout
 from pole_route.ui.block_renderer import create_block_item
-from pole_route.ui.drawing_view import nearest_road_point
+from pole_route.ui.drawing_view import DrawingMode, DrawingView, nearest_road_point
 from pole_route.ui.editor_commands import AddItemCommand
 from pole_route.ui.schematic_renderer import render_schematic
 
@@ -80,3 +80,14 @@ def test_crossroad_extends_on_both_sides_of_anchor(qapp) -> None:
 
     assert child_bounds.left() < 100
     assert child_bounds.right() > 100
+
+
+def test_block_mode_starts_without_creating_zero_length_item(qtbot) -> None:
+    scene = QGraphicsScene()
+    view = DrawingView(scene, QUndoStack())
+    qtbot.addWidget(view)
+
+    view.set_block_mode(BlockType.SIDE_ROAD)
+
+    assert view.mode is DrawingMode.BLOCK
+    assert not scene.items()

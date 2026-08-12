@@ -4,6 +4,11 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ## [Unreleased]
 
+### Fixed
+
+- Schematic spacing confirmation returns a stable spacing mode with PySide6
+- Block placement ignores clicks and very short drags without repeated errors
+
 ### Added
 
 - Extensible Blocks menu with Side road, T-junction, Crossroad, Vehicle bridge, and Footbridge

@@ -88,7 +88,10 @@ class DrawingView(QGraphicsView):
         if self.mode is DrawingMode.LINE and event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             end = snap_line_endpoint(self._start, end)
         if self.mode is DrawingMode.BLOCK:
-            self.scene().removeItem(self._preview)
+            if QPointF(end - self._start).manhattanLength() < 3:
+                return
+            if self._preview.scene() is self.scene():
+                self.scene().removeItem(self._preview)
             self._preview = create_block_item(self.block_type, self._start, end, self.undo_stack)
             self.scene().addItem(self._preview)
         else:
@@ -103,7 +106,14 @@ class DrawingView(QGraphicsView):
             end = snap_line_endpoint(self._start, end)
         start = QPointF(self._start)
         if self.mode is DrawingMode.BLOCK:
-            self.scene().removeItem(self._preview)
+            if QPointF(end - start).manhattanLength() < 3:
+                if self._preview.scene() is self.scene():
+                    self.scene().removeItem(self._preview)
+                self._start = None
+                self._preview = None
+                return
+            if self._preview.scene() is self.scene():
+                self.scene().removeItem(self._preview)
             item = create_block_item(self.block_type, start, end, self.undo_stack)
             self.scene().addItem(item)
         else:
@@ -132,11 +142,6 @@ class DrawingView(QGraphicsView):
         return item
 
     def _update_shape(self, item: QGraphicsItem, start: QPointF, end: QPointF) -> None:
-        if self.mode is DrawingMode.BLOCK:
-            self.scene().removeItem(item)
-            self._preview = create_block_item(self.block_type, start, end, self.undo_stack)
-            self.scene().addItem(self._preview)
-            return
         if isinstance(item, EditableLineItem):
             item.setLine(start.x(), start.y(), end.x(), end.y())
         else:
