@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QSplitter,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QToolBar,
@@ -119,13 +120,13 @@ class MainWindow(QMainWindow):
 
         toolbar.addSeparator()
 
-        import_route_action = QAction("Import route", self)
-        import_route_action.triggered.connect(self._choose_route_file)
-        toolbar.addAction(import_route_action)
+        self.import_route_action = QAction("Import route", self)
+        self.import_route_action.triggered.connect(self._choose_route_file)
+        toolbar.addAction(self.import_route_action)
 
-        import_poles_action = QAction("Import poles", self)
-        import_poles_action.triggered.connect(self._choose_pole_file)
-        toolbar.addAction(import_poles_action)
+        self.import_poles_action = QAction("Import poles", self)
+        self.import_poles_action.triggered.connect(self._choose_pole_file)
+        toolbar.addAction(self.import_poles_action)
 
         self.build_geometry_action = QAction("Build geometry", self)
         self.build_geometry_action.setEnabled(False)
@@ -257,9 +258,88 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.workspace_note)
         layout.addWidget(self.splitter, 1)
 
-        central_widget = QWidget()
-        central_widget.setLayout(layout)
-        self.setCentralWidget(central_widget)
+        workspace_tab = QWidget()
+        workspace_tab.setLayout(layout)
+
+        self.workspace_tabs = QTabWidget()
+        self.workspace_tabs.setObjectName("workspaceTabs")
+        self.workspace_tabs.addTab(workspace_tab, "Workspace")
+        self.workspace_tabs.addTab(self._build_workflow_tab(), "Workflow")
+        self.setCentralWidget(self.workspace_tabs)
+
+    def _build_workflow_tab(self) -> QWidget:
+        """Create a plain-language checklist linked to the real commands."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        title = QLabel("PoleRoute Schematic workflow")
+        title.setStyleSheet("font-size: 20px; font-weight: 600; padding: 12px 4px;")
+        layout.addWidget(title)
+
+        introduction = QLabel(
+            "Work from top to bottom. You can save the project at any stage and return later."
+        )
+        introduction.setWordWrap(True)
+        introduction.setStyleSheet("color: #b8b8b8; padding-bottom: 10px;")
+        layout.addWidget(introduction)
+
+        steps = (
+            (
+                "1. Start or open a project",
+                "Create a new job, or open a .prs file to continue previous work.",
+                self.open_action,
+            ),
+            (
+                "2. Import routes",
+                "Choose KML/KMZ LineStrings, classify main routes and roads/sois, then set width, pole offset, and Reverse where needed.",
+                self.import_route_action,
+            ),
+            (
+                "3. Import poles",
+                "Choose Excel/CSV, review the column mapping, and confirm the pole data.",
+                self.import_poles_action,
+            ),
+            (
+                "4. Build geometry",
+                "Check road edges, selected offset lines, and the projected pole positions in the metric preview.",
+                self.build_geometry_action,
+            ),
+            (
+                "5. Generate schematic",
+                "Choose the pole-spacing method and create the editable, non-scale schematic.",
+                self.generate_schematic_action,
+            ),
+            (
+                "6. Review and edit",
+                "Open the full canvas, mark shared physical poles, move labels, add drawing objects, and save the .prs project.",
+                self.edit_canvas_action,
+            ),
+            (
+                "7. Preview and export",
+                "Review paper size, sheet division, title information, line styles, pole size, and compass before creating Excel.",
+                self.export_action,
+            ),
+        )
+        for heading, description, action in steps:
+            row = QWidget()
+            row_layout = QVBoxLayout(row)
+            row_layout.setContentsMargins(12, 8, 12, 8)
+            step_heading = QLabel(heading)
+            step_heading.setStyleSheet("font-size: 15px; font-weight: 600;")
+            step_description = QLabel(description)
+            step_description.setWordWrap(True)
+            button = QToolButton()
+            button.setDefaultAction(action)
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+            row_layout.addWidget(step_heading)
+            row_layout.addWidget(step_description)
+            row_layout.addWidget(button, 0, Qt.AlignmentFlag.AlignLeft)
+            row.setStyleSheet(
+                "QWidget { background: #262626; border-radius: 6px; }"
+                "QLabel { background: transparent; }"
+            )
+            layout.addWidget(row)
+        layout.addStretch(1)
+        return tab
 
     def _choose_route_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
