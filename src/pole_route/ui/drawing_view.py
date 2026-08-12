@@ -4,7 +4,7 @@ from enum import StrEnum
 from math import atan2, cos, hypot, pi, sin
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QMouseEvent, QPen, QUndoStack
+from PySide6.QtGui import QBrush, QColor, QMouseEvent, QPen, QUndoStack, QWheelEvent
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsView, QInputDialog
 
 from pole_route.domain.blocks import BlockType
@@ -64,6 +64,9 @@ class DrawingView(QGraphicsView):
         self.set_mode(DrawingMode.BLOCK)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.MiddleButton:
+            event.accept()
+            return
         if self.mode is DrawingMode.SELECT or event.button() != Qt.MouseButton.LeftButton:
             super().mousePressEvent(event)
             return
@@ -100,6 +103,9 @@ class DrawingView(QGraphicsView):
             self._update_shape(self._preview, self._start, end)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.MiddleButton:
+            event.accept()
+            return
         if self._start is None or self._preview is None:
             super().mouseReleaseEvent(event)
             return
@@ -129,6 +135,24 @@ class DrawingView(QGraphicsView):
             self.scene().removeItem(item)
             return
         self._finish_item(item)
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        """Use the wheel only for scrolling, or zooming while Ctrl is held."""
+        delta = event.angleDelta().y()
+        if not delta:
+            event.accept()
+            return
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            factor = 1.15 if delta > 0 else 1 / 1.15
+            self.scale(factor, factor)
+        else:
+            scrollbar = (
+                self.horizontalScrollBar()
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+                else self.verticalScrollBar()
+            )
+            scrollbar.setValue(scrollbar.value() - delta)
+        event.accept()
 
     def _new_shape(self, start: QPointF, end: QPointF) -> QGraphicsItem:
         pen = QPen(self.line_color, self.line_width)

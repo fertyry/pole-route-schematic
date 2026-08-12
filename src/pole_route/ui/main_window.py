@@ -1,8 +1,10 @@
 """Main application window."""
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QUndoStack
+from PySide6.QtGui import QAction, QActionGroup, QColor, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
+    QColorDialog,
+    QDockWidget,
     QFileDialog,
     QGraphicsScene,
     QHeaderView,
@@ -35,12 +37,16 @@ from pole_route.importers.pole_importer import (
 from pole_route.ui.column_mapping_dialog import ColumnMappingDialog
 from pole_route.ui.drawing_view import DrawingMode, DrawingView
 from pole_route.ui.editor_commands import (
+    ChangePenCommand,
+    ChangeZCommand,
     DeleteItemsCommand,
     MoveItemCommand,
     ResetLayoutCommand,
+    RotateItemsCommand,
     editable_scene_items,
 )
 from pole_route.ui.geometry_renderer import render_road_geometry
+from pole_route.ui.properties_panel import PropertiesPanel
 from pole_route.ui.route_import_dialog import RouteImportDialog, draw_classified_routes_preview
 from pole_route.ui.schematic_renderer import render_schematic
 from pole_route.ui.schematic_settings_dialog import SchematicSettingsDialog
@@ -63,6 +69,7 @@ class MainWindow(QMainWindow):
         self.resize(1100, 720)
         self._build_toolbar()
         self._build_workspace()
+        self._build_properties_panel()
         self.statusBar().showMessage("Ready - import an Excel or CSV pole-data file")
 
     def _build_toolbar(self) -> None:
@@ -216,6 +223,23 @@ class MainWindow(QMainWindow):
         central_widget.setLayout(layout)
         self.setCentralWidget(central_widget)
 
+    def _build_properties_panel(self) -> None:
+        self.properties_panel = PropertiesPanel(self)
+        self.properties_dock = QDockWidget("Properties", self)
+        self.properties_dock.setObjectName("propertiesDock")
+        self.properties_dock.setWidget(self.properties_panel)
+        self.properties_dock.setMinimumWidth(220)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.properties_dock)
+        self.properties_panel.colorRequested.connect(self._choose_selected_color)
+        self.properties_panel.lineWidthCommitted.connect(self._set_selected_line_width)
+        self.properties_panel.rotationCommitted.connect(self._rotate_selected)
+        self.properties_panel.bringForwardRequested.connect(
+            lambda: self._change_selected_order(1.0)
+        )
+        self.properties_panel.sendBackwardRequested.connect(
+            lambda: self._change_selected_order(-1.0)
+        )
+
     def _choose_route_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
@@ -343,6 +367,33 @@ class MainWindow(QMainWindow):
             item for item in self.route_scene.selectedItems() if item.data(0) == "pole"
         ]
         self.stack_poles_action.setEnabled(len(selected_poles) >= 2)
+        self.properties_panel.show_for_items(self._selected_top_level_items())
+
+    def _selected_top_level_items(self):
+        return [item for item in self.route_scene.selectedItems() if item.parentItem() is None]
+
+    def _choose_selected_color(self) -> None:
+        items = self._selected_top_level_items()
+        if not items:
+            return
+        color = QColorDialog.getColor(QColor("#f2c94c"), self, "Object color")
+        if color.isValid():
+            self.undo_stack.push(ChangePenCommand(items, color=color))
+
+    def _set_selected_line_width(self, width: float) -> None:
+        items = self._selected_top_level_items()
+        if items:
+            self.undo_stack.push(ChangePenCommand(items, width=width))
+
+    def _rotate_selected(self, degrees: float) -> None:
+        items = self._selected_top_level_items()
+        if items:
+            self.undo_stack.push(RotateItemsCommand(items, degrees))
+
+    def _change_selected_order(self, step: float) -> None:
+        items = self._selected_top_level_items()
+        if items:
+            self.undo_stack.push(ChangeZCommand(items, step))
 
     def _stack_selected_poles(self) -> None:
         poles = [item for item in self.route_scene.selectedItems() if item.data(0) == "pole"]

@@ -1,7 +1,7 @@
 """Undoable commands and move-aware schematic graphics items."""
 
 from PySide6.QtCore import QPointF
-from PySide6.QtGui import QUndoCommand, QUndoStack
+from PySide6.QtGui import QColor, QPen, QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsItem,
@@ -81,6 +81,90 @@ class ResetLayoutCommand(QUndoCommand):
     def undo(self) -> None:
         for item, current, _initial in self.positions:
             item.setPos(current)
+
+
+class RotateItemsCommand(QUndoCommand):
+    def __init__(self, items: list[QGraphicsItem], degrees: float) -> None:
+        super().__init__(f"Rotate {len(items)} object(s)")
+        self.changes = [(item, item.rotation(), degrees) for item in items]
+
+    def redo(self) -> None:
+        for item, _before, after in self.changes:
+            item.setTransformOriginPoint(item.boundingRect().center())
+            item.setRotation(after)
+
+    def undo(self) -> None:
+        for item, before, _after in self.changes:
+            item.setRotation(before)
+
+
+class ChangePenCommand(QUndoCommand):
+    def __init__(
+        self,
+        items: list[QGraphicsItem],
+        *,
+        color: QColor | None = None,
+        width: float | None = None,
+    ) -> None:
+        super().__init__(f"Change appearance of {len(items)} object(s)")
+        targets = [target for item in items for target in pen_items(item)]
+        self.pen_changes = []
+        for target in targets:
+            before = QPen(target.pen())
+            after = QPen(before)
+            if color is not None:
+                after.setColor(color)
+            if width is not None:
+                after.setWidthF(width)
+            self.pen_changes.append((target, before, after))
+        self.brush_changes = []
+        if color is not None:
+            for target in brush_items(items):
+                before = target.brush()
+                after = type(before)(before)
+                after.setColor(color)
+                self.brush_changes.append((target, before, after))
+
+    def redo(self) -> None:
+        for item, _before, after in self.pen_changes:
+            item.setPen(after)
+        for item, _before, after in self.brush_changes:
+            item.setBrush(after)
+
+    def undo(self) -> None:
+        for item, before, _after in self.pen_changes:
+            item.setPen(before)
+        for item, before, _after in self.brush_changes:
+            item.setBrush(before)
+
+
+class ChangeZCommand(QUndoCommand):
+    def __init__(self, items: list[QGraphicsItem], step: float) -> None:
+        super().__init__(f"Change order of {len(items)} object(s)")
+        self.changes = [(item, item.zValue(), item.zValue() + step) for item in items]
+
+    def redo(self) -> None:
+        for item, _before, after in self.changes:
+            item.setZValue(after)
+
+    def undo(self) -> None:
+        for item, before, _after in self.changes:
+            item.setZValue(before)
+
+
+def pen_items(item: QGraphicsItem) -> list[QGraphicsItem]:
+    """Return pen-bearing parts of an object without changing its scene structure."""
+    candidates = [item, *item.childItems()]
+    return [candidate for candidate in candidates if hasattr(candidate, "pen")]
+
+
+def brush_items(items: list[QGraphicsItem]) -> list[QGraphicsItem]:
+    candidates = [candidate for item in items for candidate in (item, *item.childItems())]
+    return [
+        candidate
+        for candidate in candidates
+        if hasattr(candidate, "brush") and candidate.brush().style().value != 0
+    ]
 
 
 class _MoveTrackingMixin:

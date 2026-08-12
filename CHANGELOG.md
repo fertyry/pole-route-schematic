@@ -4,6 +4,11 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ## [Unreleased]
 
+- Added predictable canvas navigation: wheel scrolls vertically, Shift+wheel scrolls
+  horizontally, Ctrl+wheel zooms, and the middle mouse button has no action.
+- Added multi-object rotation and a small Properties panel for color, line width,
+  rotation, and front/back ordering, all integrated with Undo.
+
 ### Fixed
 
 - Schematic spacing confirmation returns a stable spacing mode with PySide6
