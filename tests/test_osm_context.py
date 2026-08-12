@@ -2,6 +2,7 @@ import json
 
 from pole_route.domain.route import GeoPoint, Route
 from pole_route.importers.osm_context import fetch_osm_context, parse_osm_context
+from pole_route.ui.osm_context_worker import OSMContextWorker
 
 
 def _main_route() -> Route:
@@ -57,3 +58,16 @@ def test_fetch_osm_context_uses_injected_transport() -> None:
     assert context.places == ()
     assert 'way["highway"]' in captured[0]
     assert "(around:15," in captured[0]
+
+
+def test_osm_context_worker_reports_success_and_finishes(qtbot, monkeypatch) -> None:
+    import pole_route.ui.osm_context_worker as worker_module
+
+    expected = parse_osm_context({"elements": []}, _main_route(), 15.0)
+    monkeypatch.setattr(worker_module, "fetch_osm_context", lambda _route: expected)
+    worker = OSMContextWorker(_main_route())
+
+    with qtbot.waitSignal(worker.finished), qtbot.waitSignal(worker.succeeded) as succeeded:
+        worker.run()
+
+    assert succeeded.args == [expected]

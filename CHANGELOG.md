@@ -10,6 +10,8 @@
 - Add Select all and Clear all controls to the surroundings review.
 - Extend each accepted context road approximately 35 m from its nearest Main-route
   connection while retaining the 15 m OSM search corridor.
+- Fetch OpenStreetMap surroundings on a background thread with an indeterminate progress
+  dialog so the main application window remains responsive.
 
 All notable changes to PoleRoute Schematic will be documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project intends to use semantic versioning after its first release.
 

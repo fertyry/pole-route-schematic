@@ -4,7 +4,7 @@ from dataclasses import asdict, replace
 
 from pathlib import Path
 
-from PySide6.QtCore import QLocale, QSize, Qt
+from PySide6.QtCore import QLocale, QSize, Qt, QThread
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -38,7 +38,6 @@ from pole_route.exporters.excel_exporter import (
 from pole_route.geometry.road_geometry import RoadGeometryError, build_road_network_geometry
 from pole_route.geometry.schematic_layout import create_schematic_layout
 from pole_route.importers.kml_importer import RouteImportError, inspect_route_file
-from pole_route.importers.osm_context import OSMContextError, fetch_osm_context
 from pole_route.importers.pole_importer import (
     OPTIONAL_FIELDS,
     PoleImportError,
@@ -70,6 +69,7 @@ from pole_route.ui.geometry_renderer import render_road_geometry
 from pole_route.ui.project_info_dialog import ProjectInfoDialog
 from pole_route.ui.route_import_dialog import RouteImportDialog, draw_classified_routes_preview
 from pole_route.ui.osm_context_dialog import OSMContextDialog
+from pole_route.ui.osm_context_worker import OSMContextWorker
 from pole_route.ui.schematic_renderer import render_schematic
 from pole_route.ui.schematic_settings_dialog import SchematicSettingsDialog
 
@@ -91,6 +91,9 @@ class MainWindow(QMainWindow):
         self.project_dirty = False
         self._changing_project = False
         self.undo_stack = QUndoStack(self)
+        self._osm_thread: QThread | None = None
+        self._osm_worker: OSMContextWorker | None = None
+        self._osm_progress: QProgressDialog | None = None
         self.undo_stack.cleanChanged.connect(self._undo_clean_changed)
         self.setWindowTitle("PoleRoute Schematic - V2 Preview")
         self.resize(1100, 720)
@@ -444,18 +447,49 @@ class MainWindow(QMainWindow):
 
     def _fetch_surroundings(self) -> None:
         """Download and explicitly review OSM context around the main route."""
-        if self.current_route is None:
+        if self.current_route is None or self._osm_thread is not None:
             return
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        self.fetch_surroundings_action.setEnabled(False)
         self.statusBar().showMessage("Fetching nearby roads and places from OpenStreetMap...")
-        try:
-            context = fetch_osm_context(self.current_route)
-        except OSMContextError as error:
-            QMessageBox.warning(self, "OpenStreetMap fetch failed", str(error))
-            self.statusBar().showMessage("Could not fetch OpenStreetMap surroundings")
-            return
-        finally:
-            QApplication.restoreOverrideCursor()
+
+        progress = QProgressDialog(
+            "Fetching nearby roads, sois, and places from OpenStreetMap...",
+            "",
+            0,
+            0,
+            self,
+        )
+        progress.setObjectName("osmFetchProgress")
+        progress.setWindowTitle("Fetching surroundings")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setCancelButton(None)
+        progress.setMinimumDuration(0)
+        progress.setAutoClose(False)
+        progress.setAutoReset(False)
+        self._osm_progress = progress
+
+        thread = QThread(self)
+        worker = OSMContextWorker(self.current_route)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.succeeded.connect(self._surroundings_ready)
+        worker.failed.connect(self._surroundings_failed)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._surroundings_fetch_finished)
+        self._osm_thread = thread
+        self._osm_worker = worker
+        progress.show()
+        thread.start()
+
+    def _surroundings_failed(self, message: str) -> None:
+        self._close_osm_progress()
+        QMessageBox.warning(self, "OpenStreetMap fetch failed", message)
+        self.statusBar().showMessage("Could not fetch OpenStreetMap surroundings")
+
+    def _surroundings_ready(self, context) -> None:
+        self._close_osm_progress()
 
         if not context.roads and not context.places:
             QMessageBox.information(
@@ -490,6 +524,18 @@ class MainWindow(QMainWindow):
         )
         if discovered:
             self._mark_dirty()
+
+    def _surroundings_fetch_finished(self) -> None:
+        self._osm_thread = None
+        self._osm_worker = None
+        self._close_osm_progress()
+        self.fetch_surroundings_action.setEnabled(self.current_route is not None)
+
+    def _close_osm_progress(self) -> None:
+        if self._osm_progress is not None:
+            self._osm_progress.close()
+            self._osm_progress.deleteLater()
+            self._osm_progress = None
 
     def show_routes(self, routes: list[ClassifiedRoute]) -> None:
         """Display every confirmed LineString in one geographic preview."""
