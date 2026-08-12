@@ -42,17 +42,7 @@ class DrawingView(QGraphicsView):
         self.line_color = QColor("#f2c94c")
         self.line_width = 2.0
         self.block_type = BlockType.SIDE_ROAD
-        self._view_rotation = 0.0
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
-
-    def rotate_view_by(self, degrees: float) -> None:
-        """Rotate only the canvas view, preserving scene object coordinates."""
-        self.rotate(degrees)
-        self._view_rotation += degrees
-
-    def reset_view_rotation(self) -> None:
-        self.rotate(-self._view_rotation)
-        self._view_rotation = 0.0
 
     def set_mode(self, mode: DrawingMode) -> None:
         self._discard_preview()

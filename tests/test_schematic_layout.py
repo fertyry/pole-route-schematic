@@ -1,6 +1,6 @@
 import pytest
 from PySide6.QtGui import QUndoStack
-from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene
+from PySide6.QtWidgets import QGraphicsScene
 
 from pole_route.domain.pole import Pole, PoleSide
 from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
@@ -119,26 +119,6 @@ def test_network_schematic_contains_every_road() -> None:
     road_group = next(item for item in scene.items() if item.data(0) == "road")
     assert len(layout.road_boundaries) == 1
     assert len(road_group.childItems()) == 3
-
-
-def test_network_pole_is_rectangular_and_parallel_to_local_road() -> None:
-    routes = [
-        ClassifiedRoute(
-            Route("Diagonal", "route.kml", (GeoPoint(100, 13), GeoPoint(100.01, 13.01))),
-            RouteType.MAIN_ROUTE,
-            6.0,
-            2.0,
-        )
-    ]
-    poles = [Pole("P-1", 13.005, 100.005, side=PoleSide.RIGHT)]
-    layout = create_schematic_layout(build_road_network_geometry(routes, poles))
-    scene = QGraphicsScene()
-    render_schematic(scene, layout, QUndoStack())
-
-    marker = next(item for item in scene.items() if item.data(0) == "pole")
-    assert isinstance(marker, QGraphicsRectItem)
-    assert abs(layout.poles[0].road_angle_degrees) > 1.0
-    assert marker.rotation() == pytest.approx(layout.poles[0].road_angle_degrees)
 
 
 def test_same_pole_records_render_one_marker_and_keep_both_labels() -> None:

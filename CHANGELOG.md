@@ -4,10 +4,6 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ## [Unreleased]
 
-- Added Arabic-digit angle controls for rotating the complete canvas view or selected
-  objects, with Undo support for selected-object rotation.
-- Changed pole markers from circles to rectangular symbols aligned with the local road.
-
 - Added view-only canvas navigation: wheel scrolls vertically, Shift+wheel scrolls
   horizontally, Ctrl+wheel zooms, and the middle mouse button is ignored.
 

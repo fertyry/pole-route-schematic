@@ -1,6 +1,6 @@
 """Main application window."""
 
-from PySide6.QtCore import QLocale, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
-    QSpinBox,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -39,7 +38,6 @@ from pole_route.ui.editor_commands import (
     DeleteItemsCommand,
     MoveItemCommand,
     ResetLayoutCommand,
-    RotateItemsCommand,
     editable_scene_items,
 )
 from pole_route.ui.geometry_renderer import render_road_geometry
@@ -130,32 +128,6 @@ class MainWindow(QMainWindow):
         self.stack_poles_action.setEnabled(False)
         self.stack_poles_action.triggered.connect(self._stack_selected_poles)
         toolbar.addAction(self.stack_poles_action)
-
-        toolbar.addSeparator()
-        self.rotation_degrees = QSpinBox()
-        self.rotation_degrees.setLocale(QLocale.c())
-        self.rotation_degrees.setRange(-180, 180)
-        self.rotation_degrees.setValue(15)
-        self.rotation_degrees.setSuffix(" deg")
-        self.rotation_degrees.setToolTip("Rotation step in degrees")
-        toolbar.addWidget(self.rotation_degrees)
-
-        rotate_canvas_action = QAction("Rotate canvas", self)
-        rotate_canvas_action.triggered.connect(
-            lambda: self.canvas.rotate_view_by(self.rotation_degrees.value())
-        )
-        toolbar.addAction(rotate_canvas_action)
-
-        reset_canvas_rotation_action = QAction("Reset canvas angle", self)
-        reset_canvas_rotation_action.triggered.connect(
-            lambda: self.canvas.reset_view_rotation()
-        )
-        toolbar.addAction(reset_canvas_rotation_action)
-
-        self.rotate_selected_action = QAction("Rotate selected", self)
-        self.rotate_selected_action.setEnabled(False)
-        self.rotate_selected_action.triggered.connect(self._rotate_selected)
-        toolbar.addAction(self.rotate_selected_action)
 
         toolbar.addSeparator()
         self.drawing_actions: dict[DrawingMode, QAction] = {}
@@ -367,22 +339,10 @@ class MainWindow(QMainWindow):
 
     def _update_editor_actions(self) -> None:
         self.delete_action.setEnabled(bool(self.route_scene.selectedItems()))
-        self.rotate_selected_action.setEnabled(bool(self._selected_top_level_items()))
         selected_poles = [
             item for item in self.route_scene.selectedItems() if item.data(0) == "pole"
         ]
         self.stack_poles_action.setEnabled(len(selected_poles) >= 2)
-
-    def _selected_top_level_items(self):
-        return [item for item in self.route_scene.selectedItems() if item.parentItem() is None]
-
-    def _rotate_selected(self) -> None:
-        items = self._selected_top_level_items()
-        if items:
-            self.undo_stack.push(RotateItemsCommand(items, self.rotation_degrees.value()))
-            self.statusBar().showMessage(
-                f"Rotated {len(items)} selected object(s) - Undo is available"
-            )
 
     def _stack_selected_poles(self) -> None:
         poles = [item for item in self.route_scene.selectedItems() if item.data(0) == "pole"]

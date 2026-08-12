@@ -127,24 +127,3 @@ def test_wheel_scrolls_without_transforming_or_removing_items(qtbot) -> None:
     assert view.verticalScrollBar().value() < before_scroll
     assert view.transform().m11() == before_scale
     assert item.scene() is scene
-
-
-def test_canvas_rotation_preserves_items_and_can_be_reset(qtbot) -> None:
-    scene = QGraphicsScene(0, 0, 1000, 600)
-    stack = QUndoStack()
-    item = EditableEllipseItem(-5, -5, 10, 10, undo_stack=stack)
-    item.setPos(300, 250)
-    scene.addItem(item)
-    view = DrawingView(scene, stack)
-    qtbot.addWidget(view)
-    before_position = QPointF(item.pos())
-    before_transform = view.transform()
-
-    view.rotate_view_by(30)
-    assert item.pos() == before_position
-    assert item.scene() is scene
-    assert view.transform() != before_transform
-
-    view.reset_view_rotation()
-    assert item.pos() == before_position
-    assert view.transform() == before_transform
