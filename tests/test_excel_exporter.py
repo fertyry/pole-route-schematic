@@ -138,6 +138,71 @@ def test_page_boundaries_are_real_repeated_poles(qapp) -> None:
     assert {item.text for item in pages[1] if item.role == "pole_sequence"} == {"3", "4", "5"}
 
 
+def test_export_preserves_generated_relative_pole_spacing(qapp) -> None:
+    objects = [
+        ExcelObject("line", ((0, 0), (500, 0)), role="main_centerline", group_id="main")
+    ]
+    for index, x in enumerate((20, 80, 210, 350, 480), start=1):
+        group = f"P-{index}"
+        objects.append(
+            ExcelObject(
+                "rectangle", ((x - 3, -3), (x + 3, 3)), role="pole", group_id=group
+            )
+        )
+
+    page = prepare_excel_pages(objects, ExcelExportSettings(page_count=2))[0]
+    xs = {
+        item.group_id: sum(x for x, _ in item.points) / len(item.points)
+        for item in page
+        if item.role == "pole"
+    }
+
+    # One affine transform preserves the 60:130 source gap ratio.
+    assert (xs["P-2"] - xs["P-1"]) / (xs["P-3"] - xs["P-2"]) == pytest.approx(60 / 130)
+
+
+def test_page_lines_are_clipped_at_match_poles(qapp) -> None:
+    objects = [
+        ExcelObject("line", ((-200, 0), (700, 0)), role="main_centerline", group_id="main")
+    ]
+    for index, x in enumerate((0, 100, 200, 300, 400), start=1):
+        objects.append(
+            ExcelObject("rectangle", ((x - 3, -3), (x + 3, 3)), role="pole", group_id=f"P-{index}")
+        )
+
+    pages = prepare_excel_pages(objects, ExcelExportSettings(page_count=2))
+
+    for page in pages:
+        pole_xs = [x for item in page if item.role == "pole" for x, _ in item.points]
+        line_xs = [x for item in page if item.role == "main_centerline" for x, _ in item.points]
+        assert min(line_xs) >= min(pole_xs) - 5
+        assert max(line_xs) <= max(pole_xs) + 5
+
+
+def test_all_sheets_use_one_affine_display_scale(qapp) -> None:
+    objects = [
+        ExcelObject("line", ((0, 0), (500, 0)), role="main_centerline", group_id="main")
+    ]
+    for index, x in enumerate((0, 100, 200, 300, 400), start=1):
+        objects.append(
+            ExcelObject("rectangle", ((x - 3, -3), (x + 3, 3)), role="pole", group_id=f"P-{index}")
+        )
+
+    first, second = prepare_excel_pages(objects, ExcelExportSettings(page_count=2))
+
+    def gap(page, left_group, right_group):
+        centers = {
+            item.group_id: sum(x for x, _ in item.points) / len(item.points)
+            for item in page
+            if item.role == "pole"
+        }
+        return centers[right_group] - centers[left_group]
+
+    assert gap(first, "P-1", "P-2") == pytest.approx(
+        gap(second, "P-3", "P-4")
+    )
+
+
 def test_tagged_main_route_is_split_start_to_end_and_rotated_horizontal(qapp) -> None:
     objects = [
         ExcelObject(

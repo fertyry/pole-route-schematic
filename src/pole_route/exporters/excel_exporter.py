@@ -334,10 +334,9 @@ def prepare_excel_pages(
     if len(ordered_poles) < 2:
         return [prepare_excel_objects(content, settings)]
     # Internal boundaries are real poles. The same match pole appears on both sheets.
-    boundary_indices = [
-        round(index * (len(ordered_poles) - 1) / page_count)
-        for index in range(page_count + 1)
-    ]
+    boundary_indices = _pole_boundary_indices(
+        ordered_poles, pole_stations, content, axis, page_count
+    )
     sequence_by_group = {
         group_id: index for index, group_id in enumerate(ordered_poles, start=1)
     }
@@ -346,7 +345,7 @@ def prepare_excel_pages(
         for item in content
         if item.role == "label" and item.group_id
     }
-    pages = []
+    page_specs = []
     for page_index in range(page_count):
         first_index = boundary_indices[page_index]
         last_index = boundary_indices[page_index + 1]
@@ -379,18 +378,70 @@ def prepare_excel_pages(
             (sequence_by_group[group_id], group_id, label_by_group.get(group_id, group_id))
             for group_id in ordered_poles[first_index : last_index + 1]
         ]
-        rotated = _spread_objects_by_poles(rotated, [record[1] for record in records])
+        rotated_pole_centers = [
+            _object_center(item)[0]
+            for item in rotated
+            if item.role == "pole" and item.group_id in page_groups
+        ]
+        clip_left, clip_right = min(rotated_pole_centers), max(rotated_pole_centers)
+        clipped = _clip_objects_to_x(rotated, clip_left, clip_right)
+        page_specs.append((clipped, -angle, records))
+    shared_scale = _shared_page_scale(
+        [spec[0] for spec in page_specs], settings
+    )
+    pages = []
+    for page_index, (clipped, rotation, records) in enumerate(page_specs):
         pages.append(
             _prepare_page(
-                rotated,
+                clipped,
                 settings,
                 page_index + 1,
                 page_count,
-                content_rotation=-angle,
+                content_rotation=rotation,
                 pole_records=records,
+                scale_override=shared_scale,
             )
         )
     return pages
+
+
+def _pole_boundary_indices(
+    ordered_poles: list[str],
+    pole_stations: dict[str, float],
+    content: list[ExcelObject],
+    axis: LineString,
+    page_count: int,
+) -> list[int]:
+    """Choose real pole boundaries while avoiding side-road junctions."""
+    last = len(ordered_poles) - 1
+    junctions = [
+        axis.project(Point(_object_center(item)))
+        for item in content
+        if item.role == "centerline" and item.kind == "line"
+    ]
+    result = [0]
+    for page in range(1, page_count):
+        ideal = round(page * last / page_count)
+        lower = result[-1] + 1
+        upper = last - (page_count - page)
+        candidates = range(max(lower, ideal - 4), min(upper, ideal + 4) + 1)
+
+        def score(index: int) -> tuple[float, float]:
+            station = pole_stations[ordered_poles[index]]
+            nearest_junction = min((abs(station - value) for value in junctions), default=float("inf"))
+            previous_gap = abs(
+                station - pole_stations[ordered_poles[max(0, index - 1)]]
+            )
+            next_gap = abs(
+                pole_stations[ordered_poles[min(last, index + 1)]] - station
+            )
+            danger_distance = max((previous_gap + next_gap) * 0.75, 18.0)
+            junction_penalty = max(0.0, danger_distance - nearest_junction) * 1000.0
+            return (junction_penalty + abs(index - ideal), abs(index - ideal))
+
+        result.append(min(candidates, key=score))
+    result.append(last)
+    return result
 
 
 def _main_route_axis(objects: list[ExcelObject]) -> LineString | None:
@@ -446,67 +497,70 @@ def _rotate_object(
     )
 
 
-def _spread_objects_by_poles(
-    objects: list[ExcelObject], ordered_groups: list[str]
+def _clip_objects_to_x(
+    objects: list[ExcelObject], left: float, right: float
 ) -> list[ExcelObject]:
-    """Redistribute print-only X positions so adjacent poles remain readable."""
-    centers = {
-        item.group_id: _object_center(item)[0]
-        for item in objects
-        if item.role == "pole" and item.group_id
-    }
-    anchors = [(centers[group], group) for group in ordered_groups if group in centers]
-    if len(anchors) < 2:
-        return objects
-    source_x = []
-    for x, _group in anchors:
-        if not source_x or abs(x - source_x[-1]) > 1e-6:
-            source_x.append(x)
-    if len(source_x) < 2:
-        return objects
-    left, right = source_x[0], source_x[-1]
-    if right - left <= 1e-9:
-        return objects
-    target_x = [left + (right - left) * index / (len(source_x) - 1) for index in range(len(source_x))]
-
-    def remap(x: float) -> float:
-        if x <= source_x[0]:
-            return target_x[0] + (x - source_x[0])
-        if x >= source_x[-1]:
-            return target_x[-1] + (x - source_x[-1])
-        for index in range(len(source_x) - 1):
-            a, b = source_x[index], source_x[index + 1]
-            if a <= x <= b:
-                if b - a <= 1e-9:
-                    return target_x[index]
-                ratio = (x - a) / (b - a)
-                return target_x[index] + ratio * (target_x[index + 1] - target_x[index])
-        return x
-
-    spread = []
+    """Clip page geometry at the two match-pole positions."""
+    clipped: list[ExcelObject] = []
     for item in objects:
-        if item.kind == "line":
-            points = tuple((remap(x), y) for x, y in item.points)
-        else:
+        if item.kind != "line":
             center_x, _center_y = _object_center(item)
-            shift = remap(center_x) - center_x
-            points = tuple((x + shift, y) for x, y in item.points)
-        spread.append(
+            if left - 1e-6 <= center_x <= right + 1e-6:
+                clipped.append(item)
+            continue
+        (x1, y1), (x2, y2) = item.points
+        if max(x1, x2) < left or min(x1, x2) > right:
+            continue
+        if abs(x2 - x1) < 1e-12:
+            clipped.append(item)
+            continue
+        start_t = max(0.0, min(1.0, (left - x1) / (x2 - x1)))
+        end_t = max(0.0, min(1.0, (right - x1) / (x2 - x1)))
+        low_t, high_t = sorted((start_t, end_t))
+        # When both endpoints are already inside, keep the original segment.
+        if left <= x1 <= right and left <= x2 <= right:
+            low_t, high_t = 0.0, 1.0
+        points = (
+            (x1 + (x2 - x1) * low_t, y1 + (y2 - y1) * low_t),
+            (x1 + (x2 - x1) * high_t, y1 + (y2 - y1) * high_t),
+        )
+        clipped.append(
             ExcelObject(
-                item.kind,
-                points,
-                item.text,
-                item.line_color,
-                item.fill_color,
-                item.line_width,
-                item.rotation,
-                item.font_size,
-                item.line_style,
-                item.role,
-                item.group_id,
+                item.kind, points, item.text, item.line_color, item.fill_color,
+                item.line_width, item.rotation, item.font_size, item.line_style,
+                item.role, item.group_id,
             )
         )
-    return spread
+    return clipped
+
+
+def _paper_map_size(settings: ExcelExportSettings) -> tuple[float, float]:
+    paper_w_mm, paper_h_mm = (
+        (297.0, 210.0) if settings.paper_size == "A4" else (420.0, 297.0)
+    )
+    if settings.orientation == "portrait":
+        paper_w_mm, paper_h_mm = paper_h_mm, paper_w_mm
+    paper_w, paper_h = paper_w_mm * 72 / 25.4, paper_h_mm * 72 / 25.4
+    margin, header = 28.0, 54.0
+    return paper_w - 2 * margin, paper_h * 0.60 - (margin + header)
+
+
+def _shared_page_scale(
+    pages: list[list[ExcelObject]], settings: ExcelExportSettings
+) -> float:
+    """Use one affine display scale for the complete sheet set."""
+    map_width, map_height = _paper_map_size(settings)
+    candidates = []
+    for objects in pages:
+        coordinates = [point for item in objects for point in item.points]
+        if not coordinates:
+            continue
+        span_x = max(x for x, _ in coordinates) - min(x for x, _ in coordinates)
+        span_y = max(y for _, y in coordinates) - min(y for _, y in coordinates)
+        candidates.append(
+            min(map_width / max(span_x, 1.0), map_height / max(span_y, 1.0))
+        )
+    return min(candidates, default=1.0)
 
 
 def _prepare_pages_by_x(
@@ -547,6 +601,7 @@ def _prepare_page(
     page_count: int,
     content_rotation: float = 0.0,
     pole_records: list[tuple[int, str, str]] | None = None,
+    scale_override: float | None = None,
 ) -> list[ExcelObject]:
     coordinates = [point for item in objects for point in item.points]
     if not coordinates:
@@ -564,7 +619,9 @@ def _prepare_page(
     map_top = margin + header
     map_bottom = paper_h * 0.60
     span_x, span_y = max(max_x - min_x, 1.0), max(max_y - min_y, 1.0)
-    scale = min((map_right - map_left) / span_x, (map_bottom - map_top) / span_y)
+    scale = scale_override or min(
+        (map_right - map_left) / span_x, (map_bottom - map_top) / span_y
+    )
     fitted_w, fitted_h = span_x * scale, span_y * scale
     origin_x = map_left + ((map_right - map_left) - fitted_w) / 2
     origin_y = map_top + ((map_bottom - map_top) - fitted_h) / 2
