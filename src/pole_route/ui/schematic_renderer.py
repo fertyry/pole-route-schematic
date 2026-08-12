@@ -67,6 +67,25 @@ def render_schematic(scene: QGraphicsScene, layout: SchematicLayout, undo_stack:
             road_group.addToGroup(road_line)
     scene.addItem(road_group)
 
+    rendered_road_names: set[str] = set()
+    for road in layout.roads:
+        if (
+            not road.name
+            or road.label_position is None
+            or road.name in rendered_road_names
+        ):
+            continue
+        rendered_road_names.add(road.name)
+        road_name = EditableTextItem(road.name, undo_stack)
+        road_name.setData(0, "road_name")
+        road_name.setData(1, road.name)
+        road_name.setBrush(QBrush(QColor("#d0d0d0")))
+        road_name.setFlags(EDITABLE_FLAGS)
+        road_name.setRotation(0.0)
+        road_name.setPos(road.label_position[0] + 6, road.label_position[1] - 18)
+        road_name.setData(2, road_name.pos())
+        scene.addItem(road_name)
+
     rendered_markers: set[str] = set()
     for pole in layout.poles:
         color = QColor("#27ae60" if pole.side is PoleSide.LEFT else "#eb5757")

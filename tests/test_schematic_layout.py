@@ -1,12 +1,14 @@
 import pytest
 from PySide6.QtGui import QUndoStack
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene
+from shapely.geometry import LineString
 
 from pole_route.domain.pole import Pole, PoleSide
 from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
 from pole_route.geometry.road_geometry import build_road_geometry, build_road_network_geometry
 from pole_route.geometry.schematic_layout import (
     DEFAULT_POLE_SPACING,
+    MIN_CONTEXT_ROAD_DISPLAY_LENGTH,
     PoleSpacingMode,
     create_schematic_layout,
 )
@@ -118,6 +120,13 @@ def test_network_schematic_contains_every_road() -> None:
     render_schematic(scene, layout, QUndoStack())
 
     assert len(layout.roads) == 2
+    context_road = layout.roads[1]
+    assert LineString(context_road.centerline).length >= MIN_CONTEXT_ROAD_DISPLAY_LENGTH - 1e-6
+    assert context_road.name == "Soi"
+    road_names = [item for item in scene.items() if item.data(0) == "road_name"]
+    assert len(road_names) == 1
+    assert road_names[0].text() == "Soi"
+    assert road_names[0].rotation() == 0.0
     road_group = next(item for item in scene.items() if item.data(0) == "road")
     assert layout.road_boundaries
     assert len(road_group.childItems()) == len(layout.road_boundaries) + len(layout.roads)

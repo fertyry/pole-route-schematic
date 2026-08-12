@@ -290,7 +290,8 @@ def prepare_excel_objects(
         item for item in objects
         if not (item.role in {"centerline", "main_centerline"} and settings.centerline_mode == "hide")
     ]
-    coordinates = [point for item in objects for point in item.points]
+    scale_objects = [item for item in objects if item.role != "road_name"]
+    coordinates = [point for item in scale_objects for point in item.points]
     if not coordinates:
         return objects
     min_x = min(point[0] for point in coordinates)
@@ -578,7 +579,9 @@ def _shared_page_scale(
     map_width, map_height = _paper_map_size(settings)
     candidates = []
     for objects in pages:
-        coordinates = [point for item in objects for point in item.points]
+        coordinates = [
+            point for item in objects if item.role != "road_name" for point in item.points
+        ]
         if not coordinates:
             continue
         span_x = max(x for x, _ in coordinates) - min(x for x, _ in coordinates)
@@ -629,7 +632,8 @@ def _prepare_page(
     pole_records: list[tuple[int, str, str]] | None = None,
     scale_override: float | None = None,
 ) -> list[ExcelObject]:
-    coordinates = [point for item in objects for point in item.points]
+    scale_objects = [item for item in objects if item.role != "road_name"]
+    coordinates = [point for item in scale_objects for point in item.points]
     if not coordinates:
         return []
     min_x = min(x for x, _ in coordinates)

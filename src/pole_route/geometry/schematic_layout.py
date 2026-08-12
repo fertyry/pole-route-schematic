@@ -16,6 +16,7 @@ POLE_DISTANCE_FROM_EDGE = 72.0
 HORIZONTAL_MARGIN = 120.0
 VERTICAL_CENTER = 250.0
 PROJECTED_LAYOUT_LENGTH = 1200.0
+MIN_CONTEXT_ROAD_DISPLAY_LENGTH = 110.0
 
 
 class PoleSpacingMode(StrEnum):
@@ -176,20 +177,39 @@ def _create_network_layout(
     def line_points(line) -> tuple[tuple[float, float], ...]:
         return tuple(point_xy(x, y) for x, y in line.coords)
 
-    roads = tuple(
-        SchematicRoad(
-            line_points(road.centerline),
-            line_points(road.left_edge),
-            line_points(road.right_edge),
-            road.is_main_route,
+    display_lines = []
+    display_widths = []
+    roads_list = []
+    for road in geometry.roads:
+        centerline = LineString(line_points(road.centerline))
+        if not road.is_main_route:
+            centerline = _minimum_display_length(centerline, MIN_CONTEXT_ROAD_DISPLAY_LENGTH)
+        display_width = max(road.road_width_metres * scale, 3.0)
+        half_width = display_width / 2.0
+        left_edge = centerline.offset_curve(half_width, join_style="round")
+        right_edge = centerline.offset_curve(-half_width, join_style="round")
+        visible_name = road.route_name if not road.route_name.startswith("Unnamed") else ""
+        roads_list.append(
+            SchematicRoad(
+                tuple(centerline.coords),
+                tuple(left_edge.coords),
+                tuple(right_edge.coords),
+                road.is_main_route,
+                visible_name,
+                tuple(centerline.coords[-1]) if visible_name and not road.is_main_route else None,
+            )
         )
-        for road in geometry.roads
-    )
+        display_lines.append(centerline)
+        display_widths.append(display_width)
+    roads = tuple(roads_list)
     road_surface = unary_union([
-        road.centerline.buffer(road.road_width_metres / 2.0, cap_style="flat", join_style="round")
-        for road in geometry.roads
+        line.buffer(width / 2.0, cap_style="flat", join_style="round")
+        for line, width in zip(display_lines, display_widths, strict=True)
     ])
-    boundaries = tuple(line_points(line) for line in _open_road_boundaries(road_surface, geometry))
+    boundaries = tuple(
+        tuple(line.coords)
+        for line in _open_display_road_boundaries(road_surface, display_lines, display_widths)
+    )
 
     raw_poles = [
         SchematicPole(
@@ -254,6 +274,40 @@ def _open_road_boundaries(road_surface, geometry: RoadNetworkGeometry):
             )
         )
     tolerance = max(min(road.road_width_metres for road in geometry.roads) * 0.02, 0.01)
+    opened = road_surface.boundary.difference(unary_union(cap_lines).buffer(tolerance))
+    return list(opened.geoms) if hasattr(opened, "geoms") else [opened]
+
+
+def _minimum_display_length(line: LineString, minimum_length: float) -> LineString:
+    """Lengthen a short context road only in the non-scale drawing."""
+    if line.length >= minimum_length or line.length <= 1e-9:
+        return line
+    coordinates = list(line.coords)
+    start_x, start_y = coordinates[0]
+    end_x, end_y = coordinates[-1]
+    dx, dy = end_x - start_x, end_y - start_y
+    chord = max((dx * dx + dy * dy) ** 0.5, 1e-9)
+    extension = (minimum_length - line.length) / 2.0
+    unit_x, unit_y = dx / chord, dy / chord
+    coordinates[0] = (start_x - unit_x * extension, start_y - unit_y * extension)
+    coordinates[-1] = (end_x + unit_x * extension, end_y + unit_y * extension)
+    return LineString(coordinates)
+
+
+def _open_display_road_boundaries(road_surface, lines, widths):
+    """Remove exposed end caps after context roads are lengthened for display."""
+    cap_lines = []
+    for line, width in zip(lines, widths, strict=True):
+        half_width = width / 2.0
+        left = line.offset_curve(half_width, join_style="round")
+        right = line.offset_curve(-half_width, join_style="round")
+        if left.is_empty or right.is_empty:
+            continue
+        cap_lines.extend((
+            LineString((left.coords[0], right.coords[0])),
+            LineString((left.coords[-1], right.coords[-1])),
+        ))
+    tolerance = max(min(widths) * 0.02, 0.01)
     opened = road_surface.boundary.difference(unary_union(cap_lines).buffer(tolerance))
     return list(opened.geoms) if hasattr(opened, "geoms") else [opened]
 

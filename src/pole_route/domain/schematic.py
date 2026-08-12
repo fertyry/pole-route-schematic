@@ -23,6 +23,8 @@ class SchematicRoad:
     left_edge: tuple[tuple[float, float], ...]
     right_edge: tuple[tuple[float, float], ...]
     is_main_route: bool = False
+    name: str = ""
+    label_position: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True, slots=True)
