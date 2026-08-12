@@ -6,6 +6,7 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ### Added
 
+- Decimal-degree and DMS pole-coordinate parsing with degree symbols and N/S/E/W
 - Metric UTM road geometry preview with road edges and left/right pole offset lines
 - Nearest-point projection of known-side poles onto their designated pole line
 - Confirmed Road Width and Pole Offset settings before every geometry build
@@ -18,3 +19,7 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 - Sprint 0 repository and package structure
 - PySide6 Windows application shell with a placeholder schematic canvas
 - Initial project documentation, dependency declarations, and tests
+
+### Changed
+
+- Geometry settings use Arabic digits regardless of the Windows display locale

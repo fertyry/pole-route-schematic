@@ -20,6 +20,13 @@ REQUIRED_FIELDS = ("number", "latitude", "longitude")
 OPTIONAL_FIELDS = ("detail", "side")
 SUPPORTED_SUFFIXES = {".csv", ".xlsx"}
 HEADER_SCAN_LIMIT = 20
+THAI_DIGITS = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
+COORDINATE_PATTERN = re.compile(
+    r"^\s*([+-]?\d+(?:\.\d+)?)\s*(?:[°º]|deg)?\s*"
+    r"(?:(\d+(?:\.\d+)?)\s*['′])?\s*"
+    r"(?:(\d+(?:\.\d+)?)\s*[\"″])?\s*([NSEW])?\s*$",
+    re.IGNORECASE,
+)
 
 HEADER_ALIASES = {
     "number": {
@@ -179,11 +186,41 @@ def _row_to_pole(
     try:
         return Pole(
             number=str(value("number") or "").strip(),
-            latitude=float(value("latitude")),
-            longitude=float(value("longitude")),
+            latitude=_parse_coordinate(value("latitude"), "Latitude"),
+            longitude=_parse_coordinate(value("longitude"), "Longitude"),
             detail=str(value("detail") or "").strip(),
             side=PoleSide.from_text(value("side")),
         )
     except (TypeError, ValueError) as error:
         raise PoleImportError(f"Row {row_number}: {error}") from error
 
+
+def _parse_coordinate(value: object, label: str) -> float:
+    """Parse numeric or text decimal-degree/DMS coordinates."""
+    if isinstance(value, bool) or value is None:
+        raise ValueError(f"{label} is required")
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    text = str(value).strip().translate(THAI_DIGITS)
+    match = COORDINATE_PATTERN.fullmatch(text)
+    if not match:
+        raise ValueError(
+            f"{label} must be decimal degrees, for example 13.797493° or 13.797493 N"
+        )
+    degrees_text, minutes_text, seconds_text, direction_text = match.groups()
+    degrees = float(degrees_text)
+    minutes = float(minutes_text or 0)
+    seconds = float(seconds_text or 0)
+    if minutes >= 60 or seconds >= 60:
+        raise ValueError(f"{label} minutes and seconds must be less than 60")
+
+    coordinate = abs(degrees) + minutes / 60 + seconds / 3600
+    if degrees < 0:
+        coordinate = -coordinate
+    direction = (direction_text or "").upper()
+    if direction in {"S", "W"}:
+        coordinate = -abs(coordinate)
+    elif direction in {"N", "E"}:
+        coordinate = abs(coordinate)
+    return coordinate

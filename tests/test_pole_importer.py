@@ -94,6 +94,34 @@ def test_imports_with_explicit_mapping_and_optional_fields_omitted(tmp_path) -> 
 
 
 @pytest.mark.parametrize(
+    ("latitude", "longitude", "expected_latitude", "expected_longitude"),
+    [
+        ("13.797493°", "100.7002°", 13.797493, 100.7002),
+        ("13.797493 N", "100.7002 E", 13.797493, 100.7002),
+        ("13° 47' 50.9748\" N", "100° 42' 0.72\" E", 13.797493, 100.7002),
+        ("๑๓.๗๙๗๔๙๓°", "๑๐๐.๗๐๐๒°", 13.797493, 100.7002),
+    ],
+)
+def test_imports_coordinate_text_formats(
+    tmp_path,
+    latitude,
+    longitude,
+    expected_latitude,
+    expected_longitude,
+) -> None:
+    source = tmp_path / "coordinate-text.csv"
+    source.write_text(
+        ",".join(HEADERS) + f"\nP-1,{latitude},{longitude},,L\n",
+        encoding="utf-8",
+    )
+
+    pole = import_poles(source)[0]
+
+    assert pole.latitude == pytest.approx(expected_latitude)
+    assert pole.longitude == pytest.approx(expected_longitude)
+
+
+@pytest.mark.parametrize(
     ("latitude", "longitude", "message"),
     [(91, 100, "Latitude"), (13, 181, "Longitude")],
 )

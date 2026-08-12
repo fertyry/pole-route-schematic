@@ -3,6 +3,7 @@ from PySide6.QtWidgets import QDialogButtonBox, QGraphicsView
 from pole_route.importers.pole_importer import PoleTable
 from pole_route.main import create_application
 from pole_route.ui.column_mapping_dialog import ColumnMappingDialog
+from pole_route.ui.geometry_settings_dialog import GeometrySettingsDialog
 from pole_route.ui.main_window import MainWindow
 from pole_route.ui.route_import_dialog import RouteImportDialog
 
@@ -81,3 +82,11 @@ def test_route_dialog_uses_explicit_confirmation(qtbot) -> None:
 
     assert dialog.selected_route() is route
     assert buttons.button(QDialogButtonBox.StandardButton.Ok).text() == "Confirm route"
+
+
+def test_geometry_settings_use_arabic_digits(qtbot) -> None:
+    dialog = GeometrySettingsDialog()
+    qtbot.addWidget(dialog)
+
+    assert dialog.road_width.locale().zeroDigit() == "0"
+    assert dialog.pole_offset.locale().zeroDigit() == "0"
