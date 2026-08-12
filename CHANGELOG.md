@@ -6,6 +6,8 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ### Added
 
+- Uniformly spaced non-scale schematic generation ordered by source route station
+- Selectable and movable road, pole, and label graphics objects
 - Decimal-degree and DMS pole-coordinate parsing with degree symbols and N/S/E/W
 - Metric UTM road geometry preview with road edges and left/right pole offset lines
 - Nearest-point projection of known-side poles onto their designated pole line

@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 from pole_route.domain.pole import Pole
 from pole_route.domain.route import Route
 from pole_route.geometry.road_geometry import RoadGeometryError, build_road_geometry
+from pole_route.geometry.schematic_layout import create_schematic_layout
 from pole_route.importers.kml_importer import RouteImportError, inspect_route_file
 from pole_route.importers.pole_importer import (
     OPTIONAL_FIELDS,
@@ -33,6 +34,7 @@ from pole_route.ui.column_mapping_dialog import ColumnMappingDialog
 from pole_route.ui.geometry_renderer import render_road_geometry
 from pole_route.ui.geometry_settings_dialog import GeometrySettingsDialog
 from pole_route.ui.route_import_dialog import RouteImportDialog, draw_route_preview
+from pole_route.ui.schematic_renderer import render_schematic
 
 
 class MainWindow(QMainWindow):
@@ -42,7 +44,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.current_route: Route | None = None
         self.current_poles: list[Pole] = []
-        self.setWindowTitle("PoleRoute Schematic - Sprint 2")
+        self.current_geometry = None
+        self.setWindowTitle("PoleRoute Schematic - Sprint 3")
         self.resize(1100, 720)
         self._build_toolbar()
         self._build_workspace()
@@ -70,6 +73,11 @@ class MainWindow(QMainWindow):
         self.build_geometry_action.setEnabled(False)
         self.build_geometry_action.triggered.connect(self._build_geometry)
         toolbar.addAction(self.build_geometry_action)
+
+        self.generate_schematic_action = QAction("Generate schematic", self)
+        self.generate_schematic_action.setEnabled(False)
+        self.generate_schematic_action.triggered.connect(self._generate_schematic)
+        toolbar.addAction(self.generate_schematic_action)
 
         export_action = QAction("Export", self)
         export_action.setEnabled(False)
@@ -169,6 +177,8 @@ class MainWindow(QMainWindow):
             return
 
         render_road_geometry(self.route_scene, geometry)
+        self.current_geometry = geometry
+        self.generate_schematic_action.setEnabled(bool(geometry.projected_poles))
         self.workspace_note.setText(
             "Metric preview: blue centerline, grey road edges, yellow pole lines, "
             "green/red projected poles. This is not the final schematic."
@@ -181,10 +191,23 @@ class MainWindow(QMainWindow):
             message += f", {len(geometry.unplaced_poles)} without Side not placed"
         self.statusBar().showMessage(message)
 
+    def _generate_schematic(self) -> None:
+        layout = create_schematic_layout(self.current_geometry)
+        render_schematic(self.route_scene, layout)
+        self.workspace_note.setText(
+            "Non-scale schematic: poles use equal visual spacing. Select and drag the road, "
+            "individual poles, or labels to edit the drawing."
+        )
+        self.statusBar().showMessage(
+            f"Generated editable schematic with {len(layout.poles)} uniformly spaced poles"
+        )
+
     def _update_geometry_action(self) -> None:
         self.build_geometry_action.setEnabled(
             self.current_route is not None and bool(self.current_poles)
         )
+        self.current_geometry = None
+        self.generate_schematic_action.setEnabled(False)
 
     def _choose_pole_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(

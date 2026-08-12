@@ -19,7 +19,7 @@ def test_main_window_contains_canvas(qtbot) -> None:
     window = MainWindow()
     qtbot.addWidget(window)
 
-    assert window.windowTitle() == "PoleRoute Schematic - Sprint 2"
+    assert window.windowTitle() == "PoleRoute Schematic - Sprint 3"
     assert window.findChild(QGraphicsView, "schematicCanvas") is not None
 
 
