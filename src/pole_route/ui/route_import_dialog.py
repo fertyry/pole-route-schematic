@@ -36,9 +36,17 @@ class RouteImportDialog(QDialog):
         )
         intro.setWordWrap(True)
 
-        self.table = QTableWidget(len(routes), 6)
+        self.table = QTableWidget(len(routes), 7)
         self.table.setHorizontalHeaderLabels(
-            ["Use", "LineString", "Type", "Road width", "Create pole line", "Pole offset"]
+            [
+                "Use",
+                "LineString",
+                "Type",
+                "Road width",
+                "Create pole line",
+                "Pole offset",
+                "Reverse",
+            ]
         )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         for row, route in enumerate(routes):
@@ -83,6 +91,12 @@ class RouteImportDialog(QDialog):
             pole_offset.setSuffix(" m")
             pole_offset.setValue(2.0)
             self.table.setCellWidget(row, 5, pole_offset)
+
+            reverse = QTableWidgetItem()
+            reverse.setFlags(reverse.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            reverse.setCheckState(Qt.CheckState.Unchecked)
+            reverse.setToolTip("Reverse this LineString's START and END before import")
+            self.table.setItem(row, 6, reverse)
             self._update_width_state(row)
 
         self.table.itemChanged.connect(self._handle_item_changed)
@@ -122,7 +136,7 @@ class RouteImportDialog(QDialog):
 
     def classified_routes(self) -> list[ClassifiedRoute]:
         selections = []
-        for row, route in enumerate(self._routes):
+        for row, _source_route in enumerate(self._routes):
             if self.table.item(row, 0).checkState() != Qt.CheckState.Checked:
                 continue
             route_type = RouteType(self.table.cellWidget(row, 2).currentData())
@@ -137,7 +151,7 @@ class RouteImportDialog(QDialog):
             offset_value = offset.value() if create_pole_line and offset.isEnabled() else None
             selections.append(
                 ClassifiedRoute(
-                    route,
+                    self._route_for_row(row),
                     route_type,
                     width_value,
                     offset_value,
@@ -177,19 +191,27 @@ class RouteImportDialog(QDialog):
     def _handle_item_changed(self, item: QTableWidgetItem) -> None:
         if item.column() == 4:
             self._update_width_state(item.row())
+        if item.column() == 6 and item.row() == self.table.currentRow():
+            self._update_preview()
+
+    def _route_for_row(self, row: int) -> Route:
+        route = self._routes[row]
+        if self.table.item(row, 6).checkState() != Qt.CheckState.Checked:
+            return route
+        return Route(route.name, route.source_path, tuple(reversed(route.points)))
 
     def _update_preview(self) -> None:
         row = self.table.currentRow()
         if row < 0:
             return
-        route = self._routes[row]
+        route = self._route_for_row(row)
         first, last = route.points[0], route.points[-1]
         self.details.setText(
             f"{route.name}: {len(route.points)} points | "
             f"Start {first.latitude:.6f}, {first.longitude:.6f} | "
             f"End {last.latitude:.6f}, {last.longitude:.6f}"
         )
-        draw_route_preview(self.scene, route, 860, 280)
+        draw_route_preview(self.scene, route, 860, 280, show_direction=True)
 
     def _preview_selected_routes(self) -> None:
         rows = [
@@ -203,7 +225,7 @@ class RouteImportDialog(QDialog):
             return
         routes_with_types = [
             (
-                self._routes[row],
+                self._route_for_row(row),
                 RouteType(self.table.cellWidget(row, 2).currentData()),
             )
             for row in rows
@@ -216,7 +238,14 @@ class RouteImportDialog(QDialog):
         self.details.setText(f"Previewing {len(routes_with_types)} selected routes | {legend}")
 
 
-def draw_route_preview(scene: QGraphicsScene, route: Route, width: float, height: float) -> None:
+def draw_route_preview(
+    scene: QGraphicsScene,
+    route: Route,
+    width: float,
+    height: float,
+    *,
+    show_direction: bool = False,
+) -> None:
     scene.clear()
     margin = 24.0
     longitudes = [point.longitude for point in route.points]
@@ -236,6 +265,8 @@ def draw_route_preview(scene: QGraphicsScene, route: Route, width: float, height
     for point in route.points[1:]:
         path.lineTo(*project(point))
     scene.addPath(path, QPen(QColor("#2f80ed"), 3.0))
+    if show_direction:
+        _add_direction_labels(scene, project(route.points[0]), project(route.points[-1]))
     scene.setSceneRect(0, 0, width, height)
 
 
@@ -281,4 +312,19 @@ def draw_classified_routes_preview(
             path.lineTo(*project(point))
         thickness = 4.0 if route_type is RouteType.MAIN_ROUTE else 2.5
         scene.addPath(path, QPen(ROUTE_TYPE_COLORS[route_type], thickness))
+        if route_type is RouteType.MAIN_ROUTE:
+            _add_direction_labels(scene, project(route.points[0]), project(route.points[-1]))
     scene.setSceneRect(0, 0, width, height)
+
+
+def _add_direction_labels(scene: QGraphicsScene, start, end) -> None:
+    for text, point, color in (
+        ("START", start, QColor("#27ae60")),
+        ("END", end, QColor("#eb5757")),
+    ):
+        label = scene.addText(text)
+        label.setDefaultTextColor(color)
+        font = label.font()
+        font.setBold(True)
+        label.setFont(font)
+        label.setPos(point[0] + 5, point[1] - 20)

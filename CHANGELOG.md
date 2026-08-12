@@ -4,6 +4,11 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ## [Unreleased]
 
+- Added a per-LineString `Reverse` option during route import. It reverses the
+  coordinate order before confirmation and updates START/END in the preview.
+- Added clear START and END markers for selected routes and each Main route in the
+  combined import preview.
+
 - Added multi-sheet export review with a configurable sheet count and Previous/Next
   navigation; Excel export now creates one print-ready worksheet per reviewed sheet.
 - Added automatic horizontal route-span splitting with repeated continuation road

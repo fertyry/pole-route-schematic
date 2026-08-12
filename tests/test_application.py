@@ -2,6 +2,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialogButtonBox,
     QGraphicsPathItem,
+    QGraphicsTextItem,
     QGraphicsView,
     QTableWidgetSelectionRange,
 )
@@ -158,6 +159,31 @@ def test_route_dialog_allows_multiple_main_routes(qtbot) -> None:
     assert [item.type for item in classified] == [RouteType.MAIN_ROUTE, RouteType.MAIN_ROUTE]
     assert [item.width_metres for item in classified] == [6.0, 8.0]
     assert [item.pole_offset_metres for item in classified] == [2.0, 3.0]
+
+
+def test_route_dialog_reverses_selected_linestring_and_preview_direction(qtbot) -> None:
+    from pole_route.domain.route import GeoPoint, Route
+
+    source = Route(
+        "Main",
+        "route.kml",
+        (GeoPoint(100.0, 13.0), GeoPoint(100.1, 13.1), GeoPoint(100.2, 13.2)),
+    )
+    dialog = RouteImportDialog([source])
+    qtbot.addWidget(dialog)
+
+    dialog.table.item(0, 6).setCheckState(Qt.CheckState.Checked)
+    imported = dialog.selected_route()
+
+    assert imported.points == tuple(reversed(source.points))
+    assert source.points[0].longitude == 100.0
+    assert "Start 13.200000, 100.200000" in dialog.details.text()
+    labels = [
+        item.toPlainText()
+        for item in dialog.scene.items()
+        if isinstance(item, QGraphicsTextItem)
+    ]
+    assert set(labels) == {"START", "END"}
 
 
 def test_geometry_settings_use_arabic_digits(qtbot) -> None:
