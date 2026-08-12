@@ -36,9 +36,9 @@ class RouteImportDialog(QDialog):
         )
         intro.setWordWrap(True)
 
-        self.table = QTableWidget(len(routes), 5)
+        self.table = QTableWidget(len(routes), 6)
         self.table.setHorizontalHeaderLabels(
-            ["Use", "LineString", "Type", "Road width", "Pole offset"]
+            ["Use", "LineString", "Type", "Road width", "Create pole line", "Pole offset"]
         )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         for row, route in enumerate(routes):
@@ -67,14 +67,25 @@ class RouteImportDialog(QDialog):
             width.setValue(6.0)
             self.table.setCellWidget(row, 3, width)
 
+            create_pole_line = QTableWidgetItem()
+            create_pole_line.setFlags(
+                create_pole_line.flags() | Qt.ItemFlag.ItemIsUserCheckable
+            )
+            create_pole_line.setCheckState(
+                Qt.CheckState.Checked if row == 0 else Qt.CheckState.Unchecked
+            )
+            self.table.setItem(row, 4, create_pole_line)
+
             pole_offset = QDoubleSpinBox()
             pole_offset.setLocale(QLocale.c())
             pole_offset.setRange(0.0, 1000.0)
             pole_offset.setDecimals(2)
             pole_offset.setSuffix(" m")
             pole_offset.setValue(2.0)
-            self.table.setCellWidget(row, 4, pole_offset)
+            self.table.setCellWidget(row, 5, pole_offset)
             self._update_width_state(row)
+
+        self.table.itemChanged.connect(self._handle_item_changed)
 
         self.details = QLabel()
         self.scene = QGraphicsScene(self)
@@ -119,9 +130,20 @@ class RouteImportDialog(QDialog):
                 continue
             width = self.table.cellWidget(row, 3)
             width_value = width.value() if width.isEnabled() else None
-            offset = self.table.cellWidget(row, 4)
-            offset_value = offset.value() if offset.isEnabled() else None
-            selections.append(ClassifiedRoute(route, route_type, width_value, offset_value))
+            create_pole_line = (
+                self.table.item(row, 4).checkState() == Qt.CheckState.Checked
+            )
+            offset = self.table.cellWidget(row, 5)
+            offset_value = offset.value() if create_pole_line and offset.isEnabled() else None
+            selections.append(
+                ClassifiedRoute(
+                    route,
+                    route_type,
+                    width_value,
+                    offset_value,
+                    create_pole_line,
+                )
+            )
         return selections
 
     def selected_route(self) -> Route:
@@ -148,7 +170,13 @@ class RouteImportDialog(QDialog):
         route_type = RouteType(self.table.cellWidget(row, 2).currentData())
         enabled = route_type in {RouteType.MAIN_ROUTE, RouteType.ROAD, RouteType.BRIDGE}
         self.table.cellWidget(row, 3).setEnabled(enabled)
-        self.table.cellWidget(row, 4).setEnabled(enabled)
+        self.table.cellWidget(row, 5).setEnabled(
+            enabled and self.table.item(row, 4).checkState() == Qt.CheckState.Checked
+        )
+
+    def _handle_item_changed(self, item: QTableWidgetItem) -> None:
+        if item.column() == 4:
+            self._update_width_state(item.row())
 
     def _update_preview(self) -> None:
         row = self.table.currentRow()

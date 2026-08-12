@@ -80,3 +80,22 @@ def test_builds_every_selected_road_with_its_own_width_and_offset() -> None:
     assert network.roads[0].pole_offset_metres == 2.0
     assert network.roads[1].road_width_metres == 10.0
     assert network.roads[1].pole_offset_metres == 4.0
+
+
+def test_disabled_pole_line_is_not_used_for_pole_projection() -> None:
+    routes = [
+        ClassifiedRoute(
+            Route("No poles", "route.kml", (GeoPoint(100, 13), GeoPoint(100.01, 13))),
+            RouteType.MAIN_ROUTE,
+            6.0,
+            None,
+            False,
+        )
+    ]
+    pole = Pole("P-1", 13.0001, 100.005, side=PoleSide.LEFT)
+
+    network = build_road_network_geometry(routes, [pole])
+
+    assert not network.roads[0].pole_line_enabled
+    assert network.projected_poles == ()
+    assert network.unplaced_poles == (pole,)

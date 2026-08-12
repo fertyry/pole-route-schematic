@@ -101,6 +101,7 @@ def test_route_dialog_classifies_multiple_lines(qtbot) -> None:
     dialog.table.item(1, 0).setCheckState(Qt.CheckState.Checked)
     dialog.table.cellWidget(1, 2).setCurrentText(RouteType.ROAD.value)
     dialog.table.cellWidget(1, 3).setValue(4.0)
+    dialog.table.item(1, 4).setCheckState(Qt.CheckState.Checked)
 
     classified = dialog.classified_routes()
 
@@ -121,7 +122,7 @@ def test_route_dialog_uses_arabic_digits_and_previews_checked_routes(qtbot) -> N
     qtbot.addWidget(dialog)
 
     assert dialog.table.cellWidget(0, 3).locale().zeroDigit() == "0"
-    assert dialog.table.cellWidget(0, 4).locale().zeroDigit() == "0"
+    assert dialog.table.cellWidget(0, 5).locale().zeroDigit() == "0"
     assert dialog.preview_all_button.text() == "Preview selected routes"
 
     dialog.table.item(1, 0).setCheckState(Qt.CheckState.Checked)
@@ -144,7 +145,8 @@ def test_route_dialog_allows_multiple_main_routes(qtbot) -> None:
     dialog.table.item(1, 0).setCheckState(Qt.CheckState.Checked)
     dialog.table.cellWidget(1, 2).setCurrentText(RouteType.MAIN_ROUTE.value)
     dialog.table.cellWidget(1, 3).setValue(8.0)
-    dialog.table.cellWidget(1, 4).setValue(3.0)
+    dialog.table.item(1, 4).setCheckState(Qt.CheckState.Checked)
+    dialog.table.cellWidget(1, 5).setValue(3.0)
 
     classified = dialog.classified_routes()
 

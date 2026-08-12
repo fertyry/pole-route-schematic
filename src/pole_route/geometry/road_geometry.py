@@ -37,6 +37,7 @@ class RoadGeometry:
     unplaced_poles: tuple[Pole, ...]
     road_width_metres: float
     pole_offset_metres: float
+    pole_line_enabled: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,7 +131,11 @@ def build_road_network_geometry(
         candidates = [
             (index, road.left_pole_line if pole.side is PoleSide.LEFT else road.right_pole_line)
             for index, road in enumerate(roads)
+            if road.pole_line_enabled
         ]
+        if not candidates:
+            unplaced.append(pole)
+            continue
         route_index, target = min(candidates, key=lambda item: item[1].distance(original))
         snapped = target.interpolate(target.project(original))
         projected.append(ProjectedPole(pole, original, snapped, route_index))
@@ -148,7 +153,7 @@ def _build_road_with_projection(
     projection: MetricProjection,
 ) -> RoadGeometry:
     width = item.width_metres
-    pole_offset = item.pole_offset_metres
+    pole_offset = item.pole_offset_metres if item.create_pole_line else 0.0
     if width is None or width <= 0:
         raise RoadGeometryError(f"Road width for '{item.route.name}' must be greater than zero")
     if pole_offset is None or pole_offset < 0:
@@ -167,6 +172,7 @@ def _build_road_with_projection(
         (),
         width,
         pole_offset,
+        item.create_pole_line,
     )
 
 

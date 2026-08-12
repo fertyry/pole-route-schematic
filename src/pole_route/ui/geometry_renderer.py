@@ -39,8 +39,9 @@ def render_road_geometry(
     transform = _SceneTransform.from_geometry(lines, extra_points, width, height)
 
     for road in roads:
-        _draw_line(scene, road.left_pole_line, transform, QColor("#f2c94c"), 2, dashed=True)
-        _draw_line(scene, road.right_pole_line, transform, QColor("#f2c94c"), 2, dashed=True)
+        if road.pole_line_enabled:
+            _draw_line(scene, road.left_pole_line, transform, QColor("#f2c94c"), 2, dashed=True)
+            _draw_line(scene, road.right_pole_line, transform, QColor("#f2c94c"), 2, dashed=True)
         _draw_line(scene, road.left_edge, transform, QColor("#bdbdbd"), 2)
         _draw_line(scene, road.right_edge, transform, QColor("#bdbdbd"), 2)
         _draw_line(scene, road.centerline, transform, QColor("#2f80ed"), 2, dashed=True)

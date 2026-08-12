@@ -49,13 +49,18 @@ class ClassifiedRoute:
     type: RouteType
     width_metres: float | None
     pole_offset_metres: float | None = 2.0
+    create_pole_line: bool = True
 
     def __post_init__(self) -> None:
         if self.type in {RouteType.MAIN_ROUTE, RouteType.ROAD, RouteType.BRIDGE} and (
             self.width_metres is None or self.width_metres <= 0
         ):
             raise ValueError(f"{self.type.value} requires a width greater than zero")
-        if self.type in {RouteType.MAIN_ROUTE, RouteType.ROAD, RouteType.BRIDGE} and (
+        if self.create_pole_line and self.type in {
+            RouteType.MAIN_ROUTE,
+            RouteType.ROAD,
+            RouteType.BRIDGE,
+        } and (
             self.pole_offset_metres is None or self.pole_offset_metres < 0
         ):
             raise ValueError(f"{self.type.value} requires a pole offset of zero or greater")
