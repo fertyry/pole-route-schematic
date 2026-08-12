@@ -210,3 +210,36 @@ def test_canvas_editor_hides_table_and_restores_workspace(qtbot) -> None:
     window._toggle_canvas_editor(False)
     assert not window.pole_table.isHidden()
     assert not window.heading.isHidden()
+
+
+def test_left_click_selects_object_without_removing_or_moving_it(qtbot) -> None:
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtGui import QUndoStack
+    from PySide6.QtWidgets import QGraphicsScene
+
+    from pole_route.ui.drawing_view import DrawingView
+    from pole_route.ui.editor_commands import EditableEllipseItem
+    from pole_route.ui.schematic_renderer import EDITABLE_FLAGS
+
+    scene = QGraphicsScene(0, 0, 400, 300)
+    item = EditableEllipseItem(-12, -12, 24, 24, undo_stack=QUndoStack())
+    item.setData(0, "pole")
+    item.setFlags(EDITABLE_FLAGS)
+    item.setPos(QPointF(200, 150))
+    scene.addItem(item)
+    view = DrawingView(scene, QUndoStack())
+    view.resize(500, 400)
+    qtbot.addWidget(view)
+    view.show()
+    before = QPointF(item.pos())
+
+    qtbot.mouseClick(
+        view.viewport(),
+        Qt.MouseButton.LeftButton,
+        pos=view.mapFromScene(item.sceneBoundingRect().center()),
+    )
+
+    assert item.scene() is scene
+    assert item.isVisible()
+    assert item.isSelected()
+    assert item.pos() == before

@@ -1,6 +1,6 @@
 """Small selection-aware appearance panel for the canvas editor."""
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QLocale, Signal
 from PySide6.QtWidgets import QDoubleSpinBox, QLabel, QPushButton, QVBoxLayout, QWidget
 
 
@@ -18,6 +18,7 @@ class PropertiesPanel(QWidget):
         self.color = QPushButton("Choose color...")
         self.color.clicked.connect(self.colorRequested)
         self.width = QDoubleSpinBox()
+        self.width.setLocale(QLocale.c())
         self.width.setRange(0.25, 20.0)
         self.width.setSingleStep(0.25)
         self.width.setSuffix(" px")
@@ -25,6 +26,7 @@ class PropertiesPanel(QWidget):
             lambda: self.lineWidthCommitted.emit(self.width.value())
         )
         self.rotation = QDoubleSpinBox()
+        self.rotation.setLocale(QLocale.c())
         self.rotation.setRange(-360.0, 360.0)
         self.rotation.setSingleStep(1.0)
         self.rotation.setSuffix(" deg")
