@@ -57,7 +57,13 @@ def test_export_dialog_controls_context_road_length(qtbot) -> None:
     qtbot.addWidget(dialog)
 
     dialog.context_road_length.setCurrentText("Medium")
-    assert dialog.settings().context_road_length == 40.0
+    assert dialog.settings().context_road_length == 20.0
+
+    dialog.context_road_length.setCurrentText("Short")
+    assert dialog.settings().context_road_length == 15.0
+
+    dialog.context_road_length.setCurrentText("Long")
+    assert dialog.settings().context_road_length == 25.0
 
     dialog.context_road_length.setCurrentText("Custom")
     dialog.custom_context_road_length.setValue(18.0)
