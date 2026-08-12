@@ -309,7 +309,7 @@ def prepare_excel_objects(
 def prepare_excel_pages(
     objects: list[ExcelObject], settings: ExcelExportSettings
 ) -> list[list[ExcelObject]]:
-    """Split START-to-END along the tagged Main route and lay each section horizontally."""
+    """Split at physical poles along Main route and compose readable paper sheets."""
     page_count = max(1, int(settings.page_count))
     if page_count == 1:
         return [prepare_excel_objects(objects, settings)]
@@ -324,18 +324,35 @@ def prepare_excel_pages(
     ]
     if axis is None:
         return _prepare_pages_by_x(content, settings, page_count)
-    step = axis.length / page_count
     stations = {_object_key(item): axis.project(Point(_object_center(item))) for item in content}
     pole_stations = {
         item.group_id: stations[_object_key(item)]
         for item in content
         if item.role == "pole" and item.group_id
     }
+    ordered_poles = sorted(pole_stations, key=lambda group_id: (pole_stations[group_id], group_id))
+    if len(ordered_poles) < 2:
+        return [prepare_excel_objects(content, settings)]
+    # Internal boundaries are real poles. The same match pole appears on both sheets.
+    boundary_indices = [
+        round(index * (len(ordered_poles) - 1) / page_count)
+        for index in range(page_count + 1)
+    ]
+    sequence_by_group = {
+        group_id: index for index, group_id in enumerate(ordered_poles, start=1)
+    }
+    label_by_group = {
+        item.group_id: item.text
+        for item in content
+        if item.role == "label" and item.group_id
+    }
     pages = []
     for page_index in range(page_count):
-        start_station = step * page_index
-        end_station = step * (page_index + 1)
-        include_end = page_index == page_count - 1
+        first_index = boundary_indices[page_index]
+        last_index = boundary_indices[page_index + 1]
+        page_groups = set(ordered_poles[first_index : last_index + 1])
+        start_station = pole_stations[ordered_poles[first_index]]
+        end_station = pole_stations[ordered_poles[last_index]]
         selected = []
         for item in content:
             station = pole_stations.get(item.group_id, stations[_object_key(item)])
@@ -344,16 +361,25 @@ def prepare_excel_pages(
                 belongs = max(line_stations) >= start_station and min(line_stations) <= end_station
             else:
                 belongs = (
-                    start_station <= station <= end_station
-                    if include_end
-                    else start_station <= station < end_station
+                    item.group_id in page_groups
+                    if item.group_id in pole_stations
+                    else start_station <= station <= end_station
                 )
             if belongs:
                 selected.append(item)
         start = axis.interpolate(start_station)
         end = axis.interpolate(end_station)
         angle = degrees(atan2(end.y - start.y, end.x - start.x))
-        rotated = [_rotate_object(item, -angle, start.x, start.y) for item in selected]
+        rotated = [
+            _rotate_object(item, -angle, start.x, start.y)
+            for item in selected
+            if item.role != "label"
+        ]
+        records = [
+            (sequence_by_group[group_id], group_id, label_by_group.get(group_id, group_id))
+            for group_id in ordered_poles[first_index : last_index + 1]
+        ]
+        rotated = _spread_objects_by_poles(rotated, [record[1] for record in records])
         pages.append(
             _prepare_page(
                 rotated,
@@ -361,6 +387,7 @@ def prepare_excel_pages(
                 page_index + 1,
                 page_count,
                 content_rotation=-angle,
+                pole_records=records,
             )
         )
     return pages
@@ -419,6 +446,69 @@ def _rotate_object(
     )
 
 
+def _spread_objects_by_poles(
+    objects: list[ExcelObject], ordered_groups: list[str]
+) -> list[ExcelObject]:
+    """Redistribute print-only X positions so adjacent poles remain readable."""
+    centers = {
+        item.group_id: _object_center(item)[0]
+        for item in objects
+        if item.role == "pole" and item.group_id
+    }
+    anchors = [(centers[group], group) for group in ordered_groups if group in centers]
+    if len(anchors) < 2:
+        return objects
+    source_x = []
+    for x, _group in anchors:
+        if not source_x or abs(x - source_x[-1]) > 1e-6:
+            source_x.append(x)
+    if len(source_x) < 2:
+        return objects
+    left, right = source_x[0], source_x[-1]
+    if right - left <= 1e-9:
+        return objects
+    target_x = [left + (right - left) * index / (len(source_x) - 1) for index in range(len(source_x))]
+
+    def remap(x: float) -> float:
+        if x <= source_x[0]:
+            return target_x[0] + (x - source_x[0])
+        if x >= source_x[-1]:
+            return target_x[-1] + (x - source_x[-1])
+        for index in range(len(source_x) - 1):
+            a, b = source_x[index], source_x[index + 1]
+            if a <= x <= b:
+                if b - a <= 1e-9:
+                    return target_x[index]
+                ratio = (x - a) / (b - a)
+                return target_x[index] + ratio * (target_x[index + 1] - target_x[index])
+        return x
+
+    spread = []
+    for item in objects:
+        if item.kind == "line":
+            points = tuple((remap(x), y) for x, y in item.points)
+        else:
+            center_x, _center_y = _object_center(item)
+            shift = remap(center_x) - center_x
+            points = tuple((x + shift, y) for x, y in item.points)
+        spread.append(
+            ExcelObject(
+                item.kind,
+                points,
+                item.text,
+                item.line_color,
+                item.fill_color,
+                item.line_width,
+                item.rotation,
+                item.font_size,
+                item.line_style,
+                item.role,
+                item.group_id,
+            )
+        )
+    return spread
+
+
 def _prepare_pages_by_x(
     content: list[ExcelObject], settings: ExcelExportSettings, page_count: int
 ) -> list[list[ExcelObject]]:
@@ -456,6 +546,7 @@ def _prepare_page(
     page_number: int,
     page_count: int,
     content_rotation: float = 0.0,
+    pole_records: list[tuple[int, str, str]] | None = None,
 ) -> list[ExcelObject]:
     coordinates = [point for item in objects for point in item.points]
     if not coordinates:
@@ -469,13 +560,19 @@ def _prepare_page(
         paper_w_mm, paper_h_mm = paper_h_mm, paper_w_mm
     paper_w, paper_h = paper_w_mm * 72 / 25.4, paper_h_mm * 72 / 25.4
     margin, header, footer = 28.0, 54.0, 42.0
+    map_left, map_right = margin, paper_w - margin
+    map_top = margin + header
+    map_bottom = paper_h * 0.60
     span_x, span_y = max(max_x - min_x, 1.0), max(max_y - min_y, 1.0)
-    scale = min((paper_w - 2 * margin) / span_x, (paper_h - header - footer - 2 * margin) / span_y)
+    scale = min((map_right - map_left) / span_x, (map_bottom - map_top) / span_y)
+    fitted_w, fitted_h = span_x * scale, span_y * scale
+    origin_x = map_left + ((map_right - map_left) - fitted_w) / 2
+    origin_y = map_top + ((map_bottom - map_top) - fitted_h) / 2
     drawing = [
         _apply_pole_size(
             ExcelObject(
                 item.kind,
-                tuple(((x - min_x) * scale + margin, (y - min_y) * scale + margin + header) for x, y in item.points),
+                tuple(((x - min_x) * scale + origin_x, (y - min_y) * scale + origin_y) for x, y in item.points),
                 item.text, 0,
                 0 if item.fill_color is not None or item.role == "pole" else None,
                 settings.centerline_width if item.role in {"centerline", "main_centerline"} else settings.road_edge_width,
@@ -488,10 +585,101 @@ def _prepare_page(
         )
         for item in objects
     ]
+    pole_centers = {
+        item.group_id: _object_center(item)
+        for item in drawing
+        if item.role == "pole" and item.group_id
+    }
+    sequences_by_center: dict[tuple[float, float], list[int]] = {}
+    for sequence, group_id, _detail in pole_records or []:
+        if group_id not in pole_centers:
+            continue
+        x, y = pole_centers[group_id]
+        sequences_by_center.setdefault((round(x, 5), round(y, 5)), []).append(sequence)
+    sequence_labels = []
+    for (x, y), sequences in sequences_by_center.items():
+        sequence_labels.append(
+            ExcelObject(
+                "text",
+                ((x - 8, y - 22), (x + 16, y - 8)),
+                "/".join(str(sequence) for sequence in sequences),
+                fill_color=0,
+                font_size=8.0,
+                role="pole_sequence",
+                group_id="/".join(str(sequence) for sequence in sequences),
+            )
+        )
     frame = _frame_objects(
         settings, paper_w, paper_h, margin, page_number, page_count, content_rotation
     )
-    return [*frame, *drawing, *_continuation_objects(page_number, page_count, paper_w, paper_h, margin)]
+    schedule = _pole_schedule_objects(
+        pole_records or [], paper_w, paper_h, margin, map_bottom + 18, footer
+    )
+    return [
+        *frame,
+        *drawing,
+        *sequence_labels,
+        *schedule,
+        *_continuation_objects(page_number, page_count, paper_w, paper_h, margin),
+    ]
+
+
+def _pole_schedule_objects(
+    records: list[tuple[int, str, str]],
+    paper_w: float,
+    paper_h: float,
+    margin: float,
+    top: float,
+    footer: float,
+) -> list[ExcelObject]:
+    """Build a compact two-column pole schedule below the map."""
+    if not records:
+        return []
+    bottom = paper_h - margin - footer
+    available_h = max(bottom - top, 36.0)
+    column_count = 2 if len(records) > 8 else 1
+    rows_per_column = (len(records) + column_count - 1) // column_count
+    row_h = min(18.0, available_h / (rows_per_column + 1))
+    column_w = (paper_w - 2 * margin) / column_count
+    objects: list[ExcelObject] = []
+    for column in range(column_count):
+        left = margin + column * column_w
+        right = left + column_w - 8
+        first = column * rows_per_column
+        chunk = records[first : first + rows_per_column]
+        if not chunk:
+            continue
+        objects.extend(
+            [
+                ExcelObject("line", ((left, top), (right, top)), line_color=0, line_width=0.6, role="schedule"),
+                ExcelObject("line", ((left, top + row_h), (right, top + row_h)), line_color=0, line_width=0.6, role="schedule"),
+                ExcelObject("text", ((left + 3, top + 1), (left + 35, top + row_h)), "No.", fill_color=0, font_size=7.0, role="schedule"),
+                ExcelObject("text", ((left + 38, top + 1), (right, top + row_h)), "Pole No. / Detail", fill_color=0, font_size=7.0, role="schedule"),
+            ]
+        )
+        for row, (sequence, group_id, detail) in enumerate(chunk, start=1):
+            y = top + row_h * row
+            display_detail = detail
+            prefix = f"{group_id} "
+            if display_detail.startswith(prefix):
+                display_detail = display_detail[len(prefix) :]
+            objects.extend(
+                [
+                    ExcelObject("text", ((left + 3, y + 1), (left + 35, y + row_h)), str(sequence), fill_color=0, font_size=7.0, role="schedule", group_id=group_id),
+                    ExcelObject("text", ((left + 38, y + 1), (right, y + row_h)), f"{group_id}  {display_detail}".strip(), fill_color=0, font_size=7.0, role="schedule", group_id=group_id),
+                    ExcelObject("line", ((left, y + row_h), (right, y + row_h)), line_color=0, line_width=0.35, role="schedule"),
+                ]
+            )
+        divider_x = left + 35
+        table_bottom = top + row_h * (len(chunk) + 1)
+        objects.extend(
+            [
+                ExcelObject("line", ((left, top), (left, table_bottom)), line_color=0, line_width=0.6, role="schedule"),
+                ExcelObject("line", ((divider_x, top), (divider_x, table_bottom)), line_color=0, line_width=0.35, role="schedule"),
+                ExcelObject("line", ((right, top), (right, table_bottom)), line_color=0, line_width=0.6, role="schedule"),
+            ]
+        )
+    return objects
 
 
 def _write_shapes(sheet, objects: list[ExcelObject]) -> None:

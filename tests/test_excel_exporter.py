@@ -116,6 +116,28 @@ def test_drawing_can_be_split_into_numbered_paper_sheets(qapp) -> None:
     assert "Sheet 2 / 2" in footers[1]
 
 
+def test_page_boundaries_are_real_repeated_poles(qapp) -> None:
+    objects = [
+        ExcelObject("line", ((0, 0), (500, 0)), role="main_centerline", group_id="main")
+    ]
+    for index, x in enumerate((20, 80, 210, 350, 480), start=1):
+        group = f"P-{index}"
+        objects.extend(
+            [
+                ExcelObject("rectangle", ((x - 3, -3), (x + 3, 3)), role="pole", group_id=group),
+                ExcelObject("text", ((x, 10), (x + 30, 20)), f"{group} detail", role="label", group_id=group),
+            ]
+        )
+
+    pages = prepare_excel_pages(objects, ExcelExportSettings(page_count=2))
+
+    first_groups = {item.group_id for item in pages[0] if item.role == "pole"}
+    second_groups = {item.group_id for item in pages[1] if item.role == "pole"}
+    assert first_groups & second_groups == {"P-3"}
+    assert {item.text for item in pages[0] if item.role == "pole_sequence"} == {"1", "2", "3"}
+    assert {item.text for item in pages[1] if item.role == "pole_sequence"} == {"3", "4", "5"}
+
+
 def test_tagged_main_route_is_split_start_to_end_and_rotated_horizontal(qapp) -> None:
     objects = [
         ExcelObject(
@@ -149,8 +171,10 @@ def test_tagged_main_route_is_split_start_to_end_and_rotated_horizontal(qapp) ->
         objects, ExcelExportSettings(page_count=2)
     )
 
-    assert [sum(item.role == "pole" for item in page) for page in pages] == [2, 2]
-    assert [sum(item.role == "label" for item in page) for page in pages] == [2, 2]
+    # The boundary pole is repeated as the match pole on both adjacent sheets.
+    assert [sum(item.role == "pole" for item in page) for page in pages] == [3, 2]
+    assert [sum(item.role == "pole_sequence" for item in page) for page in pages] == [3, 2]
+    assert all(any(item.role == "schedule" for item in page) for page in pages)
     for page in pages:
         main_lines = [item for item in page if item.role == "main_centerline"]
         assert main_lines
