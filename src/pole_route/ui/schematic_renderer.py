@@ -74,6 +74,8 @@ def render_schematic(scene: QGraphicsScene, layout: SchematicLayout, undo_stack:
             pole_item.setData(0, "pole")
             pole_item.setData(1, marker_id)
             pole_item.setPos(pole.x, pole.y)
+            pole_item.setTransformOriginPoint(pole_item.boundingRect().center())
+            pole_item.setRotation(pole.road_angle_degrees)
             pole_item.setData(2, pole_item.pos())
             pole_item.setPen(QPen(color, 2))
             pole_item.setBrush(QBrush(QColor("#202020")))

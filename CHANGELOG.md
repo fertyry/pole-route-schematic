@@ -4,6 +4,9 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ## [Unreleased]
 
+- Square pole markers are now automatically aligned with the local road direction
+  during schematic generation.
+
 - Changed pole markers from circles to simple square symbols.
 
 - Added view-only canvas navigation: wheel scrolls vertically, Shift+wheel scrolls

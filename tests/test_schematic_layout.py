@@ -123,6 +123,24 @@ def test_network_schematic_contains_every_road() -> None:
     assert len(road_group.childItems()) == 3
 
 
+def test_square_pole_is_aligned_with_its_local_road() -> None:
+    route = ClassifiedRoute(
+        Route("Diagonal", "route.kml", (GeoPoint(100, 13), GeoPoint(100.01, 13.01))),
+        RouteType.MAIN_ROUTE,
+        6.0,
+        2.0,
+    )
+    pole = Pole("P-1", 13.005, 100.005, side=PoleSide.RIGHT)
+    layout = create_schematic_layout(build_road_network_geometry([route], [pole]))
+    scene = QGraphicsScene()
+    render_schematic(scene, layout, QUndoStack())
+
+    marker = next(item for item in scene.items() if item.data(0) == "pole")
+    assert isinstance(marker, QGraphicsRectItem)
+    assert abs(layout.poles[0].road_angle_degrees) > 1.0
+    assert marker.rotation() == pytest.approx(layout.poles[0].road_angle_degrees)
+
+
 def test_same_pole_records_render_one_marker_and_keep_both_labels() -> None:
     route = ClassifiedRoute(
         Route("Main", "route.kml", (GeoPoint(100, 13), GeoPoint(100.01, 13))),
