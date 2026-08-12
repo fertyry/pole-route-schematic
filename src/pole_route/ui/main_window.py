@@ -22,7 +22,11 @@ from PySide6.QtWidgets import (
 from pole_route.domain.blocks import BLOCK_CATALOG
 from pole_route.domain.pole import Pole
 from pole_route.domain.route import ClassifiedRoute, Route, RouteType
-from pole_route.exporters.excel_exporter import ExcelExportError, export_objects_to_excel
+from pole_route.exporters.excel_exporter import (
+    ExcelExportError,
+    collect_scene_objects,
+    export_objects_to_excel,
+)
 from pole_route.geometry.road_geometry import RoadGeometryError, build_road_network_geometry
 from pole_route.geometry.schematic_layout import create_schematic_layout
 from pole_route.importers.kml_importer import RouteImportError, inspect_route_file
@@ -321,7 +325,11 @@ class MainWindow(QMainWindow):
         )
 
     def _export_excel(self) -> None:
-        dialog = ExcelExportDialog(self.route_scene, self)
+        source_objects = collect_scene_objects(self.route_scene)
+        if not source_objects:
+            QMessageBox.warning(self, "Excel export failed", "The canvas has no objects to export.")
+            return
+        dialog = ExcelExportDialog(source_objects, self)
         if dialog.exec() != ExcelExportDialog.DialogCode.Accepted:
             self.statusBar().showMessage("Excel export cancelled")
             return

@@ -19,16 +19,14 @@ from PySide6.QtWidgets import (
 from pole_route.exporters.excel_exporter import (
     ExcelExportSettings,
     ExcelObject,
-    collect_scene_objects,
     prepare_excel_objects,
 )
 
 
 class ExcelExportDialog(QDialog):
-    def __init__(self, source_scene, parent=None) -> None:
+    def __init__(self, source_objects: list[ExcelObject], parent=None) -> None:
         super().__init__(parent)
-        self.source_scene = source_scene
-        self.source_objects = collect_scene_objects(source_scene)
+        self.source_objects = list(source_objects)
         self.setWindowTitle("Excel export preview")
         self.resize(1150, 760)
         self.project_title = QLineEdit("PoleRoute Schematic")

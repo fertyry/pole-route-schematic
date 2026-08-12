@@ -1,5 +1,6 @@
 from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
 
+from pole_route.exporters.excel_exporter import collect_scene_objects
 from pole_route.ui.excel_export_dialog import ExcelExportDialog
 
 
@@ -7,7 +8,7 @@ def test_export_dialog_previews_paper_and_updates_settings(qtbot) -> None:
     source = QGraphicsScene()
     source_line = QGraphicsLineItem(0, 0, 100, 0)
     source.addItem(source_line)
-    dialog = ExcelExportDialog(source)
+    dialog = ExcelExportDialog(collect_scene_objects(source))
     qtbot.addWidget(dialog)
 
     dialog.project_title.setText("My Project")
@@ -26,7 +27,7 @@ def test_repeated_preview_changes_keep_objects_and_source_scene(qtbot) -> None:
     source = QGraphicsScene()
     source_line = QGraphicsLineItem(0, 0, 300, 40)
     source.addItem(source_line)
-    dialog = ExcelExportDialog(source)
+    dialog = ExcelExportDialog(collect_scene_objects(source))
     qtbot.addWidget(dialog)
 
     for index in range(20):
@@ -42,7 +43,7 @@ def test_confirmed_export_uses_snapshot_even_if_source_scene_later_changes(qtbot
     source = QGraphicsScene()
     source_line = QGraphicsLineItem(0, 0, 300, 40)
     source.addItem(source_line)
-    dialog = ExcelExportDialog(source)
+    dialog = ExcelExportDialog(collect_scene_objects(source))
     qtbot.addWidget(dialog)
     expected_count = len(dialog.export_objects())
 
@@ -51,3 +52,20 @@ def test_confirmed_export_uses_snapshot_even_if_source_scene_later_changes(qtbot
     assert expected_count > 0
     assert len(dialog.export_objects()) == expected_count
     assert dialog.preview_scene.items()
+
+
+def test_dialog_destruction_cannot_modify_source_scene(qtbot) -> None:
+    source = QGraphicsScene()
+    source_line = QGraphicsLineItem(0, 0, 300, 40)
+    source.addItem(source_line)
+    snapshot = collect_scene_objects(source)
+    dialog = ExcelExportDialog(snapshot)
+    qtbot.addWidget(dialog)
+    dialog.project_title.setText("Changed in review")
+    dialog.accept()
+    dialog.deleteLater()
+    qtbot.wait(10)
+
+    assert source_line.scene() is source
+    assert source.items() == [source_line]
+    assert snapshot

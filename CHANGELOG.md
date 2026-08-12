@@ -4,6 +4,9 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ## [Unreleased]
 
+- Fully isolated the export-review dialog from the live canvas scene so closing or
+  editing the review can never delete source drawing objects.
+
 - Fixed confirmed Excel exports incorrectly re-reading an empty canvas; export now uses
   the exact styled object snapshot approved in the preview.
 
