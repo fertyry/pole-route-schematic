@@ -210,3 +210,41 @@ def test_canvas_editor_hides_table_and_restores_workspace(qtbot) -> None:
     window._toggle_canvas_editor(False)
     assert not window.pole_table.isHidden()
     assert not window.heading.isHidden()
+
+
+def test_properties_panel_changes_selected_line_and_supports_undo(qtbot) -> None:
+    from PySide6.QtCore import QLineF
+    from PySide6.QtGui import QPen
+
+    from pole_route.ui.editor_commands import EditableLineItem
+    from pole_route.ui.schematic_renderer import EDITABLE_FLAGS
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    line = EditableLineItem(QLineF(0, 0, 100, 0), undo_stack=window.undo_stack)
+    line.setData(0, "drawing")
+    line.setFlags(EDITABLE_FLAGS)
+    line.setPen(QPen(Qt.GlobalColor.white, 2.0))
+    window.route_scene.addItem(line)
+    line.setSelected(True)
+
+    window._change_selected_line_width(4.0)
+    assert line.pen().widthF() == 4.0
+    window.undo_stack.undo()
+    assert line.pen().widthF() == 2.0
+
+
+def test_canvas_view_zoom_rotation_and_north_up(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    before = window.canvas.transform().m11()
+
+    window.canvas.zoom_in()
+    assert window.canvas.transform().m11() > before
+
+    window._set_canvas_rotation(30)
+    assert window.canvas.rotation_degrees == 30
+    assert window.rotation_angle.value() == 30
+
+    window._set_canvas_rotation(0)
+    assert window.canvas.rotation_degrees == 0

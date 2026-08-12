@@ -11,6 +11,9 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ### Added
 
+- Selection-aware Properties panel for text, color, font size, line width/style, and z-order
+- Undoable object appearance edits
+- Canvas zoom, fit, middle-button pan, angle rotation, North up, and align-to-selection controls
 - Dedicated Edit canvas mode that expands the drawing workspace and restores the data view
 - Explicit Same pole grouping for multiple equipment records on one physical pole
 - Network, straight equal-spacing, and straight relative-spacing generation choices

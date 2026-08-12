@@ -4,7 +4,7 @@ from enum import StrEnum
 from math import atan2, cos, hypot, pi, sin
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QMouseEvent, QPen, QUndoStack
+from PySide6.QtGui import QBrush, QColor, QMouseEvent, QPen, QUndoStack, QWheelEvent
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsView, QInputDialog
 
 from pole_route.domain.blocks import BlockType
@@ -42,6 +42,8 @@ class DrawingView(QGraphicsView):
         self.line_color = QColor("#f2c94c")
         self.line_width = 2.0
         self.block_type = BlockType.SIDE_ROAD
+        self._rotation_degrees = 0.0
+        self._middle_panning = False
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
 
     def set_mode(self, mode: DrawingMode) -> None:
@@ -64,6 +66,19 @@ class DrawingView(QGraphicsView):
         self.set_mode(DrawingMode.BLOCK)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._middle_panning = True
+            self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+            synthetic = QMouseEvent(
+                event.type(),
+                event.position(),
+                event.globalPosition(),
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.LeftButton,
+                event.modifiers(),
+            )
+            super().mousePressEvent(synthetic)
+            return
         if self.mode is DrawingMode.SELECT or event.button() != Qt.MouseButton.LeftButton:
             super().mousePressEvent(event)
             return
@@ -100,6 +115,23 @@ class DrawingView(QGraphicsView):
             self._update_shape(self._preview, self._start, end)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.MiddleButton and self._middle_panning:
+            synthetic = QMouseEvent(
+                event.type(),
+                event.position(),
+                event.globalPosition(),
+                Qt.MouseButton.LeftButton,
+                Qt.MouseButton.NoButton,
+                event.modifiers(),
+            )
+            super().mouseReleaseEvent(synthetic)
+            self._middle_panning = False
+            self.setDragMode(
+                QGraphicsView.DragMode.RubberBandDrag
+                if self.mode is DrawingMode.SELECT
+                else QGraphicsView.DragMode.NoDrag
+            )
+            return
         if self._start is None or self._preview is None:
             super().mouseReleaseEvent(event)
             return
@@ -185,6 +217,36 @@ class DrawingView(QGraphicsView):
             self.scene().removeItem(self._preview)
         self._start = None
         self._preview = None
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
+        self.scale(factor, factor)
+        event.accept()
+
+    def zoom_in(self) -> None:
+        self.scale(1.2, 1.2)
+
+    def zoom_out(self) -> None:
+        self.scale(1 / 1.2, 1 / 1.2)
+
+    def fit_scene(self) -> None:
+        self.resetTransform()
+        self.rotate(self._rotation_degrees)
+        self.fitInView(self.scene().sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+
+    def set_rotation(self, degrees: float) -> None:
+        current_scale_x = (self.transform().m11() ** 2 + self.transform().m12() ** 2) ** 0.5
+        self.resetTransform()
+        self.scale(current_scale_x, current_scale_x)
+        self.rotate(degrees)
+        self._rotation_degrees = degrees
+
+    def rotate_by(self, degrees: float) -> None:
+        self.set_rotation(self._rotation_degrees + degrees)
+
+    @property
+    def rotation_degrees(self) -> float:
+        return self._rotation_degrees
 
 
 def snap_line_endpoint(start: QPointF, end: QPointF, increment_degrees: float = 45.0) -> QPointF:

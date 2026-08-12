@@ -83,6 +83,22 @@ class ResetLayoutCommand(QUndoCommand):
             item.setPos(current)
 
 
+class PropertyChangeCommand(QUndoCommand):
+    """Apply and reverse one object-property edit."""
+
+    def __init__(self, description: str, apply_value, before, after) -> None:
+        super().__init__(description)
+        self.apply_value = apply_value
+        self.before = before
+        self.after = after
+
+    def redo(self) -> None:
+        self.apply_value(self.after)
+
+    def undo(self) -> None:
+        self.apply_value(self.before)
+
+
 class _MoveTrackingMixin:
     undo_stack: QUndoStack
     _drag_start: QPointF | None
