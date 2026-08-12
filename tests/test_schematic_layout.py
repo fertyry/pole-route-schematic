@@ -147,3 +147,50 @@ def test_same_pole_records_render_one_marker_and_keep_both_labels() -> None:
     assert len(labels) == 2
     assert layout.poles[0].x == layout.poles[1].x
     assert layout.poles[0].y == layout.poles[1].y
+
+
+def test_four_road_network_with_same_pole_group_renders_complete_scene() -> None:
+    routes = [
+        ClassifiedRoute(
+            Route("Main 1", "route.kml", (GeoPoint(100, 13), GeoPoint(100.01, 13.005))),
+            RouteType.MAIN_ROUTE,
+            6.0,
+            1.0,
+        ),
+        ClassifiedRoute(
+            Route("Main 2", "route.kml", (GeoPoint(100.01, 13.005), GeoPoint(100.012, 13.015))),
+            RouteType.MAIN_ROUTE,
+            6.0,
+            1.0,
+        ),
+        ClassifiedRoute(
+            Route("Soi 1", "route.kml", (GeoPoint(100.004, 13.002), GeoPoint(100.002, 13.01))),
+            RouteType.ROAD,
+            4.0,
+            None,
+            False,
+        ),
+        ClassifiedRoute(
+            Route("Soi 2", "route.kml", (GeoPoint(100.007, 13.0035), GeoPoint(100.009, 13.011))),
+            RouteType.ROAD,
+            4.0,
+            None,
+            False,
+        ),
+    ]
+    poles = [
+        Pole(str(index), 13.0005 + index * 0.0006, 100.001 + index * 0.001, "EP.12", PoleSide.RIGHT)
+        for index in range(1, 8)
+    ]
+    layout = create_schematic_layout(
+        build_road_network_geometry(routes, poles),
+        same_pole_groups=(frozenset({"6", "7"}),),
+    )
+    scene = QGraphicsScene()
+
+    render_schematic(scene, layout, QUndoStack())
+
+    top_level = [item for item in scene.items() if item.parentItem() is None]
+    assert sum(item.data(0) == "road" for item in top_level) == 1
+    assert sum(item.data(0) == "pole" for item in top_level) == 6
+    assert sum(item.data(0) == "label" for item in top_level) == 7

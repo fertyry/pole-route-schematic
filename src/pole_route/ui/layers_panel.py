@@ -25,6 +25,8 @@ class LayersPanel(QWidget):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self.visibility_checks = {}
+        self.lock_checks = {}
         layout = QGridLayout(self)
         layout.addWidget(QLabel("Layer"), 0, 0)
         layout.addWidget(QLabel("Show"), 0, 1)
@@ -42,10 +44,18 @@ class LayersPanel(QWidget):
             locked.toggled.connect(
                 lambda checked, layer=name: self.lockChanged.emit(layer, checked)
             )
+            self.visibility_checks[name] = visible
+            self.lock_checks[name] = locked
             layout.addWidget(select, row, 0)
             layout.addWidget(visible, row, 1)
             layout.addWidget(locked, row, 2)
         layout.setRowStretch(len(LAYERS) + 1, 1)
+
+    def reset_for_generated_scene(self) -> None:
+        """Make every new layer visible and lock only the generated roads."""
+        for name, visible in self.visibility_checks.items():
+            visible.setChecked(True)
+            self.lock_checks[name].setChecked(name == "Roads")
 
 
 def layer_types(name: str) -> set[str]:

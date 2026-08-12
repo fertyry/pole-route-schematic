@@ -51,7 +51,7 @@ from pole_route.ui.geometry_renderer import render_road_geometry
 from pole_route.ui.layers_panel import LayersPanel, layer_types
 from pole_route.ui.properties_panel import PropertiesPanel
 from pole_route.ui.route_import_dialog import RouteImportDialog, draw_classified_routes_preview
-from pole_route.ui.schematic_renderer import render_schematic
+from pole_route.ui.schematic_renderer import SchematicRenderError, render_schematic
 from pole_route.ui.schematic_settings_dialog import SchematicSettingsDialog
 
 
@@ -360,14 +360,19 @@ class MainWindow(QMainWindow):
             return
         layout_mode = dialog.layout_mode()
         spacing_mode = dialog.spacing_mode()
-        layout = create_schematic_layout(
-            self.current_geometry,
-            spacing_mode,
-            layout_mode,
-            tuple(self.same_pole_groups),
-        )
+        try:
+            layout = create_schematic_layout(
+                self.current_geometry,
+                spacing_mode,
+                layout_mode,
+                tuple(self.same_pole_groups),
+            )
+            render_schematic(self.route_scene, layout, self.undo_stack)
+        except (SchematicRenderError, ValueError, TypeError) as error:
+            QMessageBox.warning(self, "Schematic generation failed", str(error))
+            self.statusBar().showMessage(f"Schematic generation failed: {error}")
+            return
         self.undo_stack.clear()
-        render_schematic(self.route_scene, layout, self.undo_stack)
         rendered_objects = [
             item for item in self.route_scene.items() if item.parentItem() is None
         ]
@@ -379,7 +384,10 @@ class MainWindow(QMainWindow):
             )
             self.statusBar().showMessage("Schematic generation failed: empty canvas")
             return
-        self._set_layer_locked("Roads", True)
+        self.layers_panel.reset_for_generated_scene()
+        for layer_name in ("Roads", "Poles", "Labels", "Blocks", "Annotations"):
+            self._set_layer_visible(layer_name, True)
+            self._set_layer_locked(layer_name, layer_name == "Roads")
         self.canvas.fit_scene()
         QTimer.singleShot(0, self.canvas.fit_scene)
         self.reset_layout_action.setEnabled(True)

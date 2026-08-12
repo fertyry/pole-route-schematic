@@ -19,9 +19,38 @@ EDITABLE_FLAGS = (
 )
 
 
+class SchematicRenderError(RuntimeError):
+    """The generated layout could not produce a complete editable scene."""
+
+
 def render_schematic(scene: QGraphicsScene, layout: SchematicLayout, undo_stack: QUndoStack) -> None:
-    """Replace the scene with individually editable schematic objects."""
+    """Build off-screen, validate, then replace the visible scene atomically."""
+    staging = QGraphicsScene()
+    _render_schematic(staging, layout, undo_stack)
+    top_level_items = [item for item in staging.items() if item.parentItem() is None]
+    item_types = {item.data(0) for item in top_level_items}
+    required = {"road"}
+    if layout.poles:
+        required.update({"pole", "label"})
+    missing = required - item_types
+    if missing:
+        raise SchematicRenderError(
+            f"Generated scene is missing: {', '.join(sorted(missing))}"
+        )
+
     scene.clear()
+    for item in top_level_items:
+        staging.removeItem(item)
+        scene.addItem(item)
+    scene.setSceneRect(0, 0, layout.width, layout.height)
+
+
+def _render_schematic(
+    scene: QGraphicsScene,
+    layout: SchematicLayout,
+    undo_stack: QUndoStack,
+) -> None:
+    """Populate a staging scene with editable schematic objects."""
     road_group = EditableItemGroup(undo_stack)
     road_group.setData(0, "road")
     road_group.setFlags(EDITABLE_FLAGS)

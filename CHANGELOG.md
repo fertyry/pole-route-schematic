@@ -6,6 +6,7 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ### Fixed
 
+- Schematic rendering is atomic and resets generated layer visibility before replacing the preview
 - Canvas Fit now derives its bounds from the drawing objects actually rendered
 - Canvas wheel navigation now uses wheel for vertical scroll, Shift+wheel for horizontal
   scroll, Ctrl+wheel for zoom, and ignores middle-button dragging
