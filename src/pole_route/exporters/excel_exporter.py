@@ -767,10 +767,12 @@ def _pole_schedule_objects(
 
 def _write_shapes(sheet, objects: list[ExcelObject]) -> None:
     for item in objects:
-        if item.kind == "line":
+        if item.kind in {"line", "arrow"}:
             (x1, y1), (x2, y2) = item.points
             shape = sheet.Shapes.AddLine(x1, y1, x2, y2)
             _set_line(shape, item)
+            if item.kind == "arrow":
+                shape.Line.EndArrowheadStyle = 3
         elif item.kind == "text":
             left, top, width, height = _bounds(item.points)
             shape = sheet.Shapes.AddTextbox(1, left, top, max(width, 20), max(height, 14))
@@ -898,7 +900,7 @@ def _frame_objects(
         objects.extend(
             [
                 ExcelObject(
-                    "line",
+                    "arrow",
                     ((cx, cy), tip),
                     line_color=black,
                     line_width=1.5,

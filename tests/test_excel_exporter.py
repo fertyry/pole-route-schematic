@@ -92,6 +92,18 @@ def test_work_description_is_rendered_as_third_header_row(qapp) -> None:
     assert description.text == "144 poles and New Cable Tray 1 Set"
 
 
+def test_compass_uses_an_arrow_pointing_to_north_label(qapp) -> None:
+    objects = prepare_excel_pages(
+        [ExcelObject("line", ((0, 0), (100, 0)), role="road_edge")],
+        ExcelExportSettings(show_compass=True),
+    )[0]
+
+    arrow = next(item for item in objects if item.role == "compass" and item.kind == "arrow")
+    north = next(item for item in objects if item.role == "compass" and item.text == "N")
+    assert arrow.points[1][1] < arrow.points[0][1]
+    assert north.points[0][1] < arrow.points[1][1]
+
+
 def test_collecting_export_snapshot_retains_renderer_owned_canvas_items(qapp) -> None:
     scene = QGraphicsScene()
     route = Route("Road", "route.kml", (GeoPoint(100, 13), GeoPoint(100.01, 13)))

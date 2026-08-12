@@ -1,7 +1,9 @@
 """Editable Excel export settings and page preview."""
 
-from PySide6.QtCore import QLocale, QRectF, Qt, QTimer
-from PySide6.QtGui import QBrush, QColor, QPen
+from math import atan2, cos, pi, sin
+
+from PySide6.QtCore import QLocale, QPointF, QRectF, Qt, QTimer
+from PySide6.QtGui import QBrush, QColor, QPen, QPolygonF
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -217,9 +219,20 @@ def _draw_preview_object(scene: QGraphicsScene, item: ExcelObject) -> None:
     pen = QPen(QColor("black"), item.line_width)
     if item.line_style == "dashed":
         pen.setStyle(Qt.PenStyle.DashLine)
-    if item.kind == "line":
+    if item.kind in {"line", "arrow"}:
         (x1, y1), (x2, y2) = item.points
         scene.addLine(x1, y1, x2, y2, pen)
+        if item.kind == "arrow":
+            angle = atan2(y2 - y1, x2 - x1)
+            size = 8.0
+            head = QPolygonF(
+                [
+                    QPointF(x2, y2),
+                    QPointF(x2 - size * cos(angle - pi / 6), y2 - size * sin(angle - pi / 6)),
+                    QPointF(x2 - size * cos(angle + pi / 6), y2 - size * sin(angle + pi / 6)),
+                ]
+            )
+            scene.addPolygon(head, pen, QBrush(QColor("black")))
     elif item.kind == "text":
         text = scene.addText(item.text)
         text.setDefaultTextColor(QColor("black"))
