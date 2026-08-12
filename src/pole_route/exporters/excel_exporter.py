@@ -888,7 +888,15 @@ def _write_shapes(sheet, objects: list[ExcelObject]) -> None:
             left, top, width, height = _bounds(item.points)
             desired_center_x = left + width / 2.0
             desired_center_y = top + height / 2.0
-            shape = sheet.Shapes.AddTextbox(1, left, top, max(width, 20), max(height, 14))
+            # Road-name point bounds are transformed with the map so that their
+            # centre follows the correct junction.  They must not also become the
+            # initial Excel text-box size: a scaled 600-point-wide box makes a
+            # rotated label jump across the sheet even though the preview is fine.
+            textbox_width = 20.0 if item.role == "road_name" else max(width, 20)
+            textbox_height = 14.0 if item.role == "road_name" else max(height, 14)
+            shape = sheet.Shapes.AddTextbox(
+                1, left, top, textbox_width, textbox_height
+            )
             shape.TextFrame2.TextRange.Text = item.text
             shape.TextFrame2.TextRange.Font.Size = item.font_size
             shape.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = item.fill_color

@@ -294,7 +294,9 @@ def test_excel_road_name_is_recentred_after_rotation() -> None:
     shape = FakeShape()
 
     class FakeShapes:
-        def AddTextbox(self, *_args):
+        def AddTextbox(self, _orientation, _left, _top, width, height):
+            assert width == pytest.approx(20.0)
+            assert height == pytest.approx(14.0)
             return shape
 
     class FakeSheet:
