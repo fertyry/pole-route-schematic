@@ -208,9 +208,9 @@ def test_page_lines_are_clipped_at_match_poles(qapp) -> None:
 def test_context_roads_are_clipped_to_export_corridor(qapp) -> None:
     objects = [
         ExcelObject("line", ((0, 0), (500, 0)), role="main_centerline", group_id="main"),
-        ExcelObject("line", ((250, -100), (250, 100)), role="centerline"),
+        ExcelObject("line", ((250, -100), (250, 100)), role="centerline", group_id="Soi Test"),
         ExcelObject("line", ((245, -100), (245, 100)), role="road_edge"),
-        ExcelObject("text", ((240, 80), (300, 95)), "Soi Test", role="road_name"),
+        ExcelObject("text", ((-200, 80), (-140, 95)), "Soi Test", role="road_name", group_id="Soi Test"),
     ]
     for index, x in enumerate((0, 250, 500), start=1):
         objects.append(
@@ -232,6 +232,11 @@ def test_context_roads_are_clipped_to_export_corridor(qapp) -> None:
     assert max(abs(y - pole_y) for item in road_lines for _, y in item.points) < 20.0
     road_name = next(item for item in page if item.role == "road_name")
     assert road_name.rotation == 0.0
+    road_name_center_x = sum(x for x, _ in road_name.points) / len(road_name.points)
+    context_center_x = sum(x for item in road_lines for x, _ in item.points) / sum(
+        len(item.points) for item in road_lines
+    )
+    assert road_name_center_x == pytest.approx(context_center_x, abs=35.0)
 
 
 def test_all_sheets_use_one_affine_display_scale(qapp) -> None:

@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QGraphicsSimpleTextItem,
 )
 from shapely.geometry import LineString, Point
+from shapely.ops import nearest_points
 
 
 class ExcelExportError(RuntimeError):
@@ -435,6 +436,13 @@ def _limit_context_road_reach(
     """Clip surrounding roads to a narrow corridor used only by Excel output."""
     half_length = max(float(total_length), 1.0) / 2.0
     corridor = axis.buffer(half_length, cap_style="flat")
+    name_anchors: dict[str, list[tuple[Point, Point]]] = {}
+    for item in objects:
+        if item.kind != "line" or item.role != "centerline" or not item.group_id:
+            continue
+        context_line = LineString(item.points)
+        anchor, context_point = nearest_points(axis, context_line)
+        name_anchors.setdefault(item.group_id, []).append((anchor, context_point))
     limited: list[ExcelObject] = []
     for item in objects:
         if item.kind == "line" and item.role in {"road_edge", "centerline"}:
@@ -443,7 +451,14 @@ def _limit_context_road_reach(
             limited.extend(_replace_points(item, tuple(part.coords)) for part in parts)
             continue
         if item.role == "road_name" and item.kind == "text":
-            limited.append(_clamp_road_name(item, axis, half_length * 0.78))
+            limited.append(
+                _place_road_name_at_junction(
+                    item,
+                    axis,
+                    name_anchors.get(item.group_id, []),
+                    half_length * 0.72,
+                )
+            )
             continue
         limited.append(item)
     return limited
@@ -473,18 +488,35 @@ def _replace_points(
     )
 
 
-def _clamp_road_name(
-    item: ExcelObject, axis: LineString, maximum_distance: float
+def _place_road_name_at_junction(
+    item: ExcelObject,
+    axis: LineString,
+    anchors: list[tuple[Point, Point]],
+    label_offset: float,
 ) -> ExcelObject:
     center_x, center_y = _object_center(item)
     center = Point(center_x, center_y)
-    nearest = axis.interpolate(axis.project(center))
-    dx, dy = center.x - nearest.x, center.y - nearest.y
+    if anchors:
+        nearest, context_point = min(
+            anchors, key=lambda pair: pair[1].distance(center)
+        )
+    else:
+        nearest = axis.interpolate(axis.project(center))
+        context_point = center
+    dx, dy = context_point.x - nearest.x, context_point.y - nearest.y
     distance = hypot(dx, dy)
-    if distance <= maximum_distance or distance <= 1e-9:
-        return item
-    new_x = nearest.x + dx / distance * maximum_distance
-    new_y = nearest.y + dy / distance * maximum_distance
+    if distance <= 1e-9:
+        station = axis.project(nearest)
+        step = max(min(axis.length * 0.001, 1.0), 0.01)
+        before = axis.interpolate(max(0.0, station - step))
+        after = axis.interpolate(min(axis.length, station + step))
+        tangent_x, tangent_y = after.x - before.x, after.y - before.y
+        tangent_length = max(hypot(tangent_x, tangent_y), 1e-9)
+        dx, dy = -tangent_y / tangent_length, tangent_x / tangent_length
+    else:
+        dx, dy = dx / distance, dy / distance
+    new_x = nearest.x + dx * label_offset
+    new_y = nearest.y + dy * label_offset
     (left, top), (right, bottom) = item.points
     half_width, half_height = (right - left) / 2.0, (bottom - top) / 2.0
     return _replace_points(
