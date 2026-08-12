@@ -501,13 +501,16 @@ def _place_road_name_at_junction(
     center_x, center_y = _object_center(item)
     center = Point(center_x, center_y)
     if anchors:
-        nearest, context_point, _context_line = min(
+        nearest, context_point, context_line = min(
             anchors, key=lambda candidate: candidate[2].distance(center)
         )
+        endpoints = (Point(context_line.coords[0]), Point(context_line.coords[-1]))
+        outward = max(endpoints, key=lambda point: point.distance(nearest))
+        dx, dy = outward.x - nearest.x, outward.y - nearest.y
     else:
         nearest = axis.interpolate(axis.project(center))
         context_point = center
-    dx, dy = context_point.x - nearest.x, context_point.y - nearest.y
+        dx, dy = context_point.x - nearest.x, context_point.y - nearest.y
     distance = hypot(dx, dy)
     if distance <= 1e-9:
         station = axis.project(nearest)
@@ -523,10 +526,17 @@ def _place_road_name_at_junction(
     new_y = nearest.y + dy * label_offset
     (left, top), (right, bottom) = item.points
     half_width, half_height = (right - left) / 2.0, (bottom - top) / 2.0
-    return _replace_points(
-        item,
+    angle = degrees(atan2(dy, dx))
+    while angle > 90.0:
+        angle -= 180.0
+    while angle < -90.0:
+        angle += 180.0
+    return ExcelObject(
+        item.kind,
         ((new_x - half_width, new_y - half_height),
          (new_x + half_width, new_y + half_height)),
+        item.text, item.line_color, item.fill_color, item.line_width,
+        angle, item.font_size, item.line_style, item.role, item.group_id,
     )
 
 
@@ -623,7 +633,11 @@ def _rotate_object(
         (left, top), (right, bottom) = item.points
         half_width, half_height = (right - left) / 2, (bottom - top) / 2
         points = ((new_x - half_width, new_y - half_height), (new_x + half_width, new_y + half_height))
-        rotation = 0.0 if item.kind == "text" else item.rotation + angle
+        rotation = (
+            item.rotation + angle
+            if item.kind != "text" or item.role == "road_name"
+            else 0.0
+        )
     return ExcelObject(
         item.kind, points, item.text, item.line_color, item.fill_color, item.line_width,
         rotation, item.font_size, item.line_style, item.role, item.group_id

@@ -231,7 +231,7 @@ def test_context_roads_are_clipped_to_export_corridor(qapp) -> None:
     assert road_lines
     assert max(abs(y - pole_y) for item in road_lines for _, y in item.points) < 20.0
     road_name = next(item for item in page if item.role == "road_name")
-    assert road_name.rotation == 0.0
+    assert abs(road_name.rotation) == pytest.approx(90.0)
     road_name_center_x = sum(x for x, _ in road_name.points) / len(road_name.points)
     context_center_x = sum(x for item in road_lines for x, _ in item.points) / sum(
         len(item.points) for item in road_lines
@@ -259,6 +259,7 @@ def test_legacy_road_name_without_group_uses_nearest_context_road(qapp) -> None:
     label_x = sum(x for x, _ in label.points) / len(label.points)
     context_x = sum(x for x, _ in context.points) / len(context.points)
     assert label_x == pytest.approx(context_x, abs=35.0)
+    assert abs(label.rotation) == pytest.approx(90.0)
 
 
 def test_all_sheets_use_one_affine_display_scale(qapp) -> None:
