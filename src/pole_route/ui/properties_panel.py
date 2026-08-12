@@ -56,7 +56,7 @@ class PropertiesPanel(QWidget):
         self.rotation.setLocale(QLocale.c())
         self.rotation.setRange(-360.0, 360.0)
         self.rotation.setDecimals(1)
-        self.rotation.setSuffix("°")
+        self.rotation.setSuffix(" deg")
         self.rotation.editingFinished.connect(
             lambda: self.rotationCommitted.emit(self.rotation.value())
         )
@@ -83,6 +83,9 @@ class PropertiesPanel(QWidget):
 
     def show_for_items(self, items) -> None:
         """Show only controls supported by the selected graphics item."""
+        controls = (self.text, self.line_width, self.line_style, self.font_size, self.rotation)
+        for control in controls:
+            control.blockSignals(True)
         items = list(items)
         item = items[0] if items else None
         has_item = item is not None
@@ -118,17 +121,15 @@ class PropertiesPanel(QWidget):
             self.rotation.setValue(next(iter(rotations)) if len(rotations) == 1 else -360.0)
 
         if is_text:
-            self.text.blockSignals(True)
             self.text.setText(item.text())
-            self.text.blockSignals(False)
             self.font_size.setValue(max(1, round(item.font().pointSizeF())))
         pen_item = _first_pen_item(item) if has_pen else None
         if pen_item is not None:
             self.line_width.setValue(pen_item.pen().widthF())
             style = "dash" if pen_item.pen().style().value != 1 else "solid"
-            self.line_style.blockSignals(True)
             self.line_style.setCurrentIndex(self.line_style.findData(style))
-            self.line_style.blockSignals(False)
+        for control in controls:
+            control.blockSignals(False)
 
     def show_for_item(self, item) -> None:
         self.show_for_items([] if item is None else [item])

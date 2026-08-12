@@ -277,7 +277,7 @@ class MainWindow(QMainWindow):
         self.rotation_angle = QSpinBox()
         self.rotation_angle.setLocale(QLocale.c())
         self.rotation_angle.setRange(-180, 180)
-        self.rotation_angle.setSuffix("°")
+        self.rotation_angle.setSuffix(" deg")
         self.rotation_angle.setToolTip("Canvas rotation angle")
         self.rotation_angle.editingFinished.connect(
             lambda: self._set_canvas_rotation(self.rotation_angle.value())
@@ -368,6 +368,7 @@ class MainWindow(QMainWindow):
         )
         self.undo_stack.clear()
         render_schematic(self.route_scene, layout, self.undo_stack)
+        self._set_layer_locked("Roads", True)
         self.reset_layout_action.setEnabled(True)
         for action in self.drawing_actions.values():
             action.setEnabled(True)

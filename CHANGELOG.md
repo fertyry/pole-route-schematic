@@ -6,6 +6,8 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ### Fixed
 
+- Left-click selection no longer applies stale Properties values or begins an accidental tiny drag
+- Roads are locked by default after schematic generation to prevent moving the entire network
 - Middle-button canvas panning no longer moves a road or object beneath the pointer
 - Editor angle, font-size, and line-width controls always use Arabic digits
 - Schematic spacing confirmation returns a stable spacing mode with PySide6

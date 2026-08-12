@@ -38,6 +38,7 @@ class LayersPanel(QWidget):
                 lambda checked, layer=name: self.visibilityChanged.emit(layer, checked)
             )
             locked = QCheckBox()
+            locked.setChecked(name == "Roads")
             locked.toggled.connect(
                 lambda checked, layer=name: self.lockChanged.emit(layer, checked)
             )

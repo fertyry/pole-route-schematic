@@ -332,3 +332,31 @@ def test_middle_button_pan_does_not_move_road_object(qtbot) -> None:
     )
 
     assert road.pos() == before
+
+
+def test_left_click_selects_objects_without_removing_or_moving_them(qtbot) -> None:
+    from pole_route.domain.pole import Pole, PoleSide
+    from pole_route.domain.route import GeoPoint, Route
+    from pole_route.geometry.road_geometry import build_road_geometry
+    from pole_route.geometry.schematic_layout import create_schematic_layout
+    from pole_route.ui.schematic_renderer import render_schematic
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(900, 650)
+    window.show()
+    route = Route("Road", "route.kml", (GeoPoint(100, 13), GeoPoint(100.01, 13)))
+    pole = Pole("P-1", 13.0001, 100.005, "Test", PoleSide.LEFT)
+    layout = create_schematic_layout(build_road_geometry(route, [pole], 6, 2))
+    render_schematic(window.route_scene, layout, window.undo_stack)
+    window.canvas.fit_scene()
+
+    for item_type in ("road", "pole", "label"):
+        item = next(item for item in window.route_scene.items() if item.data(0) == item_type)
+        before_position = item.pos()
+        click_position = window.canvas.mapFromScene(item.sceneBoundingRect().center())
+        qtbot.mouseClick(window.canvas.viewport(), Qt.MouseButton.LeftButton, pos=click_position)
+
+        assert item.scene() is window.route_scene
+        assert item.isVisible()
+        assert item.pos() == before_position
