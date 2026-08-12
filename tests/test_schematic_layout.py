@@ -1,4 +1,5 @@
 import pytest
+from PySide6.QtGui import QUndoStack
 from PySide6.QtWidgets import QGraphicsScene
 
 from pole_route.domain.pole import Pole, PoleSide
@@ -44,7 +45,7 @@ def test_rendered_schematic_objects_are_selectable_and_movable(qapp) -> None:
     layout = create_schematic_layout(_geometry_with_irregular_poles())
     scene = QGraphicsScene()
 
-    render_schematic(scene, layout)
+    render_schematic(scene, layout, QUndoStack())
 
     typed_items = [item for item in scene.items() if item.data(0) in {"road", "pole", "label"}]
     assert len(typed_items) == 1 + len(layout.poles) * 2

@@ -6,6 +6,8 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ### Added
 
+- Undo/Redo for moved, deleted, and reset schematic objects
+- Delete selection and confirmed Reset layout editor actions with keyboard shortcuts
 - Uniformly spaced non-scale schematic generation ordered by source route station
 - Selectable and movable road, pole, and label graphics objects
 - Decimal-degree and DMS pole-coordinate parsing with degree symbols and N/S/E/W

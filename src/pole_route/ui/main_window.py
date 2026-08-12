@@ -1,7 +1,7 @@
 """Main application window."""
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QFileDialog,
     QGraphicsScene,
@@ -31,6 +31,11 @@ from pole_route.importers.pole_importer import (
     suggest_column_mapping,
 )
 from pole_route.ui.column_mapping_dialog import ColumnMappingDialog
+from pole_route.ui.editor_commands import (
+    DeleteItemsCommand,
+    ResetLayoutCommand,
+    editable_scene_items,
+)
 from pole_route.ui.geometry_renderer import render_road_geometry
 from pole_route.ui.geometry_settings_dialog import GeometrySettingsDialog
 from pole_route.ui.route_import_dialog import RouteImportDialog, draw_route_preview
@@ -45,6 +50,7 @@ class MainWindow(QMainWindow):
         self.current_route: Route | None = None
         self.current_poles: list[Pole] = []
         self.current_geometry = None
+        self.undo_stack = QUndoStack(self)
         self.setWindowTitle("PoleRoute Schematic - Sprint 3")
         self.resize(1100, 720)
         self._build_toolbar()
@@ -79,12 +85,33 @@ class MainWindow(QMainWindow):
         self.generate_schematic_action.triggered.connect(self._generate_schematic)
         toolbar.addAction(self.generate_schematic_action)
 
+        toolbar.addSeparator()
+        self.undo_action = self.undo_stack.createUndoAction(self, "Undo")
+        self.undo_action.setShortcut(QKeySequence.StandardKey.Undo)
+        toolbar.addAction(self.undo_action)
+
+        self.redo_action = self.undo_stack.createRedoAction(self, "Redo")
+        self.redo_action.setShortcut(QKeySequence.StandardKey.Redo)
+        toolbar.addAction(self.redo_action)
+
+        self.delete_action = QAction("Delete", self)
+        self.delete_action.setShortcut(QKeySequence.StandardKey.Delete)
+        self.delete_action.setEnabled(False)
+        self.delete_action.triggered.connect(self._delete_selected)
+        toolbar.addAction(self.delete_action)
+
+        self.reset_layout_action = QAction("Reset layout", self)
+        self.reset_layout_action.setEnabled(False)
+        self.reset_layout_action.triggered.connect(self._reset_layout)
+        toolbar.addAction(self.reset_layout_action)
+
         export_action = QAction("Export", self)
         export_action.setEnabled(False)
         toolbar.addAction(export_action)
 
     def _build_workspace(self) -> None:
         self.route_scene = QGraphicsScene(self)
+        self.route_scene.selectionChanged.connect(self._update_editor_actions)
         self.route_scene.setSceneRect(0, 0, 1000, 600)
 
         canvas = QGraphicsView(self.route_scene)
@@ -193,7 +220,9 @@ class MainWindow(QMainWindow):
 
     def _generate_schematic(self) -> None:
         layout = create_schematic_layout(self.current_geometry)
-        render_schematic(self.route_scene, layout)
+        self.undo_stack.clear()
+        render_schematic(self.route_scene, layout, self.undo_stack)
+        self.reset_layout_action.setEnabled(True)
         self.workspace_note.setText(
             "Non-scale schematic: poles use equal visual spacing. Select and drag the road, "
             "individual poles, or labels to edit the drawing."
@@ -202,11 +231,37 @@ class MainWindow(QMainWindow):
             f"Generated editable schematic with {len(layout.poles)} uniformly spaced poles"
         )
 
+    def _delete_selected(self) -> None:
+        selected = [item for item in self.route_scene.selectedItems() if item.parentItem() is None]
+        if selected:
+            self.undo_stack.push(DeleteItemsCommand(self.route_scene, selected))
+            self.statusBar().showMessage(f"Deleted {len(selected)} object(s) - Undo is available")
+
+    def _reset_layout(self) -> None:
+        items = editable_scene_items(self.route_scene)
+        if not items:
+            return
+        answer = QMessageBox.question(
+            self,
+            "Reset schematic layout",
+            "Return all schematic objects to their generated positions?\n\n"
+            "You can use Undo after resetting.",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.undo_stack.push(ResetLayoutCommand(items))
+        self.statusBar().showMessage("Schematic layout reset - Undo is available")
+
+    def _update_editor_actions(self) -> None:
+        self.delete_action.setEnabled(bool(self.route_scene.selectedItems()))
+
     def _update_geometry_action(self) -> None:
         self.build_geometry_action.setEnabled(
             self.current_route is not None and bool(self.current_poles)
         )
         self.current_geometry = None
+        self.undo_stack.clear()
+        self.reset_layout_action.setEnabled(False)
         self.generate_schematic_action.setEnabled(False)
 
     def _choose_pole_file(self) -> None:

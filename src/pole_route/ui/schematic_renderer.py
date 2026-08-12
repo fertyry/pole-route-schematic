@@ -1,18 +1,16 @@
 """Render editable Qt objects for a non-scale schematic."""
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QBrush, QColor, QPen
+from PySide6.QtGui import QBrush, QColor, QPen, QUndoStack
 from PySide6.QtWidgets import (
-    QGraphicsEllipseItem,
     QGraphicsItem,
-    QGraphicsItemGroup,
     QGraphicsLineItem,
     QGraphicsScene,
-    QGraphicsSimpleTextItem,
 )
 
 from pole_route.domain.pole import PoleSide
 from pole_route.domain.schematic import SchematicLayout
+from pole_route.ui.editor_commands import EditableEllipseItem, EditableItemGroup, EditableTextItem
 
 EDITABLE_FLAGS = (
     QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
@@ -21,12 +19,13 @@ EDITABLE_FLAGS = (
 )
 
 
-def render_schematic(scene: QGraphicsScene, layout: SchematicLayout) -> None:
+def render_schematic(scene: QGraphicsScene, layout: SchematicLayout, undo_stack: QUndoStack) -> None:
     """Replace the scene with individually editable schematic objects."""
     scene.clear()
-    road_group = QGraphicsItemGroup()
+    road_group = EditableItemGroup(undo_stack)
     road_group.setData(0, "road")
     road_group.setFlags(EDITABLE_FLAGS)
+    road_group.setData(2, road_group.pos())
     road_pen = QPen(QColor("#d0d0d0"), 3)
     center_pen = QPen(QColor("#6fa8dc"), 2, Qt.PenStyle.DashLine)
     for y, pen in (
@@ -41,10 +40,11 @@ def render_schematic(scene: QGraphicsScene, layout: SchematicLayout) -> None:
 
     for pole in layout.poles:
         color = QColor("#27ae60" if pole.side is PoleSide.LEFT else "#eb5757")
-        pole_item = QGraphicsEllipseItem(-7, -7, 14, 14)
+        pole_item = EditableEllipseItem(-7, -7, 14, 14, undo_stack=undo_stack)
         pole_item.setData(0, "pole")
         pole_item.setData(1, pole.number)
         pole_item.setPos(pole.x, pole.y)
+        pole_item.setData(2, pole_item.pos())
         pole_item.setPen(QPen(color, 2))
         pole_item.setBrush(QBrush(QColor("#202020")))
         pole_item.setFlags(EDITABLE_FLAGS)
@@ -55,13 +55,14 @@ def render_schematic(scene: QGraphicsScene, layout: SchematicLayout) -> None:
         scene.addItem(pole_item)
 
         label_text = pole.number + (f"  {pole.detail}" if pole.detail else "")
-        label = QGraphicsSimpleTextItem(label_text)
+        label = EditableTextItem(label_text, undo_stack)
         label.setData(0, "label")
         label.setData(1, pole.number)
         label.setBrush(QBrush(color))
         label.setFlags(EDITABLE_FLAGS)
         label_offset_y = -34 if pole.side is PoleSide.LEFT else 16
         label.setPos(pole.x + 10, pole.y + label_offset_y)
+        label.setData(2, label.pos())
         scene.addItem(label)
 
     scene.setSceneRect(0, 0, layout.width, layout.height)
