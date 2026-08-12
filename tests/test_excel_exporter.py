@@ -203,6 +203,25 @@ def test_all_sheets_use_one_affine_display_scale(qapp) -> None:
     )
 
 
+def test_sheet_boundaries_follow_route_distance_not_pole_count(qapp) -> None:
+    objects = [
+        ExcelObject("line", ((0, 0), (500, 0)), role="main_centerline", group_id="main")
+    ]
+    for index, x in enumerate((0, 10, 20, 30, 400, 500), start=1):
+        objects.append(
+            ExcelObject(
+                "rectangle", ((x - 2, -2), (x + 2, 2)), role="pole", group_id=f"P-{index}"
+            )
+        )
+
+    first, second = prepare_excel_pages(objects, ExcelExportSettings(page_count=2))
+
+    first_groups = {item.group_id for item in first if item.role == "pole"}
+    second_groups = {item.group_id for item in second if item.role == "pole"}
+    # Half the route is station 250; P-5 at station 400 is closer than P-4 at 30.
+    assert first_groups & second_groups == {"P-5"}
+
+
 def test_tagged_main_route_is_split_start_to_end_and_rotated_horizontal(qapp) -> None:
     objects = [
         ExcelObject(
@@ -237,8 +256,8 @@ def test_tagged_main_route_is_split_start_to_end_and_rotated_horizontal(qapp) ->
     )
 
     # The boundary pole is repeated as the match pole on both adjacent sheets.
-    assert [sum(item.role == "pole" for item in page) for page in pages] == [3, 2]
-    assert [sum(item.role == "pole_sequence" for item in page) for page in pages] == [3, 2]
+    assert [sum(item.role == "pole" for item in page) for page in pages] == [2, 3]
+    assert [sum(item.role == "pole_sequence" for item in page) for page in pages] == [2, 3]
     assert all(any(item.role == "schedule" for item in page) for page in pages)
     for page in pages:
         main_lines = [item for item in page if item.role == "main_centerline"]

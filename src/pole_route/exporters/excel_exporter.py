@@ -421,9 +421,16 @@ def _pole_boundary_indices(
     ]
     result = [0]
     for page in range(1, page_count):
-        ideal = round(page * last / page_count)
+        target_station = axis.length * page / page_count
+        ideal = min(
+            range(last + 1),
+            key=lambda index: abs(
+                pole_stations[ordered_poles[index]] - target_station
+            ),
+        )
         lower = result[-1] + 1
         upper = last - (page_count - page)
+        ideal = max(lower, min(ideal, upper))
         candidates = range(max(lower, ideal - 4), min(upper, ideal + 4) + 1)
 
         def score(index: int) -> tuple[float, float]:
@@ -437,7 +444,8 @@ def _pole_boundary_indices(
             )
             danger_distance = max((previous_gap + next_gap) * 0.75, 18.0)
             junction_penalty = max(0.0, danger_distance - nearest_junction) * 1000.0
-            return (junction_penalty + abs(index - ideal), abs(index - ideal))
+            station_error = abs(station - target_station)
+            return (junction_penalty + station_error, station_error)
 
         result.append(min(candidates, key=score))
     result.append(last)
