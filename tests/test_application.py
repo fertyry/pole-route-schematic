@@ -45,6 +45,17 @@ def test_v2_ui_groups_commands_by_work_stage(qtbot) -> None:
     assert window.findChild(QMenu, "geometryMenu").title() == "Geometry"
     assert window.findChild(QMenu, "drawingMenu").title() == "Drawing"
     assert window.findChild(QMenu, "outputMenu").title() == "Output"
+    drawing_actions = [
+        window.edit_canvas_action,
+        window.undo_action,
+        window.redo_action,
+        window.delete_action,
+        window.reset_layout_action,
+        window.stack_poles_action,
+        *window.drawing_actions.values(),
+    ]
+    assert all(not action.icon().isNull() for action in drawing_actions)
+    assert not window.blocks_button.icon().isNull()
 
 
 def test_main_window_can_show_poles(qtbot) -> None:

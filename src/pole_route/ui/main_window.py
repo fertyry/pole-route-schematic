@@ -161,6 +161,9 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.same_pole_action)
 
         self.edit_canvas_action = QAction("Edit canvas", self)
+        self.edit_canvas_action.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView)
+        )
         self.edit_canvas_action.setCheckable(True)
         self.edit_canvas_action.setEnabled(False)
         self.edit_canvas_action.toggled.connect(self._toggle_canvas_editor)
@@ -168,25 +171,34 @@ class MainWindow(QMainWindow):
 
         toolbar.addSeparator()
         self.undo_action = self.undo_stack.createUndoAction(self, "Undo")
+        self.undo_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowBack))
         self.undo_action.setShortcut(QKeySequence.StandardKey.Undo)
         toolbar.addAction(self.undo_action)
 
         self.redo_action = self.undo_stack.createRedoAction(self, "Redo")
+        self.redo_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowForward))
         self.redo_action.setShortcut(QKeySequence.StandardKey.Redo)
         toolbar.addAction(self.redo_action)
 
         self.delete_action = QAction("Delete", self)
+        self.delete_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
         self.delete_action.setShortcut(QKeySequence.StandardKey.Delete)
         self.delete_action.setEnabled(False)
         self.delete_action.triggered.connect(self._delete_selected)
         toolbar.addAction(self.delete_action)
 
         self.reset_layout_action = QAction("Reset layout", self)
+        self.reset_layout_action.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
+        )
         self.reset_layout_action.setEnabled(False)
         self.reset_layout_action.triggered.connect(self._reset_layout)
         toolbar.addAction(self.reset_layout_action)
 
         self.stack_poles_action = QAction("Stack poles", self)
+        self.stack_poles_action.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarShadeButton)
+        )
         self.stack_poles_action.setEnabled(False)
         self.stack_poles_action.triggered.connect(self._stack_selected_poles)
         toolbar.addAction(self.stack_poles_action)
@@ -195,6 +207,13 @@ class MainWindow(QMainWindow):
         self.drawing_actions: dict[DrawingMode, QAction] = {}
         drawing_group = QActionGroup(self)
         drawing_group.setExclusive(True)
+        drawing_icons = {
+            DrawingMode.SELECT: QStyle.StandardPixmap.SP_DialogApplyButton,
+            DrawingMode.LINE: QStyle.StandardPixmap.SP_MediaSeekForward,
+            DrawingMode.RECTANGLE: QStyle.StandardPixmap.SP_TitleBarMaxButton,
+            DrawingMode.ELLIPSE: QStyle.StandardPixmap.SP_DialogYesButton,
+            DrawingMode.TEXT: QStyle.StandardPixmap.SP_FileDialogInfoView,
+        }
         for mode, label in (
             (DrawingMode.SELECT, "Select"),
             (DrawingMode.LINE, "Line"),
@@ -203,6 +222,7 @@ class MainWindow(QMainWindow):
             (DrawingMode.TEXT, "Text"),
         ):
             action = QAction(label, self)
+            action.setIcon(self.style().standardIcon(drawing_icons[mode]))
             action.setCheckable(True)
             action.setEnabled(False)
             action.triggered.connect(
@@ -215,6 +235,8 @@ class MainWindow(QMainWindow):
 
         self.blocks_button = QToolButton()
         self.blocks_button.setText("Blocks")
+        self.blocks_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon))
+        self.blocks_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.blocks_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.blocks_button.setEnabled(False)
         blocks_menu = QMenu(self.blocks_button)
