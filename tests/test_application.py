@@ -334,6 +334,31 @@ def test_middle_button_pan_does_not_move_road_object(qtbot) -> None:
     assert road.pos() == before
 
 
+def test_middle_button_drag_does_not_change_canvas_scroll(qtbot) -> None:
+    from PySide6.QtCore import QPoint
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(700, 500)
+    window.show()
+    window.route_scene.setSceneRect(0, 0, 2000, 1400)
+    window.canvas.centerOn(1000, 700)
+    before = (
+        window.canvas.horizontalScrollBar().value(),
+        window.canvas.verticalScrollBar().value(),
+    )
+    start = QPoint(250, 200)
+
+    qtbot.mousePress(window.canvas.viewport(), Qt.MouseButton.MiddleButton, pos=start)
+    qtbot.mouseMove(window.canvas.viewport(), pos=start + QPoint(100, 80))
+    qtbot.mouseRelease(
+        window.canvas.viewport(), Qt.MouseButton.MiddleButton, pos=start + QPoint(100, 80)
+    )
+
+    assert window.canvas.horizontalScrollBar().value() == before[0]
+    assert window.canvas.verticalScrollBar().value() == before[1]
+
+
 def test_left_click_selects_objects_without_removing_or_moving_them(qtbot) -> None:
     from pole_route.domain.pole import Pole, PoleSide
     from pole_route.domain.route import GeoPoint, Route

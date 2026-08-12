@@ -43,8 +43,6 @@ class DrawingView(QGraphicsView):
         self.line_width = 2.0
         self.block_type = BlockType.SIDE_ROAD
         self._rotation_degrees = 0.0
-        self._middle_panning = False
-        self._pan_position = None
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
 
     def set_mode(self, mode: DrawingMode) -> None:
@@ -68,9 +66,6 @@ class DrawingView(QGraphicsView):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.MiddleButton:
-            self._middle_panning = True
-            self._pan_position = event.position()
-            self.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
         if self.mode is DrawingMode.SELECT or event.button() != Qt.MouseButton.LeftButton:
@@ -90,17 +85,6 @@ class DrawingView(QGraphicsView):
         self.scene().addItem(self._preview)
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        if self._middle_panning and self._pan_position is not None:
-            delta = event.position() - self._pan_position
-            self._pan_position = event.position()
-            self.horizontalScrollBar().setValue(
-                self.horizontalScrollBar().value() - round(delta.x())
-            )
-            self.verticalScrollBar().setValue(
-                self.verticalScrollBar().value() - round(delta.y())
-            )
-            event.accept()
-            return
         if self._start is None or self._preview is None:
             super().mouseMoveEvent(event)
             return
@@ -120,14 +104,7 @@ class DrawingView(QGraphicsView):
             self._update_shape(self._preview, self._start, end)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.MiddleButton and self._middle_panning:
-            self._middle_panning = False
-            self._pan_position = None
-            self.setCursor(
-                Qt.CursorShape.ArrowCursor
-                if self.mode is DrawingMode.SELECT
-                else Qt.CursorShape.CrossCursor
-            )
+        if event.button() == Qt.MouseButton.MiddleButton:
             event.accept()
             return
         if self._start is None or self._preview is None:
@@ -217,8 +194,18 @@ class DrawingView(QGraphicsView):
         self._preview = None
 
     def wheelEvent(self, event: QWheelEvent) -> None:
-        factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
-        self.scale(factor, factor)
+        delta = event.angleDelta().y()
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            factor = 1.15 if delta > 0 else 1 / 1.15
+            self.scale(factor, factor)
+            event.accept()
+            return
+        scrollbar = (
+            self.horizontalScrollBar()
+            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+            else self.verticalScrollBar()
+        )
+        scrollbar.setValue(scrollbar.value() - delta)
         event.accept()
 
     def zoom_in(self) -> None:

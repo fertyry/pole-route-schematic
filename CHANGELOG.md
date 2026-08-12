@@ -6,6 +6,8 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ### Fixed
 
+- Canvas wheel navigation now uses wheel for vertical scroll, Shift+wheel for horizontal
+  scroll, Ctrl+wheel for zoom, and ignores middle-button dragging
 - Newly generated schematics automatically fit and recenter after earlier canvas pan or zoom
 - Left-click selection no longer applies stale Properties values or begins an accidental tiny drag
 - Roads are locked by default after schematic generation to prevent moving the entire network

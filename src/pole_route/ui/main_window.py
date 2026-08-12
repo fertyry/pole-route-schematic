@@ -2,7 +2,7 @@
 
 from math import atan2, cos, degrees, radians, sin
 
-from PySide6.QtCore import QLocale, QPointF, Qt
+from PySide6.QtCore import QLocale, QPointF, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QBrush, QColor, QKeySequence, QPen, QUndoStack
 from PySide6.QtWidgets import (
     QColorDialog,
@@ -370,6 +370,7 @@ class MainWindow(QMainWindow):
         render_schematic(self.route_scene, layout, self.undo_stack)
         self._set_layer_locked("Roads", True)
         self.canvas.fit_scene()
+        QTimer.singleShot(0, self.canvas.fit_scene)
         self.reset_layout_action.setEnabled(True)
         for action in self.drawing_actions.values():
             action.setEnabled(True)
