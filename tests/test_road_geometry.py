@@ -99,3 +99,45 @@ def test_disabled_pole_line_is_not_used_for_pole_projection() -> None:
     assert not network.roads[0].pole_line_enabled
     assert network.projected_poles == ()
     assert network.unplaced_poles == (pole,)
+
+
+def test_invalid_context_road_does_not_cancel_main_route_geometry(monkeypatch) -> None:
+    import pole_route.geometry.road_geometry as road_geometry_module
+
+    routes = [
+        ClassifiedRoute(
+            Route("Main", "route.kml", (GeoPoint(100, 13), GeoPoint(100.01, 13))),
+            RouteType.MAIN_ROUTE,
+            6.0,
+            2.0,
+        ),
+        ClassifiedRoute(
+            Route(
+                "Broken OSM road",
+                "OpenStreetMap:way/1",
+                (
+                    GeoPoint(100.005, 13.0),
+                    GeoPoint(100.0051, 13.0001),
+                    GeoPoint(100.005, 13.0),
+                ),
+            ),
+            RouteType.ROAD,
+            6.0,
+            None,
+            False,
+        ),
+    ]
+
+    original_offset = road_geometry_module._offset
+
+    def fail_broken_context(centerline, distance, label):
+        if "Broken OSM road" in label:
+            raise RoadGeometryError("simulated invalid context offset")
+        return original_offset(centerline, distance, label)
+
+    monkeypatch.setattr(road_geometry_module, "_offset", fail_broken_context)
+    network = build_road_network_geometry(routes, [])
+
+    assert len(network.roads) == 1
+    assert network.roads[0].is_main_route
+    assert network.skipped_context_routes == ("Broken OSM road",)

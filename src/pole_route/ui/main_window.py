@@ -521,6 +521,8 @@ class MainWindow(QMainWindow):
         )
         if geometry.unplaced_poles:
             message += f", {len(geometry.unplaced_poles)} without Side not placed"
+        if geometry.skipped_context_routes:
+            message += f", {len(geometry.skipped_context_routes)} invalid context road(s) skipped"
         self.statusBar().showMessage(message)
 
     def _generate_schematic(self) -> None:

@@ -49,6 +49,7 @@ class RoadNetworkGeometry:
     roads: tuple[RoadGeometry, ...]
     projected_poles: tuple[ProjectedPole, ...]
     unplaced_poles: tuple[Pole, ...]
+    skipped_context_routes: tuple[str, ...] = ()
 
     @property
     def centerline(self) -> LineString:
@@ -123,7 +124,20 @@ def build_road_network_geometry(
     projection = MetricProjection.for_points(
         tuple(point for item in road_routes for point in item.route.points)
     )
-    roads = tuple(_build_road_with_projection(item, projection) for item in road_routes)
+    roads_list: list[RoadGeometry] = []
+    skipped_context_routes: list[str] = []
+    for item in road_routes:
+        try:
+            roads_list.append(_build_road_with_projection(item, projection))
+        except RoadGeometryError as error:
+            if item.type is RouteType.MAIN_ROUTE:
+                raise RoadGeometryError(
+                    f"Main route '{item.route.name}' is invalid: {error}"
+                ) from error
+            skipped_context_routes.append(item.route.name)
+    roads = tuple(roads_list)
+    if not roads:
+        raise RoadGeometryError("No usable road geometry could be created")
     projected: list[ProjectedPole] = []
     unplaced: list[Pole] = []
     for pole in poles:
@@ -148,6 +162,7 @@ def build_road_network_geometry(
         roads,
         tuple(projected),
         tuple(unplaced),
+        tuple(skipped_context_routes),
     )
 
 
@@ -162,15 +177,17 @@ def _build_road_with_projection(
     if pole_offset is None or pole_offset < 0:
         raise RoadGeometryError(f"Pole offset for '{item.route.name}' cannot be negative")
     centerline = LineString(projection.to_metric(point) for point in item.route.points)
+    if centerline.length <= 0:
+        raise RoadGeometryError("centerline has zero length")
     half_width = width / 2.0
     pole_distance = half_width + pole_offset
     return RoadGeometry(
         projection,
         centerline,
-        _offset(centerline, half_width, "left road edge"),
-        _offset(centerline, -half_width, "right road edge"),
-        _offset(centerline, pole_distance, "left pole line"),
-        _offset(centerline, -pole_distance, "right pole line"),
+        _offset(centerline, half_width, f"left road edge for '{item.route.name}'"),
+        _offset(centerline, -half_width, f"right road edge for '{item.route.name}'"),
+        _offset(centerline, pole_distance, f"left pole line for '{item.route.name}'"),
+        _offset(centerline, -pole_distance, f"right pole line for '{item.route.name}'"),
         (),
         (),
         width,
