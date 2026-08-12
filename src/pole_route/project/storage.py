@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsSimpleTextItem,
+    QGraphicsTextItem,
 )
 
 from pole_route.domain.pole import Pole, PoleSide
@@ -178,6 +179,15 @@ def _item_to_data(item: QGraphicsItem) -> dict[str, Any]:
             "brush": _brush_data(item.brush()),
             "font": [font.family(), font.pointSizeF(), font.bold(), font.italic()],
         }
+    if isinstance(item, QGraphicsTextItem):
+        font = item.font()
+        return {
+            "kind": "document_text",
+            **common,
+            "text": item.toPlainText(),
+            "color": item.defaultTextColor().name(QColor.NameFormat.HexArgb),
+            "font": [font.family(), font.pointSizeF(), font.bold(), font.italic()],
+        }
     if isinstance(item, (QGraphicsRectItem, QGraphicsEllipseItem)):
         rect = item.rect()
         return {
@@ -221,6 +231,15 @@ def _item_from_data(
             else QGraphicsSimpleTextItem(data["text"])
         )
         item.setBrush(_brush_from_data(data["brush"]))
+        family, size, bold, italic = data["font"]
+        font = QFont(family)
+        font.setPointSizeF(size)
+        font.setBold(bold)
+        font.setItalic(italic)
+        item.setFont(font)
+    elif kind == "document_text":
+        item = QGraphicsTextItem(data["text"])
+        item.setDefaultTextColor(QColor(data["color"]))
         family, size, bold, italic = data["font"]
         font = QFont(family)
         font.setPointSizeF(size)

@@ -17,6 +17,7 @@ from pole_route.project.storage import (
     scene_to_data,
 )
 from pole_route.ui.editor_commands import EditableTextItem
+from pole_route.ui.geometry_renderer import render_road_geometry
 from pole_route.ui.schematic_renderer import EDITABLE_FLAGS, render_schematic
 
 
@@ -77,3 +78,21 @@ def test_editable_canvas_round_trip_preserves_objects_and_positions(qapp) -> Non
     assert restored_pole.pos() == pole.pos()
     assert restored_note.pos() == QPointF(300, 200)
     assert restored.sceneRect() == source.sceneRect()
+
+
+def test_metric_preview_text_can_be_saved_and_restored(qapp) -> None:
+    routes, poles = _project_inputs()
+    geometry = build_road_network_geometry(routes, poles)
+    source = QGraphicsScene()
+    render_road_geometry(source, geometry)
+
+    saved = scene_to_data(source)
+    restored = QGraphicsScene()
+    restore_scene(restored, saved, QUndoStack())
+
+    labels = [
+        item.toPlainText()
+        for item in restored.items()
+        if hasattr(item, "toPlainText")
+    ]
+    assert labels == ["P-1"]

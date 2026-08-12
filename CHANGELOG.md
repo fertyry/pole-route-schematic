@@ -9,6 +9,7 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
   same-pole groups, editable canvas object hierarchy, positions, and styling.
 - Added unsaved-change indicators and Save/Discard/Cancel confirmation before
   starting another project, opening a project, or closing the application.
+- Fixed project saving from the metric-preview stage by supporting its rich text labels.
 
 - Fixed the live canvas disappearing as soon as Export Excel was clicked by retaining
   PySide graphics-item wrappers on their source scene before snapshot collection.
