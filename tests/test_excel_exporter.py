@@ -205,6 +205,35 @@ def test_page_lines_are_clipped_at_match_poles(qapp) -> None:
         assert max(line_xs) <= max(pole_xs) + 5
 
 
+def test_context_roads_are_clipped_to_export_corridor(qapp) -> None:
+    objects = [
+        ExcelObject("line", ((0, 0), (500, 0)), role="main_centerline", group_id="main"),
+        ExcelObject("line", ((250, -100), (250, 100)), role="centerline"),
+        ExcelObject("line", ((245, -100), (245, 100)), role="road_edge"),
+        ExcelObject("text", ((240, 80), (300, 95)), "Soi Test", role="road_name"),
+    ]
+    for index, x in enumerate((0, 250, 500), start=1):
+        objects.append(
+            ExcelObject("rectangle", ((x - 2, -2), (x + 2, 2)), role="pole", group_id=f"P-{index}")
+        )
+
+    page = prepare_excel_pages(
+        objects, ExcelExportSettings(page_count=1, context_road_length=20.0)
+    )[0]
+
+    road_lines = [
+        item for item in page if item.role in {"centerline", "road_edge"}
+    ]
+    poles = [item for item in page if item.role == "pole"]
+    pole_y = sum(y for item in poles for _, y in item.points) / sum(
+        len(item.points) for item in poles
+    )
+    assert road_lines
+    assert max(abs(y - pole_y) for item in road_lines for _, y in item.points) < 20.0
+    road_name = next(item for item in page if item.role == "road_name")
+    assert road_name.rotation == 0.0
+
+
 def test_all_sheets_use_one_affine_display_scale(qapp) -> None:
     objects = [
         ExcelObject("line", ((0, 0), (500, 0)), role="main_centerline", group_id="main")

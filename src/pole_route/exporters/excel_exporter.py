@@ -56,6 +56,7 @@ class ExcelExportSettings:
     centerline_width: float = 0.4
     page_count: int = 1
     work_description: str = ""
+    context_road_length: float = 25.0
 
 
 def collect_excel_objects(
@@ -330,9 +331,6 @@ def prepare_excel_pages(
 ) -> list[list[ExcelObject]]:
     """Split at physical poles along Main route and compose readable paper sheets."""
     page_count = max(1, int(settings.page_count))
-    if page_count == 1:
-        return [prepare_excel_objects(objects, settings)]
-    axis = _main_route_axis(objects)
     content = [
         item
         for item in objects
@@ -341,6 +339,13 @@ def prepare_excel_pages(
             and settings.centerline_mode == "hide"
         )
     ]
+    axis = _main_route_axis(content)
+    if axis is not None:
+        content = _limit_context_road_reach(
+            content, axis, settings.context_road_length
+        )
+    if page_count == 1:
+        return [prepare_excel_objects(content, settings)]
     if axis is None:
         return _prepare_pages_by_x(content, settings, page_count)
     stations = {_object_key(item): axis.project(Point(_object_center(item))) for item in content}
@@ -422,6 +427,71 @@ def prepare_excel_pages(
             )
         )
     return pages
+
+
+def _limit_context_road_reach(
+    objects: list[ExcelObject], axis: LineString, total_length: float
+) -> list[ExcelObject]:
+    """Clip surrounding roads to a narrow corridor used only by Excel output."""
+    half_length = max(float(total_length), 1.0) / 2.0
+    corridor = axis.buffer(half_length, cap_style="flat")
+    limited: list[ExcelObject] = []
+    for item in objects:
+        if item.kind == "line" and item.role in {"road_edge", "centerline"}:
+            intersection = LineString(item.points).intersection(corridor)
+            parts = _line_parts(intersection)
+            limited.extend(_replace_points(item, tuple(part.coords)) for part in parts)
+            continue
+        if item.role == "road_name" and item.kind == "text":
+            limited.append(_clamp_road_name(item, axis, half_length * 0.78))
+            continue
+        limited.append(item)
+    return limited
+
+
+def _line_parts(geometry) -> list[LineString]:
+    if geometry.is_empty:
+        return []
+    if isinstance(geometry, LineString):
+        return [geometry]
+    if hasattr(geometry, "geoms"):
+        return [
+            part
+            for child in geometry.geoms
+            for part in _line_parts(child)
+        ]
+    return []
+
+
+def _replace_points(
+    item: ExcelObject, points: tuple[tuple[float, float], ...]
+) -> ExcelObject:
+    return ExcelObject(
+        item.kind, points, item.text, item.line_color, item.fill_color,
+        item.line_width, item.rotation, item.font_size, item.line_style,
+        item.role, item.group_id,
+    )
+
+
+def _clamp_road_name(
+    item: ExcelObject, axis: LineString, maximum_distance: float
+) -> ExcelObject:
+    center_x, center_y = _object_center(item)
+    center = Point(center_x, center_y)
+    nearest = axis.interpolate(axis.project(center))
+    dx, dy = center.x - nearest.x, center.y - nearest.y
+    distance = hypot(dx, dy)
+    if distance <= maximum_distance or distance <= 1e-9:
+        return item
+    new_x = nearest.x + dx / distance * maximum_distance
+    new_y = nearest.y + dy / distance * maximum_distance
+    (left, top), (right, bottom) = item.points
+    half_width, half_height = (right - left) / 2.0, (bottom - top) / 2.0
+    return _replace_points(
+        item,
+        ((new_x - half_width, new_y - half_height),
+         (new_x + half_width, new_y + half_height)),
+    )
 
 
 def _pole_boundary_indices(

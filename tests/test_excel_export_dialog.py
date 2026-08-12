@@ -44,6 +44,22 @@ def test_export_dialog_restores_saved_project_metadata(qtbot) -> None:
     assert dialog.settings().work_description == "Saved work details"
     assert dialog.paper_size.currentText() == "A3"
     assert dialog.page_count.value() == 7
+    assert dialog.settings().context_road_length == 25.0
+
+
+def test_export_dialog_controls_context_road_length(qtbot) -> None:
+    source = QGraphicsScene()
+    source.addLine(0, 0, 100, 0)
+    dialog = ExcelExportDialog(collect_scene_objects(source))
+    qtbot.addWidget(dialog)
+
+    dialog.context_road_length.setCurrentText("Medium")
+    assert dialog.settings().context_road_length == 40.0
+
+    dialog.context_road_length.setCurrentText("Custom")
+    dialog.custom_context_road_length.setValue(18.0)
+    assert not dialog.custom_context_road_length.isHidden()
+    assert dialog.settings().context_road_length == 18.0
 
 
 def test_repeated_preview_changes_keep_objects_and_source_scene(qtbot) -> None:

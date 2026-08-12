@@ -61,6 +61,15 @@ class ExcelExportDialog(QDialog):
         self.pole_size.setRange(2.0, 10.0)
         self.pole_size.setValue(4.0)
         self.pole_size.setSuffix(" mm")
+        self.context_road_length = QComboBox()
+        self.context_road_length.addItem("Short", 25.0)
+        self.context_road_length.addItem("Medium", 40.0)
+        self.context_road_length.addItem("Long", 60.0)
+        self.context_road_length.addItem("Custom", None)
+        self.custom_context_road_length = QDoubleSpinBox()
+        self.custom_context_road_length.setLocale(QLocale.c())
+        self.custom_context_road_length.setRange(8.0, 100.0)
+        self.custom_context_road_length.setSuffix(" units")
         self.road_edge_width = QDoubleSpinBox()
         self.road_edge_width.setLocale(QLocale.c())
         self.road_edge_width.setRange(0.25, 5.0)
@@ -85,6 +94,20 @@ class ExcelExportDialog(QDialog):
             max(0, self.centerline.findData(initial_settings.centerline_mode))
         )
         self.pole_size.setValue(initial_settings.pole_size_mm)
+        preset_index = next(
+            (
+                index
+                for index in range(self.context_road_length.count() - 1)
+                if self.context_road_length.itemData(index)
+                == initial_settings.context_road_length
+            ),
+            self.context_road_length.count() - 1,
+        )
+        self.context_road_length.setCurrentIndex(preset_index)
+        self.custom_context_road_length.setValue(initial_settings.context_road_length)
+        self.custom_context_road_length.setVisible(
+            self.context_road_length.currentData() is None
+        )
         self.road_edge_width.setValue(initial_settings.road_edge_width)
         self.centerline_width.setValue(initial_settings.centerline_width)
         self.compass.setChecked(initial_settings.show_compass)
@@ -106,6 +129,8 @@ class ExcelExportDialog(QDialog):
         form.addRow("Road edge width", self.road_edge_width)
         form.addRow("Centerline width", self.centerline_width)
         form.addRow("Pole size", self.pole_size)
+        form.addRow("Context road length", self.context_road_length)
+        form.addRow("Custom length", self.custom_context_road_length)
         form.addRow("Compass", self.compass)
         form.addRow("Number of sheets", self.page_count)
 
@@ -143,6 +168,12 @@ class ExcelExportDialog(QDialog):
         for control in (self.paper_size, self.orientation, self.frame_style, self.centerline):
             control.currentIndexChanged.connect(self.schedule_preview_refresh)
         self.pole_size.valueChanged.connect(self.schedule_preview_refresh)
+        self.context_road_length.currentIndexChanged.connect(
+            self._context_road_length_changed
+        )
+        self.custom_context_road_length.valueChanged.connect(
+            self.schedule_preview_refresh
+        )
         self.road_edge_width.valueChanged.connect(self.schedule_preview_refresh)
         self.centerline_width.valueChanged.connect(self.schedule_preview_refresh)
         self.compass.toggled.connect(self.schedule_preview_refresh)
@@ -167,7 +198,18 @@ class ExcelExportDialog(QDialog):
             centerline_width=self.centerline_width.value(),
             page_count=self.page_count.value(),
             work_description=self._work_description,
+            context_road_length=(
+                self.context_road_length.currentData()
+                if self.context_road_length.currentData() is not None
+                else self.custom_context_road_length.value()
+            ),
         )
+
+    def _context_road_length_changed(self) -> None:
+        self.custom_context_road_length.setVisible(
+            self.context_road_length.currentData() is None
+        )
+        self.schedule_preview_refresh()
 
     def _page_count_changed(self) -> None:
         self.current_page = min(self.current_page, self.page_count.value() - 1)
