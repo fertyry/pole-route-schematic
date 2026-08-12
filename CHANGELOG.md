@@ -4,6 +4,9 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ## [Unreleased]
 
+- Stabilized Excel export review for large drawings by reusing one preview scene,
+  coalescing rapid settings changes, and preventing overlapping redraws.
+
 - Added a per-LineString `Reverse` option during route import. It reverses the
   coordinate order before confirmation and updates START/END in the preview.
 - Added clear START and END markers for selected routes and each Main route in the

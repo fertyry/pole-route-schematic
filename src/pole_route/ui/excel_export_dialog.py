@@ -1,6 +1,6 @@
 """Editable Excel export settings and page preview."""
 
-from PySide6.QtCore import QLocale, QRectF, Qt
+from PySide6.QtCore import QLocale, QRectF, Qt, QTimer
 from PySide6.QtGui import QBrush, QColor, QPen
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -69,6 +69,11 @@ class ExcelExportDialog(QDialog):
         self.page_count.setRange(1, 20)
         self.page_count.setValue(1)
         self.current_page = 0
+        self._refreshing = False
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setSingleShot(True)
+        self._refresh_timer.setInterval(120)
+        self._refresh_timer.timeout.connect(self.refresh_preview)
 
         form = QFormLayout()
         form.addRow("Project title", self.project_title)
@@ -117,13 +122,13 @@ class ExcelExportDialog(QDialog):
             self.prepared_by,
             self.drawing_number,
         ):
-            control.textChanged.connect(self.refresh_preview)
+            control.textChanged.connect(self.schedule_preview_refresh)
         for control in (self.paper_size, self.orientation, self.frame_style, self.centerline):
-            control.currentIndexChanged.connect(self.refresh_preview)
-        self.pole_size.valueChanged.connect(self.refresh_preview)
-        self.road_edge_width.valueChanged.connect(self.refresh_preview)
-        self.centerline_width.valueChanged.connect(self.refresh_preview)
-        self.compass.toggled.connect(self.refresh_preview)
+            control.currentIndexChanged.connect(self.schedule_preview_refresh)
+        self.pole_size.valueChanged.connect(self.schedule_preview_refresh)
+        self.road_edge_width.valueChanged.connect(self.schedule_preview_refresh)
+        self.centerline_width.valueChanged.connect(self.schedule_preview_refresh)
+        self.compass.toggled.connect(self.schedule_preview_refresh)
         self.page_count.valueChanged.connect(self._page_count_changed)
         self.previous_page.clicked.connect(lambda: self._change_page(-1))
         self.next_page.clicked.connect(lambda: self._change_page(1))
@@ -156,24 +161,32 @@ class ExcelExportDialog(QDialog):
         )
         self.refresh_preview()
 
+    def schedule_preview_refresh(self) -> None:
+        """Coalesce rapid setting changes into one redraw for large projects."""
+        self._refresh_timer.start()
+
     def refresh_preview(self) -> None:
-        next_scene = QGraphicsScene(self)
-        pages = prepare_excel_pages(self.source_objects, self.settings())
-        self.current_page = min(self.current_page, len(pages) - 1)
-        for item in pages[self.current_page]:
-            _draw_preview_object(next_scene, item)
-        if not next_scene.items():
+        if self._refreshing:
             return
-        bounds = next_scene.itemsBoundingRect().adjusted(-12, -12, 12, 12)
-        next_scene.setSceneRect(bounds)
-        previous_scene = self.preview_scene
-        self.preview_scene = next_scene
-        self.preview.setScene(next_scene)
-        self.preview.fitInView(bounds, Qt.AspectRatioMode.KeepAspectRatio)
-        previous_scene.deleteLater()
-        self.page_label.setText(f"Sheet {self.current_page + 1} / {len(pages)}")
-        self.previous_page.setEnabled(self.current_page > 0)
-        self.next_page.setEnabled(self.current_page < len(pages) - 1)
+        self._refreshing = True
+        try:
+            self._refresh_timer.stop()
+            pages = prepare_excel_pages(self.source_objects, self.settings())
+            self.current_page = min(self.current_page, len(pages) - 1)
+            self.preview.setUpdatesEnabled(False)
+            self.preview_scene.clear()
+            for item in pages[self.current_page]:
+                _draw_preview_object(self.preview_scene, item)
+            if self.preview_scene.items():
+                bounds = self.preview_scene.itemsBoundingRect().adjusted(-12, -12, 12, 12)
+                self.preview_scene.setSceneRect(bounds)
+                self.preview.fitInView(bounds, Qt.AspectRatioMode.KeepAspectRatio)
+            self.page_label.setText(f"Sheet {self.current_page + 1} / {len(pages)}")
+            self.previous_page.setEnabled(self.current_page > 0)
+            self.next_page.setEnabled(self.current_page < len(pages) - 1)
+        finally:
+            self.preview.setUpdatesEnabled(True)
+            self._refreshing = False
 
     def export_objects(self) -> list[ExcelObject]:
         """Return the exact styled snapshot currently represented by the preview."""

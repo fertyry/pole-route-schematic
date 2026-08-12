@@ -30,14 +30,19 @@ def test_repeated_preview_changes_keep_objects_and_source_scene(qtbot) -> None:
     source.addItem(source_line)
     dialog = ExcelExportDialog(collect_scene_objects(source))
     qtbot.addWidget(dialog)
+    preview_scene = dialog.preview_scene
 
     for index in range(20):
         dialog.project_title.setText(f"Project {index}")
         dialog.paper_size.setCurrentText("A3" if index % 2 else "A4")
         dialog.orientation.setCurrentText("Portrait" if index % 2 else "Landscape")
         assert dialog.preview_scene.items()
+        assert dialog.preview_scene is preview_scene
         assert dialog.preview.scene() is dialog.preview_scene
         assert source_line.scene() is source
+
+    qtbot.wait(150)
+    assert dialog.preview_scene is preview_scene
 
 
 def test_confirmed_export_uses_snapshot_even_if_source_scene_later_changes(qtbot) -> None:
