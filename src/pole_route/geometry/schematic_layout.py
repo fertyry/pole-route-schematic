@@ -186,8 +186,17 @@ def _create_network_layout(
             centerline = _minimum_display_length(centerline, MIN_CONTEXT_ROAD_DISPLAY_LENGTH)
         display_width = max(road.road_width_metres * scale, 3.0)
         half_width = display_width / 2.0
-        left_edge = centerline.offset_curve(half_width, join_style="round")
-        right_edge = centerline.offset_curve(-half_width, join_style="round")
+        left_edge = _longest_line(
+            centerline.offset_curve(half_width, join_style="round")
+        )
+        right_edge = _longest_line(
+            centerline.offset_curve(-half_width, join_style="round")
+        )
+        if left_edge is None or right_edge is None:
+            # The road surface still renders correctly; retain a safe editable
+            # centerline instead of failing the whole schematic.
+            left_edge = left_edge or centerline
+            right_edge = right_edge or centerline
         visible_name = road.route_name if not road.route_name.startswith("Unnamed") else ""
         roads_list.append(
             SchematicRoad(
@@ -294,14 +303,24 @@ def _minimum_display_length(line: LineString, minimum_length: float) -> LineStri
     return LineString(coordinates)
 
 
+def _longest_line(geometry) -> LineString | None:
+    """Return a stable LineString when an offset splits into multiple parts."""
+    if geometry.is_empty:
+        return None
+    if isinstance(geometry, LineString):
+        return geometry
+    parts = [part for part in geometry.geoms if isinstance(part, LineString) and not part.is_empty]
+    return max(parts, key=lambda part: part.length, default=None)
+
+
 def _open_display_road_boundaries(road_surface, lines, widths):
     """Remove exposed end caps after context roads are lengthened for display."""
     cap_lines = []
     for line, width in zip(lines, widths, strict=True):
         half_width = width / 2.0
-        left = line.offset_curve(half_width, join_style="round")
-        right = line.offset_curve(-half_width, join_style="round")
-        if left.is_empty or right.is_empty:
+        left = _longest_line(line.offset_curve(half_width, join_style="round"))
+        right = _longest_line(line.offset_curve(-half_width, join_style="round"))
+        if left is None or right is None:
             continue
         cap_lines.extend((
             LineString((left.coords[0], right.coords[0])),

@@ -1,7 +1,7 @@
 import pytest
 from PySide6.QtGui import QUndoStack
 from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene
-from shapely.geometry import LineString
+from shapely.geometry import LineString, MultiLineString
 
 from pole_route.domain.pole import Pole, PoleSide
 from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
@@ -11,6 +11,7 @@ from pole_route.geometry.schematic_layout import (
     MIN_CONTEXT_ROAD_DISPLAY_LENGTH,
     PoleSpacingMode,
     create_schematic_layout,
+    _longest_line,
 )
 from pole_route.ui.schematic_renderer import render_schematic
 
@@ -143,6 +144,15 @@ def test_network_road_boundaries_have_open_exposed_ends() -> None:
 
     assert len(layout.road_boundaries) == 2
     assert all(points[0] != points[-1] for points in layout.road_boundaries)
+
+
+def test_multi_part_offset_uses_longest_continuous_line() -> None:
+    offset = MultiLineString((((0, 0), (2, 0)), ((0, 1), (8, 1))))
+
+    selected = _longest_line(offset)
+
+    assert selected is not None
+    assert selected.length == pytest.approx(8.0)
 
 
 def test_square_pole_is_aligned_with_its_local_road() -> None:
