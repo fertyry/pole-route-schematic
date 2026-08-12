@@ -1,6 +1,6 @@
 """Classify and confirm multiple KML/KMZ LineStrings."""
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QLocale, Qt
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QComboBox,
@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QGraphicsView,
     QLabel,
     QMessageBox,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -56,6 +57,7 @@ class RouteImportDialog(QDialog):
             self.table.setCellWidget(row, 2, route_type)
 
             width = QDoubleSpinBox()
+            width.setLocale(QLocale.c())
             width.setRange(0.5, 1000.0)
             width.setDecimals(2)
             width.setSuffix(" m")
@@ -68,6 +70,9 @@ class RouteImportDialog(QDialog):
         self.preview = QGraphicsView(self.scene)
         self.preview.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.preview.setMinimumHeight(300)
+
+        self.preview_all_button = QPushButton("Preview selected routes")
+        self.preview_all_button.clicked.connect(self._preview_selected_routes)
 
         self.table.resizeColumnsToContents()
         self.table.itemSelectionChanged.connect(self._update_preview)
@@ -84,6 +89,7 @@ class RouteImportDialog(QDialog):
         layout.addWidget(intro)
         layout.addWidget(self.table)
         layout.addWidget(self.details)
+        layout.addWidget(self.preview_all_button)
         layout.addWidget(QLabel("Selected LineString preview (geographic shape, not to scale)"))
         layout.addWidget(self.preview, 1)
         layout.addWidget(buttons)
@@ -141,6 +147,30 @@ class RouteImportDialog(QDialog):
         )
         draw_route_preview(self.scene, route, 860, 280)
 
+    def _preview_selected_routes(self) -> None:
+        rows = [
+            row
+            for row in range(len(self._routes))
+            if self.table.item(row, 0).checkState() == Qt.CheckState.Checked
+            and RouteType(self.table.cellWidget(row, 2).currentData()) is not RouteType.IGNORE
+        ]
+        if not rows:
+            QMessageBox.information(self, "Nothing to preview", "Select at least one route to use.")
+            return
+        routes_with_types = [
+            (
+                self._routes[row],
+                RouteType(self.table.cellWidget(row, 2).currentData()),
+            )
+            for row in rows
+        ]
+        draw_classified_routes_preview(self.scene, routes_with_types, 860, 280)
+        counts: dict[RouteType, int] = {}
+        for _route, route_type in routes_with_types:
+            counts[route_type] = counts.get(route_type, 0) + 1
+        legend = " | ".join(f"{route_type.value}: {count}" for route_type, count in counts.items())
+        self.details.setText(f"Previewing {len(routes_with_types)} selected routes | {legend}")
+
 
 def draw_route_preview(scene: QGraphicsScene, route: Route, width: float, height: float) -> None:
     scene.clear()
@@ -162,4 +192,49 @@ def draw_route_preview(scene: QGraphicsScene, route: Route, width: float, height
     for point in route.points[1:]:
         path.lineTo(*project(point))
     scene.addPath(path, QPen(QColor("#2f80ed"), 3.0))
+    scene.setSceneRect(0, 0, width, height)
+
+
+ROUTE_TYPE_COLORS = {
+    RouteType.MAIN_ROUTE: QColor("#2f80ed"),
+    RouteType.ROAD: QColor("#bdbdbd"),
+    RouteType.BRIDGE: QColor("#f2c94c"),
+    RouteType.FOOTBRIDGE: QColor("#f2994a"),
+    RouteType.CANAL: QColor("#56ccf2"),
+    RouteType.RAILWAY: QColor("#a67c52"),
+    RouteType.REFERENCE: QColor("#9b51e0"),
+}
+
+
+def draw_classified_routes_preview(
+    scene: QGraphicsScene,
+    routes_with_types: list[tuple[Route, RouteType]],
+    width: float,
+    height: float,
+) -> None:
+    """Fit and draw all selected routes in one shared geographic preview."""
+    scene.clear()
+    margin = 24.0
+    points = [point for route, _route_type in routes_with_types for point in route.points]
+    min_longitude = min(point.longitude for point in points)
+    max_longitude = max(point.longitude for point in points)
+    min_latitude = min(point.latitude for point in points)
+    max_latitude = max(point.latitude for point in points)
+    span_x = max(max_longitude - min_longitude, 1e-12)
+    span_y = max(max_latitude - min_latitude, 1e-12)
+    scale = min((width - 2 * margin) / span_x, (height - 2 * margin) / span_y)
+
+    def project(point):
+        return (
+            margin + (point.longitude - min_longitude) * scale,
+            margin + (max_latitude - point.latitude) * scale,
+        )
+
+    for route, route_type in routes_with_types:
+        path = QPainterPath()
+        path.moveTo(*project(route.points[0]))
+        for point in route.points[1:]:
+            path.lineTo(*project(point))
+        thickness = 4.0 if route_type is RouteType.MAIN_ROUTE else 2.5
+        scene.addPath(path, QPen(ROUTE_TYPE_COLORS[route_type], thickness))
     scene.setSceneRect(0, 0, width, height)
