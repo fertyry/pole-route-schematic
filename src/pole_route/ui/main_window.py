@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
 from pole_route.domain.pole import Pole
 from pole_route.importers.pole_importer import (
     OPTIONAL_FIELDS,
-    REQUIRED_FIELDS,
     PoleImportError,
     inspect_pole_file,
     poles_from_table,
@@ -115,12 +114,11 @@ class MainWindow(QMainWindow):
         try:
             table = inspect_pole_file(path)
             mapping = suggest_column_mapping(table.headers)
-            if any(not mapping[field] for field in REQUIRED_FIELDS):
-                dialog = ColumnMappingDialog(table, mapping, self)
-                if dialog.exec() != ColumnMappingDialog.DialogCode.Accepted:
-                    self.statusBar().showMessage("Pole import cancelled")
-                    return
-                mapping = dialog.mapping()
+            dialog = ColumnMappingDialog(table, mapping, self)
+            if dialog.exec() != ColumnMappingDialog.DialogCode.Accepted:
+                self.statusBar().showMessage("Pole import cancelled")
+                return
+            mapping = dialog.mapping()
             poles = poles_from_table(table, mapping)
         except PoleImportError as error:
             QMessageBox.warning(self, "Pole import failed", str(error))

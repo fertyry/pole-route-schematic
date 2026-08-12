@@ -44,7 +44,7 @@ Explicitly out of scope for V0.1:
 
 ## Current implementation
 
-Sprint 0 established the repository, documentation, package structure, test setup, and runnable application shell. Sprint 1 adds validated Excel/CSV pole import, automatic header matching, a conditional column-mapping dialog, and a read-only pole table. The visible drawing canvas remains an intentional placeholder; route import and geometry are not implemented yet.
+Sprint 0 established the repository, documentation, package structure, test setup, and runnable application shell. Sprint 1 adds validated Excel/CSV pole import, automatic mapping suggestions, a required column-mapping confirmation with preview, and a read-only pole table. The visible drawing canvas remains an intentional placeholder; route import and geometry are not implemented yet.
 
 ## Project structure
 

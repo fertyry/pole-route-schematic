@@ -1,6 +1,8 @@
-from PySide6.QtWidgets import QGraphicsView
+from PySide6.QtWidgets import QDialogButtonBox, QGraphicsView
 
+from pole_route.importers.pole_importer import PoleTable
 from pole_route.main import create_application
+from pole_route.ui.column_mapping_dialog import ColumnMappingDialog
 from pole_route.ui.main_window import MainWindow
 
 
@@ -29,3 +31,19 @@ def test_main_window_can_show_poles(qtbot) -> None:
     assert window.pole_table.rowCount() == 1
     assert window.pole_table.item(0, 0).text() == "P-001"
     assert window.pole_table.item(0, 4).text() == "Left"
+
+
+def test_mapping_dialog_uses_explicit_confirmation(qtbot) -> None:
+    table = PoleTable(
+        ("No", "Latitude", "Longitude"),
+        (("1", 13.7, 100.5),),
+        header_row=1,
+    )
+    dialog = ColumnMappingDialog(
+        table,
+        {"number": "No", "latitude": "Latitude", "longitude": "Longitude", "detail": None, "side": None},
+    )
+    qtbot.addWidget(dialog)
+    buttons = dialog.findChild(QDialogButtonBox)
+
+    assert buttons.button(QDialogButtonBox.StandardButton.Ok).text() == "Confirm import"

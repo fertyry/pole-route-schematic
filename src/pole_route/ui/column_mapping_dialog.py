@@ -67,6 +67,7 @@ class ColumnMappingDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Cancel | QDialogButtonBox.StandardButton.Ok
         )
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Confirm import")
         buttons.accepted.connect(self._validate_and_accept)
         buttons.rejected.connect(self.reject)
 
@@ -91,4 +92,3 @@ class ColumnMappingDialog(QDialog):
             QMessageBox.warning(self, "Mapping invalid", "Each source column can be used only once")
             return
         self.accept()
-

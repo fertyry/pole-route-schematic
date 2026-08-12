@@ -6,7 +6,7 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ### Added
 
-- Conditional column-mapping dialog with a five-row preview
+- Column-mapping confirmation dialog shown before every import, with a five-row preview
 - Automatic header-row detection and common English/Thai column aliases
 - Sprint 1 Pole and Route domain data contracts
 - CSV/XLSX pole import with header, coordinate, and Side validation
