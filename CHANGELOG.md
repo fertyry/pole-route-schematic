@@ -4,15 +4,6 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ## [Unreleased]
 
-- Fixed ordinary left clicks being interpreted as tiny object drags; movement now
-  starts only after the system drag threshold is crossed.
-- Forced Properties numeric controls to use Arabic digits regardless of Windows locale.
-
-- Added predictable canvas navigation: wheel scrolls vertically, Shift+wheel scrolls
-  horizontally, Ctrl+wheel zooms, and the middle mouse button has no action.
-- Added multi-object rotation and a small Properties panel for color, line width,
-  rotation, and front/back ordering, all integrated with Undo.
-
 ### Fixed
 
 - Schematic spacing confirmation returns a stable spacing mode with PySide6

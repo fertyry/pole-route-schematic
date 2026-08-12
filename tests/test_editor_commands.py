@@ -1,15 +1,12 @@
 from PySide6.QtCore import QPointF
-from PySide6.QtGui import QColor, QUndoStack
-from PySide6.QtWidgets import QGraphicsScene, QGraphicsSimpleTextItem
+from PySide6.QtGui import QUndoStack
+from PySide6.QtWidgets import QGraphicsScene
 
 from pole_route.ui.editor_commands import (
-    ChangePenCommand,
-    ChangeZCommand,
     DeleteItemsCommand,
     EditableEllipseItem,
     MoveItemCommand,
     ResetLayoutCommand,
-    RotateItemsCommand,
     editable_scene_items,
 )
 from pole_route.ui.schematic_renderer import EDITABLE_FLAGS
@@ -66,31 +63,3 @@ def test_reset_layout_is_undoable(qapp) -> None:
     stack.undo()
     assert first.pos() == QPointF(100, 200)
     assert second.pos() == QPointF(300, 400)
-
-
-def test_rotation_pen_and_order_are_undoable(qapp) -> None:
-    scene = QGraphicsScene()
-    stack = QUndoStack()
-    item = _item(scene, stack, 10, 20)
-
-    stack.push(RotateItemsCommand([item], 45.0))
-    assert item.rotation() == 45.0
-    stack.undo()
-    assert item.rotation() == 0.0
-
-    stack.push(ChangePenCommand([item], width=4.0))
-    assert item.pen().widthF() == 4.0
-    stack.undo()
-
-    stack.push(ChangeZCommand([item], 1.0))
-    assert item.zValue() == 1.0
-    stack.undo()
-    assert item.zValue() == 0.0
-
-    label = QGraphicsSimpleTextItem("Pole 1")
-    scene.addItem(label)
-    before_color = label.brush().color()
-    stack.push(ChangePenCommand([label], color=QColor("#00ff00")))
-    assert label.brush().color() == QColor("#00ff00")
-    stack.undo()
-    assert label.brush().color() == before_color

@@ -1,6 +1,6 @@
 import pytest
-from PySide6.QtCore import QPoint, QPointF, Qt
-from PySide6.QtGui import QUndoStack, QWheelEvent
+from PySide6.QtCore import QPointF
+from PySide6.QtGui import QUndoStack
 from PySide6.QtWidgets import QGraphicsScene
 
 from pole_route.ui.drawing_view import DrawingMode, DrawingView, snap_line_endpoint
@@ -66,20 +66,3 @@ def test_shift_line_endpoint_snaps_to_45_degree_increments() -> None:
     assert horizontal.y() == pytest.approx(10)
     assert abs((diagonal.x() - 10) - (diagonal.y() - 10)) < 1e-8
     assert vertical.x() == pytest.approx(10)
-
-
-def test_wheel_controls_are_limited_to_scroll_and_ctrl_zoom(qtbot) -> None:
-    scene = QGraphicsScene(0, 0, 2000, 2000)
-    view = DrawingView(scene, QUndoStack())
-    view.resize(400, 300)
-    qtbot.addWidget(view)
-    view.show()
-
-    before = view.transform().m11()
-    event = QWheelEvent(
-        QPointF(100, 100), QPointF(100, 100), QPoint(), QPoint(0, 120),
-        Qt.MouseButton.NoButton, Qt.KeyboardModifier.ControlModifier,
-        Qt.ScrollPhase.ScrollUpdate, False,
-    )
-    view.wheelEvent(event)
-    assert view.transform().m11() > before
