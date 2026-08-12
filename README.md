@@ -2,7 +2,7 @@
 
 PoleRoute Schematic is an early-stage Windows desktop application for turning route and utility-pole data into an editable schematic drawing.
 
-> Project status: Sprint 3 in progress. Confirmed imports, metric geometry, an editable non-scale schematic, undoable editing, and basic drawing tools are implemented. Project persistence and export are not implemented yet.
+> Project status: Sprint 3 in progress. Confirmed imports, metric geometry, selectable schematic spacing, undoable editing, and basic drawing tools are implemented. Project persistence and export are not implemented yet.
 
 ## Problem
 
@@ -44,7 +44,7 @@ Explicitly out of scope for V0.1:
 
 ## Current implementation
 
-Sprint 0 established the application foundation. Sprint 1 added confirmed Excel/CSV pole import and KML/KMZ LineString selection. Sprint 2 added local UTM projection, road edges, pole offset lines, and nearest-point placement. Sprint 3 adds a deliberately non-scale layout with independently movable objects; Undo, Redo, Delete, and Reset; and Select, Line, Rectangle, Ellipse, and Text tools. Project persistence and export are not implemented yet.
+Sprint 0 established the application foundation. Sprint 1 added confirmed Excel/CSV pole import and KML/KMZ LineString selection. Sprint 2 added local UTM projection, road edges, pole offset lines, and nearest-point placement. Sprint 3 adds a non-scale layout with a confirmed choice between equal visual spacing and relative projected-station spacing; independently movable objects; Undo, Redo, Delete, and Reset; and Select, Line (with Shift angle snapping), Rectangle, Ellipse, and Text tools. Project persistence and export are not implemented yet.
 
 ## Project structure
 

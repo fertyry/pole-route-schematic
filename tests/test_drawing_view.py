@@ -1,8 +1,9 @@
+import pytest
 from PySide6.QtCore import QPointF
 from PySide6.QtGui import QUndoStack
 from PySide6.QtWidgets import QGraphicsScene
 
-from pole_route.ui.drawing_view import DrawingMode, DrawingView
+from pole_route.ui.drawing_view import DrawingMode, DrawingView, snap_line_endpoint
 from pole_route.ui.editor_commands import EditableEllipseItem, EditableLineItem, EditableRectItem
 
 
@@ -53,3 +54,15 @@ def test_select_mode_uses_rubber_band(qtbot) -> None:
     assert view.dragMode() == view.DragMode.NoDrag
     view.set_mode(DrawingMode.SELECT)
     assert view.dragMode() == view.DragMode.RubberBandDrag
+
+
+def test_shift_line_endpoint_snaps_to_45_degree_increments() -> None:
+    start = QPointF(10, 10)
+
+    horizontal = snap_line_endpoint(start, QPointF(90, 22))
+    diagonal = snap_line_endpoint(start, QPointF(70, 63))
+    vertical = snap_line_endpoint(start, QPointF(18, 90))
+
+    assert horizontal.y() == pytest.approx(10)
+    assert abs((diagonal.x() - 10) - (diagonal.y() - 10)) < 1e-8
+    assert vertical.x() == pytest.approx(10)

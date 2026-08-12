@@ -40,6 +40,7 @@ from pole_route.ui.geometry_renderer import render_road_geometry
 from pole_route.ui.geometry_settings_dialog import GeometrySettingsDialog
 from pole_route.ui.route_import_dialog import RouteImportDialog, draw_route_preview
 from pole_route.ui.schematic_renderer import render_schematic
+from pole_route.ui.schematic_settings_dialog import SchematicSettingsDialog
 
 
 class MainWindow(QMainWindow):
@@ -240,7 +241,12 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(message)
 
     def _generate_schematic(self) -> None:
-        layout = create_schematic_layout(self.current_geometry)
+        dialog = SchematicSettingsDialog(self)
+        if dialog.exec() != SchematicSettingsDialog.DialogCode.Accepted:
+            self.statusBar().showMessage("Schematic generation cancelled")
+            return
+        spacing_mode = dialog.spacing_mode()
+        layout = create_schematic_layout(self.current_geometry, spacing_mode)
         self.undo_stack.clear()
         render_schematic(self.route_scene, layout, self.undo_stack)
         self.reset_layout_action.setEnabled(True)
@@ -248,12 +254,17 @@ class MainWindow(QMainWindow):
             action.setEnabled(True)
         self.drawing_actions[DrawingMode.SELECT].setChecked(True)
         self.canvas.set_mode(DrawingMode.SELECT)
+        spacing_description = (
+            "equal visual spacing"
+            if spacing_mode.value == "equal"
+            else "relative projected-station spacing"
+        )
         self.workspace_note.setText(
-            "Non-scale schematic: poles use equal visual spacing. Select and drag the road, "
-            "individual poles, or labels to edit the drawing."
+            f"Non-scale schematic using {spacing_description}. Select and drag the road, "
+            "individual poles, labels, or drawing objects to edit."
         )
         self.statusBar().showMessage(
-            f"Generated editable schematic with {len(layout.poles)} uniformly spaced poles"
+            f"Generated editable schematic with {len(layout.poles)} poles ({spacing_description})"
         )
 
     def _delete_selected(self) -> None:

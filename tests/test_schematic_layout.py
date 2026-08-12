@@ -5,7 +5,11 @@ from PySide6.QtWidgets import QGraphicsScene
 from pole_route.domain.pole import Pole, PoleSide
 from pole_route.domain.route import GeoPoint, Route
 from pole_route.geometry.road_geometry import build_road_geometry
-from pole_route.geometry.schematic_layout import DEFAULT_POLE_SPACING, create_schematic_layout
+from pole_route.geometry.schematic_layout import (
+    DEFAULT_POLE_SPACING,
+    PoleSpacingMode,
+    create_schematic_layout,
+)
 from pole_route.ui.schematic_renderer import render_schematic
 
 
@@ -39,6 +43,26 @@ def test_schematic_orders_by_station_with_uniform_visual_spacing() -> None:
     assert source_spans[0] != pytest.approx(source_spans[1])
     assert layout.poles[0].y < layout.road_top
     assert layout.poles[1].y > layout.road_bottom
+
+
+def test_projected_station_spacing_preserves_relative_source_gaps() -> None:
+    layout = create_schematic_layout(
+        _geometry_with_irregular_poles(),
+        PoleSpacingMode.PROJECTED_STATION,
+    )
+    visual_spans = [
+        layout.poles[index + 1].x - layout.poles[index].x
+        for index in range(len(layout.poles) - 1)
+    ]
+    source_spans = [
+        layout.poles[index + 1].source_station_metres - layout.poles[index].source_station_metres
+        for index in range(len(layout.poles) - 1)
+    ]
+
+    assert visual_spans[1] / visual_spans[0] == pytest.approx(
+        source_spans[1] / source_spans[0], rel=1e-6
+    )
+    assert visual_spans[0] != pytest.approx(visual_spans[1])
 
 
 def test_rendered_schematic_objects_are_selectable_and_movable(qapp) -> None:

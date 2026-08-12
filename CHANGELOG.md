@@ -6,6 +6,8 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ### Added
 
+- Shift-modified 45-degree angle snapping for the Line tool
+- Confirmed Equal spacing or Projected station spacing schematic generation modes
 - Select, Line, Rectangle, Ellipse, and Text canvas tools
 - Undoable creation of movable and deletable drawing objects
 - Undo/Redo for moved, deleted, and reset schematic objects

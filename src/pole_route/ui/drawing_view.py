@@ -1,6 +1,7 @@
 """Interactive schematic canvas drawing modes."""
 
 from enum import StrEnum
+from math import atan2, cos, hypot, pi, sin
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QMouseEvent, QPen, QUndoStack
@@ -70,13 +71,18 @@ class DrawingView(QGraphicsView):
         if self._start is None or self._preview is None:
             super().mouseMoveEvent(event)
             return
-        self._update_shape(self._preview, self._start, self.mapToScene(event.position().toPoint()))
+        end = self.mapToScene(event.position().toPoint())
+        if self.mode is DrawingMode.LINE and event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            end = snap_line_endpoint(self._start, end)
+        self._update_shape(self._preview, self._start, end)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if self._start is None or self._preview is None:
             super().mouseReleaseEvent(event)
             return
         end = self.mapToScene(event.position().toPoint())
+        if self.mode is DrawingMode.LINE and event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            end = snap_line_endpoint(self._start, end)
         self._update_shape(self._preview, self._start, end)
         item = self._preview
         self._start = None
@@ -132,3 +138,15 @@ class DrawingView(QGraphicsView):
             self.scene().removeItem(self._preview)
         self._start = None
         self._preview = None
+
+
+def snap_line_endpoint(start: QPointF, end: QPointF, increment_degrees: float = 45.0) -> QPointF:
+    """Preserve drag length while snapping its angle to a fixed increment."""
+    delta_x = end.x() - start.x()
+    delta_y = end.y() - start.y()
+    length = hypot(delta_x, delta_y)
+    if length == 0:
+        return QPointF(end)
+    increment = increment_degrees * pi / 180.0
+    angle = round(atan2(delta_y, delta_x) / increment) * increment
+    return QPointF(start.x() + cos(angle) * length, start.y() + sin(angle) * length)
