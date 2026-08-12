@@ -7,6 +7,7 @@ from pole_route.ui.editor_commands import (
     EditableEllipseItem,
     MoveItemCommand,
     ResetLayoutCommand,
+    RotateItemsCommand,
     editable_scene_items,
 )
 from pole_route.ui.schematic_renderer import EDITABLE_FLAGS
@@ -63,3 +64,17 @@ def test_reset_layout_is_undoable(qapp) -> None:
     stack.undo()
     assert first.pos() == QPointF(100, 200)
     assert second.pos() == QPointF(300, 400)
+
+
+def test_rotate_selected_items_is_undoable(qapp) -> None:
+    scene = QGraphicsScene()
+    stack = QUndoStack()
+    first = _item(scene, stack, 10, 20)
+    second = _item(scene, stack, 30, 40)
+
+    stack.push(RotateItemsCommand([first, second], 30.0))
+    assert first.rotation() == 30.0
+    assert second.rotation() == 30.0
+    stack.undo()
+    assert first.rotation() == 0.0
+    assert second.rotation() == 0.0

@@ -1,6 +1,7 @@
 """Create selectable non-scale schematic pole layouts."""
 
 from enum import StrEnum
+from math import atan2, degrees
 
 from shapely.ops import unary_union
 
@@ -201,6 +202,10 @@ def _create_network_layout(
             *point_xy(projected.snapped.x, projected.snapped.y),
             geometry.roads[projected.route_index].centerline.project(projected.snapped),
             _marker_id(projected.pole.number, same_pole_groups),
+            _schematic_road_angle(
+                geometry.roads[projected.route_index].centerline,
+                geometry.roads[projected.route_index].centerline.project(projected.snapped),
+            ),
         )
         for projected in geometry.projected_poles
     ]
@@ -217,6 +222,7 @@ def _create_network_layout(
                 position[1],
                 pole.source_station_metres,
                 pole.marker_id,
+                pole.road_angle_degrees,
             )
         )
     return SchematicLayout(
@@ -230,6 +236,14 @@ def _create_network_layout(
         roads,
         boundaries,
     )
+
+
+def _schematic_road_angle(line, station: float) -> float:
+    """Return the local road direction after geographic Y is flipped for the canvas."""
+    step = max(min(line.length * 0.001, 1.0), 0.01)
+    before = line.interpolate(max(0.0, station - step))
+    after = line.interpolate(min(line.length, station + step))
+    return degrees(atan2(-(after.y - before.y), after.x - before.x))
 
 
 def _marker_id(number: str, groups: tuple[frozenset[str], ...]) -> str:

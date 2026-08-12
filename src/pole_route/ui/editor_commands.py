@@ -83,6 +83,21 @@ class ResetLayoutCommand(QUndoCommand):
             item.setPos(current)
 
 
+class RotateItemsCommand(QUndoCommand):
+    def __init__(self, items: list[QGraphicsItem], degrees: float) -> None:
+        super().__init__(f"Rotate {len(items)} object(s)")
+        self.changes = [(item, item.rotation(), item.rotation() + degrees) for item in items]
+
+    def redo(self) -> None:
+        for item, _before, after in self.changes:
+            item.setTransformOriginPoint(item.boundingRect().center())
+            item.setRotation(after)
+
+    def undo(self) -> None:
+        for item, before, _after in self.changes:
+            item.setRotation(before)
+
+
 class _MoveTrackingMixin:
     undo_stack: QUndoStack
     _drag_start: QPointF | None
