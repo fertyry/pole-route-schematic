@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
 )
 
 from pole_route.domain.pole import Pole
+from pole_route.domain.route import Route
+from pole_route.importers.kml_importer import RouteImportError, inspect_route_file
 from pole_route.importers.pole_importer import (
     OPTIONAL_FIELDS,
     PoleImportError,
@@ -27,6 +29,7 @@ from pole_route.importers.pole_importer import (
     suggest_column_mapping,
 )
 from pole_route.ui.column_mapping_dialog import ColumnMappingDialog
+from pole_route.ui.route_import_dialog import RouteImportDialog, draw_route_preview
 
 
 class MainWindow(QMainWindow):
@@ -45,10 +48,14 @@ class MainWindow(QMainWindow):
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
 
-        for label in ("New", "Open", "Import route"):
+        for label in ("New", "Open"):
             action = QAction(label, self)
             action.setEnabled(False)
             toolbar.addAction(action)
+
+        import_route_action = QAction("Import route", self)
+        import_route_action.triggered.connect(self._choose_route_file)
+        toolbar.addAction(import_route_action)
 
         import_poles_action = QAction("Import poles", self)
         import_poles_action.triggered.connect(self._choose_pole_file)
@@ -59,10 +66,10 @@ class MainWindow(QMainWindow):
         toolbar.addAction(export_action)
 
     def _build_workspace(self) -> None:
-        scene = QGraphicsScene(self)
-        scene.setSceneRect(0, 0, 1000, 600)
+        self.route_scene = QGraphicsScene(self)
+        self.route_scene.setSceneRect(0, 0, 1000, 600)
 
-        canvas = QGraphicsView(scene)
+        canvas = QGraphicsView(self.route_scene)
         canvas.setObjectName("schematicCanvas")
         canvas.setAlignment(Qt.AlignmentFlag.AlignCenter)
         canvas.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
@@ -98,6 +105,37 @@ class MainWindow(QMainWindow):
         central_widget = QWidget()
         central_widget.setLayout(layout)
         self.setCentralWidget(central_widget)
+
+    def _choose_route_file(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import road centerline",
+            "",
+            "Google Earth route (*.kml *.kmz)",
+        )
+        if path:
+            self.load_route_file(path)
+
+    def load_route_file(self, path: str) -> None:
+        """Inspect a route file and require confirmation before importing."""
+        try:
+            routes = inspect_route_file(path)
+            dialog = RouteImportDialog(routes, self)
+            if dialog.exec() != RouteImportDialog.DialogCode.Accepted:
+                self.statusBar().showMessage("Route import cancelled")
+                return
+            route = dialog.selected_route()
+        except RouteImportError as error:
+            QMessageBox.warning(self, "Route import failed", str(error))
+            self.statusBar().showMessage("Route import failed")
+            return
+
+        self.show_route(route)
+        self.statusBar().showMessage(f"Imported route '{route.name}' ({len(route.points)} points)")
+
+    def show_route(self, route: Route) -> None:
+        """Display the confirmed centerline as a geographic-shape preview."""
+        draw_route_preview(self.route_scene, route, 960, 540)
 
     def _choose_pole_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(

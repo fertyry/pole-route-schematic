@@ -4,6 +4,7 @@ from pole_route.importers.pole_importer import PoleTable
 from pole_route.main import create_application
 from pole_route.ui.column_mapping_dialog import ColumnMappingDialog
 from pole_route.ui.main_window import MainWindow
+from pole_route.ui.route_import_dialog import RouteImportDialog
 
 
 def test_application_metadata(qtbot) -> None:
@@ -47,3 +48,15 @@ def test_mapping_dialog_uses_explicit_confirmation(qtbot) -> None:
     buttons = dialog.findChild(QDialogButtonBox)
 
     assert buttons.button(QDialogButtonBox.StandardButton.Ok).text() == "Confirm import"
+
+
+def test_route_dialog_uses_explicit_confirmation(qtbot) -> None:
+    from pole_route.domain.route import GeoPoint, Route
+
+    route = Route("Road", "route.kml", (GeoPoint(100.0, 13.0), GeoPoint(100.1, 13.1)))
+    dialog = RouteImportDialog([route])
+    qtbot.addWidget(dialog)
+    buttons = dialog.findChild(QDialogButtonBox)
+
+    assert dialog.selected_route() is route
+    assert buttons.button(QDialogButtonBox.StandardButton.Ok).text() == "Confirm route"
