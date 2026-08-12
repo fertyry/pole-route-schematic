@@ -2,7 +2,7 @@
 
 PoleRoute Schematic is an early-stage Windows desktop application for turning route and utility-pole data into an editable schematic drawing.
 
-> Project status: Sprint 0 — application foundation only. Geometry processing, file import, and export are not implemented yet.
+> Project status: Sprint 1 in progress. Excel/CSV pole import and table display are implemented. Route import, geometry processing, drawing generation, and export are not implemented yet.
 
 ## Problem
 
@@ -42,9 +42,9 @@ Explicitly out of scope for V0.1:
 - Span-distance-based placement
 - Advanced sheet cutting
 
-## Sprint 0 deliverables
+## Current implementation
 
-Sprint 0 establishes the repository, documentation, package structure, test setup, and a runnable application shell. The visible canvas is intentionally a placeholder. No geometry or importer behavior is included yet.
+Sprint 0 established the repository, documentation, package structure, test setup, and runnable application shell. Sprint 1 adds validated Excel/CSV pole import and a read-only pole table. The visible drawing canvas remains an intentional placeholder; route import and geometry are not implemented yet.
 
 ## Project structure
 
@@ -118,4 +118,3 @@ This repository documents an incremental product-development process. Claims in 
 ## License
 
 No open-source license has been selected yet. See [LICENSE](LICENSE). Until a license is chosen, reuse and redistribution are not granted.
-

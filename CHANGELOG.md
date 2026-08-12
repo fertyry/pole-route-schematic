@@ -6,7 +6,9 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ### Added
 
+- Sprint 1 Pole and Route domain data contracts
+- CSV/XLSX pole import with header, coordinate, and Side validation
+- Pole-data table and enabled Import poles action in the desktop application
 - Sprint 0 repository and package structure
 - PySide6 Windows application shell with a placeholder schematic canvas
 - Initial project documentation, dependency declarations, and tests
-
