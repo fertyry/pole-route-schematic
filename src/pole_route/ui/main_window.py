@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from pole_route.domain.pole import Pole
 from pole_route.domain.route import Route
+from pole_route.geometry.road_geometry import RoadGeometryError, build_road_geometry
 from pole_route.importers.kml_importer import RouteImportError, inspect_route_file
 from pole_route.importers.pole_importer import (
     OPTIONAL_FIELDS,
@@ -29,6 +30,8 @@ from pole_route.importers.pole_importer import (
     suggest_column_mapping,
 )
 from pole_route.ui.column_mapping_dialog import ColumnMappingDialog
+from pole_route.ui.geometry_renderer import render_road_geometry
+from pole_route.ui.geometry_settings_dialog import GeometrySettingsDialog
 from pole_route.ui.route_import_dialog import RouteImportDialog, draw_route_preview
 
 
@@ -37,7 +40,9 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("PoleRoute Schematic - Sprint 1")
+        self.current_route: Route | None = None
+        self.current_poles: list[Pole] = []
+        self.setWindowTitle("PoleRoute Schematic - Sprint 2")
         self.resize(1100, 720)
         self._build_toolbar()
         self._build_workspace()
@@ -61,6 +66,11 @@ class MainWindow(QMainWindow):
         import_poles_action.triggered.connect(self._choose_pole_file)
         toolbar.addAction(import_poles_action)
 
+        self.build_geometry_action = QAction("Build geometry", self)
+        self.build_geometry_action.setEnabled(False)
+        self.build_geometry_action.triggered.connect(self._build_geometry)
+        toolbar.addAction(self.build_geometry_action)
+
         export_action = QAction("Export", self)
         export_action.setEnabled(False)
         toolbar.addAction(export_action)
@@ -79,9 +89,11 @@ class MainWindow(QMainWindow):
         heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
         heading.setStyleSheet("font-size: 20px; font-weight: 600; padding: 6px;")
 
-        note = QLabel("Pole data can now be imported. Drawing and geometry begin in a later sprint.")
-        note.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        note.setWordWrap(True)
+        self.workspace_note = QLabel(
+            "Import a route and pole data, then build the metric road-geometry preview."
+        )
+        self.workspace_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.workspace_note.setWordWrap(True)
 
         self.pole_table = QTableWidget(0, 5)
         self.pole_table.setObjectName("poleTable")
@@ -99,7 +111,7 @@ class MainWindow(QMainWindow):
 
         layout = QVBoxLayout()
         layout.addWidget(heading)
-        layout.addWidget(note)
+        layout.addWidget(self.workspace_note)
         layout.addWidget(splitter, 1)
 
         central_widget = QWidget()
@@ -131,11 +143,48 @@ class MainWindow(QMainWindow):
             return
 
         self.show_route(route)
+        self.current_route = route
+        self._update_geometry_action()
         self.statusBar().showMessage(f"Imported route '{route.name}' ({len(route.points)} points)")
 
     def show_route(self, route: Route) -> None:
         """Display the confirmed centerline as a geographic-shape preview."""
         draw_route_preview(self.route_scene, route, 960, 540)
+
+    def _build_geometry(self) -> None:
+        dialog = GeometrySettingsDialog(self)
+        if dialog.exec() != GeometrySettingsDialog.DialogCode.Accepted:
+            self.statusBar().showMessage("Geometry build cancelled")
+            return
+        try:
+            geometry = build_road_geometry(
+                self.current_route,
+                self.current_poles,
+                dialog.road_width.value(),
+                dialog.pole_offset.value(),
+            )
+        except RoadGeometryError as error:
+            QMessageBox.warning(self, "Geometry build failed", str(error))
+            self.statusBar().showMessage("Geometry build failed")
+            return
+
+        render_road_geometry(self.route_scene, geometry)
+        self.workspace_note.setText(
+            "Metric preview: blue centerline, grey road edges, yellow pole lines, "
+            "green/red projected poles. This is not the final schematic."
+        )
+        message = (
+            f"Built geometry in {geometry.projection.name}: "
+            f"{len(geometry.projected_poles)} poles projected"
+        )
+        if geometry.unplaced_poles:
+            message += f", {len(geometry.unplaced_poles)} without Side not placed"
+        self.statusBar().showMessage(message)
+
+    def _update_geometry_action(self) -> None:
+        self.build_geometry_action.setEnabled(
+            self.current_route is not None and bool(self.current_poles)
+        )
 
     def _choose_pole_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -164,6 +213,8 @@ class MainWindow(QMainWindow):
             return
 
         self.show_poles(poles)
+        self.current_poles = poles
+        self._update_geometry_action()
         optional_missing = [field for field in OPTIONAL_FIELDS if not mapping[field]]
         suffix = " (optional fields omitted)" if optional_missing else ""
         self.statusBar().showMessage(f"Imported {len(poles)} poles{suffix}")

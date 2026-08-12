@@ -18,7 +18,7 @@ def test_main_window_contains_canvas(qtbot) -> None:
     window = MainWindow()
     qtbot.addWidget(window)
 
-    assert window.windowTitle() == "PoleRoute Schematic - Sprint 1"
+    assert window.windowTitle() == "PoleRoute Schematic - Sprint 2"
     assert window.findChild(QGraphicsView, "schematicCanvas") is not None
 
 
@@ -32,6 +32,27 @@ def test_main_window_can_show_poles(qtbot) -> None:
     assert window.pole_table.rowCount() == 1
     assert window.pole_table.item(0, 0).text() == "P-001"
     assert window.pole_table.item(0, 4).text() == "Left"
+
+
+def test_geometry_action_requires_route_and_poles(qtbot) -> None:
+    from pole_route.domain.pole import Pole
+    from pole_route.domain.route import GeoPoint, Route
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    assert not window.build_geometry_action.isEnabled()
+
+    window.current_route = Route(
+        "Road",
+        "route.kml",
+        (GeoPoint(100.0, 13.0), GeoPoint(100.01, 13.0)),
+    )
+    window._update_geometry_action()
+    assert not window.build_geometry_action.isEnabled()
+
+    window.current_poles = [Pole("1", 13.0, 100.001)]
+    window._update_geometry_action()
+    assert window.build_geometry_action.isEnabled()
 
 
 def test_mapping_dialog_uses_explicit_confirmation(qtbot) -> None:
