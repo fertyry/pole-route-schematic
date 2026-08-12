@@ -369,6 +369,7 @@ class MainWindow(QMainWindow):
         self.undo_stack.clear()
         render_schematic(self.route_scene, layout, self.undo_stack)
         self._set_layer_locked("Roads", True)
+        self.canvas.fit_scene()
         self.reset_layout_action.setEnabled(True)
         for action in self.drawing_actions.values():
             action.setEnabled(True)

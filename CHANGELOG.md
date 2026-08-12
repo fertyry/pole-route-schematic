@@ -6,6 +6,7 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ### Fixed
 
+- Newly generated schematics automatically fit and recenter after earlier canvas pan or zoom
 - Left-click selection no longer applies stale Properties values or begins an accidental tiny drag
 - Roads are locked by default after schematic generation to prevent moving the entire network
 - Middle-button canvas panning no longer moves a road or object beneath the pointer

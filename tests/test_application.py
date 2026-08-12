@@ -360,3 +360,26 @@ def test_left_click_selects_objects_without_removing_or_moving_them(qtbot) -> No
         assert item.scene() is window.route_scene
         assert item.isVisible()
         assert item.pos() == before_position
+
+
+def test_fit_scene_recenters_after_scene_is_replaced(qtbot) -> None:
+    from PySide6.QtCore import QRectF
+    from PySide6.QtWidgets import QGraphicsRectItem
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(800, 600)
+    window.show()
+    window.route_scene.setSceneRect(0, 0, 1600, 850)
+    window.route_scene.addItem(QGraphicsRectItem(QRectF(120, 120, 1360, 610)))
+
+    window.canvas.zoom_in()
+    window.canvas.horizontalScrollBar().setValue(window.canvas.horizontalScrollBar().maximum())
+    window.canvas.verticalScrollBar().setValue(window.canvas.verticalScrollBar().maximum())
+    window.canvas.fit_scene()
+
+    scene_center = window.route_scene.sceneRect().center()
+    center_in_view = window.canvas.mapFromScene(scene_center)
+    assert window.canvas.viewport().rect().contains(center_in_view)
+    assert window.canvas.viewport().rect().contains(window.canvas.mapFromScene(120, 120))
+    assert window.canvas.viewport().rect().contains(window.canvas.mapFromScene(1480, 730))

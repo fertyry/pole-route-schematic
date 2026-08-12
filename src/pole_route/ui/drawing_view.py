@@ -231,6 +231,7 @@ class DrawingView(QGraphicsView):
         self.resetTransform()
         self.rotate(self._rotation_degrees)
         self.fitInView(self.scene().sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+        self.centerOn(self.scene().sceneRect().center())
 
     def set_rotation(self, degrees: float) -> None:
         current_scale_x = (self.transform().m11() ** 2 + self.transform().m12() ** 2) ** 0.5
