@@ -239,6 +239,28 @@ def test_context_roads_are_clipped_to_export_corridor(qapp) -> None:
     assert road_name_center_x == pytest.approx(context_center_x, abs=35.0)
 
 
+def test_legacy_road_name_without_group_uses_nearest_context_road(qapp) -> None:
+    objects = [
+        ExcelObject("line", ((0, 0), (500, 0)), role="main_centerline", group_id="main"),
+        ExcelObject("line", ((300, -80), (300, 80)), role="centerline"),
+        ExcelObject("text", ((285, 65), (385, 80)), "Legacy Soi", role="road_name"),
+    ]
+    for index, x in enumerate((0, 250, 500), start=1):
+        objects.append(
+            ExcelObject("rectangle", ((x - 2, -2), (x + 2, 2)), role="pole", group_id=f"P-{index}")
+        )
+
+    page = prepare_excel_pages(
+        objects, ExcelExportSettings(page_count=1, context_road_length=20.0)
+    )[0]
+
+    label = next(item for item in page if item.role == "road_name")
+    context = next(item for item in page if item.role == "centerline")
+    label_x = sum(x for x, _ in label.points) / len(label.points)
+    context_x = sum(x for x, _ in context.points) / len(context.points)
+    assert label_x == pytest.approx(context_x, abs=35.0)
+
+
 def test_all_sheets_use_one_affine_display_scale(qapp) -> None:
     objects = [
         ExcelObject("line", ((0, 0), (500, 0)), role="main_centerline", group_id="main")

@@ -436,13 +436,17 @@ def _limit_context_road_reach(
     """Clip surrounding roads to a narrow corridor used only by Excel output."""
     half_length = max(float(total_length), 1.0) / 2.0
     corridor = axis.buffer(half_length, cap_style="flat")
-    name_anchors: dict[str, list[tuple[Point, Point]]] = {}
+    name_anchors: dict[str, list[tuple[Point, Point, LineString]]] = {}
+    all_anchors: list[tuple[Point, Point, LineString]] = []
     for item in objects:
-        if item.kind != "line" or item.role != "centerline" or not item.group_id:
+        if item.kind != "line" or item.role != "centerline":
             continue
         context_line = LineString(item.points)
         anchor, context_point = nearest_points(axis, context_line)
-        name_anchors.setdefault(item.group_id, []).append((anchor, context_point))
+        candidate = (anchor, context_point, context_line)
+        all_anchors.append(candidate)
+        if item.group_id:
+            name_anchors.setdefault(item.group_id, []).append(candidate)
     limited: list[ExcelObject] = []
     for item in objects:
         if item.kind == "line" and item.role in {"road_edge", "centerline"}:
@@ -455,7 +459,7 @@ def _limit_context_road_reach(
                 _place_road_name_at_junction(
                     item,
                     axis,
-                    name_anchors.get(item.group_id, []),
+                    name_anchors.get(item.group_id) or all_anchors,
                     half_length * 0.72,
                 )
             )
@@ -491,14 +495,14 @@ def _replace_points(
 def _place_road_name_at_junction(
     item: ExcelObject,
     axis: LineString,
-    anchors: list[tuple[Point, Point]],
+    anchors: list[tuple[Point, Point, LineString]],
     label_offset: float,
 ) -> ExcelObject:
     center_x, center_y = _object_center(item)
     center = Point(center_x, center_y)
     if anchors:
-        nearest, context_point = min(
-            anchors, key=lambda pair: pair[1].distance(center)
+        nearest, context_point, _context_line = min(
+            anchors, key=lambda candidate: candidate[2].distance(center)
         )
     else:
         nearest = axis.interpolate(axis.project(center))
