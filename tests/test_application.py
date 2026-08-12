@@ -39,7 +39,7 @@ def test_main_window_can_show_poles(qtbot) -> None:
 
 def test_geometry_action_requires_route_and_poles(qtbot) -> None:
     from pole_route.domain.pole import Pole
-    from pole_route.domain.route import GeoPoint, Route
+    from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
 
     window = MainWindow()
     qtbot.addWidget(window)
@@ -50,6 +50,9 @@ def test_geometry_action_requires_route_and_poles(qtbot) -> None:
         "route.kml",
         (GeoPoint(100.0, 13.0), GeoPoint(100.01, 13.0)),
     )
+    window.current_routes = [
+        ClassifiedRoute(window.current_route, RouteType.MAIN_ROUTE, 6.0, 2.0)
+    ]
     window._update_geometry_action()
     assert not window.build_geometry_action.isEnabled()
 
@@ -104,6 +107,7 @@ def test_route_dialog_classifies_multiple_lines(qtbot) -> None:
     assert [item.type for item in classified] == [RouteType.MAIN_ROUTE, RouteType.ROAD]
     assert classified[0].width_metres == 6.0
     assert classified[1].width_metres == 4.0
+    assert classified[0].pole_offset_metres == 2.0
 
 
 def test_route_dialog_uses_arabic_digits_and_previews_checked_routes(qtbot) -> None:
@@ -117,6 +121,7 @@ def test_route_dialog_uses_arabic_digits_and_previews_checked_routes(qtbot) -> N
     qtbot.addWidget(dialog)
 
     assert dialog.table.cellWidget(0, 3).locale().zeroDigit() == "0"
+    assert dialog.table.cellWidget(0, 4).locale().zeroDigit() == "0"
     assert dialog.preview_all_button.text() == "Preview selected routes"
 
     dialog.table.item(1, 0).setCheckState(Qt.CheckState.Checked)
@@ -125,6 +130,27 @@ def test_route_dialog_uses_arabic_digits_and_previews_checked_routes(qtbot) -> N
     paths = [item for item in dialog.scene.items() if isinstance(item, QGraphicsPathItem)]
     assert len(paths) == 2
     assert dialog.details.text().startswith("Previewing 2 selected routes")
+
+
+def test_route_dialog_allows_multiple_main_routes(qtbot) -> None:
+    from pole_route.domain.route import GeoPoint, Route, RouteType
+
+    routes = [
+        Route("Main 1", "route.kml", (GeoPoint(100, 13), GeoPoint(100.1, 13.1))),
+        Route("Main 2", "route.kml", (GeoPoint(100.1, 13.1), GeoPoint(100.2, 13.2))),
+    ]
+    dialog = RouteImportDialog(routes)
+    qtbot.addWidget(dialog)
+    dialog.table.item(1, 0).setCheckState(Qt.CheckState.Checked)
+    dialog.table.cellWidget(1, 2).setCurrentText(RouteType.MAIN_ROUTE.value)
+    dialog.table.cellWidget(1, 3).setValue(8.0)
+    dialog.table.cellWidget(1, 4).setValue(3.0)
+
+    classified = dialog.classified_routes()
+
+    assert [item.type for item in classified] == [RouteType.MAIN_ROUTE, RouteType.MAIN_ROUTE]
+    assert [item.width_metres for item in classified] == [6.0, 8.0]
+    assert [item.pole_offset_metres for item in classified] == [2.0, 3.0]
 
 
 def test_geometry_settings_use_arabic_digits(qtbot) -> None:

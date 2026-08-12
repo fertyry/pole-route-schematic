@@ -8,23 +8,28 @@ from PySide6.QtWidgets import QGraphicsScene
 from shapely.geometry import LineString, Point
 
 from pole_route.domain.pole import PoleSide
-from pole_route.geometry.road_geometry import RoadGeometry
+from pole_route.geometry.road_geometry import RoadGeometry, RoadNetworkGeometry
 
 
 def render_road_geometry(
     scene: QGraphicsScene,
-    geometry: RoadGeometry,
+    geometry: RoadGeometry | RoadNetworkGeometry,
     width: float = 960,
     height: float = 540,
 ) -> None:
     """Draw scaled metric geometry while preserving its aspect ratio."""
     scene.clear()
-    lines = (
-        geometry.centerline,
-        geometry.left_edge,
-        geometry.right_edge,
-        geometry.left_pole_line,
-        geometry.right_pole_line,
+    roads = geometry.roads if isinstance(geometry, RoadNetworkGeometry) else (geometry,)
+    lines = tuple(
+        line
+        for road in roads
+        for line in (
+            road.centerline,
+            road.left_edge,
+            road.right_edge,
+            road.left_pole_line,
+            road.right_pole_line,
+        )
     )
     extra_points = tuple(
         point
@@ -33,11 +38,12 @@ def render_road_geometry(
     )
     transform = _SceneTransform.from_geometry(lines, extra_points, width, height)
 
-    _draw_line(scene, geometry.left_pole_line, transform, QColor("#f2c94c"), 2, dashed=True)
-    _draw_line(scene, geometry.right_pole_line, transform, QColor("#f2c94c"), 2, dashed=True)
-    _draw_line(scene, geometry.left_edge, transform, QColor("#bdbdbd"), 2)
-    _draw_line(scene, geometry.right_edge, transform, QColor("#bdbdbd"), 2)
-    _draw_line(scene, geometry.centerline, transform, QColor("#2f80ed"), 2, dashed=True)
+    for road in roads:
+        _draw_line(scene, road.left_pole_line, transform, QColor("#f2c94c"), 2, dashed=True)
+        _draw_line(scene, road.right_pole_line, transform, QColor("#f2c94c"), 2, dashed=True)
+        _draw_line(scene, road.left_edge, transform, QColor("#bdbdbd"), 2)
+        _draw_line(scene, road.right_edge, transform, QColor("#bdbdbd"), 2)
+        _draw_line(scene, road.centerline, transform, QColor("#2f80ed"), 2, dashed=True)
 
     for projected in geometry.projected_poles:
         original_x, original_y = transform.point(projected.original)
@@ -126,4 +132,3 @@ class _SceneTransform:
 
     def point(self, point: Point) -> tuple[float, float]:
         return self.xy(point.x, point.y)
-

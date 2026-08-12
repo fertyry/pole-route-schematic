@@ -76,3 +76,20 @@ def test_rendered_schematic_objects_are_selectable_and_movable(qapp) -> None:
     for item in typed_items:
         assert item.flags() & item.GraphicsItemFlag.ItemIsSelectable
         assert item.flags() & item.GraphicsItemFlag.ItemIsMovable
+
+
+def test_poles_snapped_to_same_location_are_stacked() -> None:
+    route = Route(
+        "Road",
+        "route.kml",
+        (GeoPoint(100.0, 13.0), GeoPoint(100.02, 13.0)),
+    )
+    poles = [
+        Pole("6", 13.0001, 100.01, side=PoleSide.LEFT),
+        Pole("7", 13.0001, 100.01, side=PoleSide.LEFT),
+    ]
+
+    layout = create_schematic_layout(build_road_geometry(route, poles, 6.0, 2.0))
+
+    assert layout.poles[0].x == layout.poles[1].x
+    assert layout.poles[0].y == layout.poles[1].y

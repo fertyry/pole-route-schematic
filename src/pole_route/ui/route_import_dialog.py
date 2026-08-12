@@ -31,12 +31,14 @@ class RouteImportDialog(QDialog):
 
         intro = QLabel(
             "Choose every LineString to import, assign its meaning, and set road widths. "
-            "Exactly one used line must be Main route."
+            "One or more used lines may be Main routes."
         )
         intro.setWordWrap(True)
 
-        self.table = QTableWidget(len(routes), 4)
-        self.table.setHorizontalHeaderLabels(["Use", "LineString", "Type", "Width"])
+        self.table = QTableWidget(len(routes), 5)
+        self.table.setHorizontalHeaderLabels(
+            ["Use", "LineString", "Type", "Road width", "Pole offset"]
+        )
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         for row, route in enumerate(routes):
             use_item = QTableWidgetItem()
@@ -63,6 +65,14 @@ class RouteImportDialog(QDialog):
             width.setSuffix(" m")
             width.setValue(6.0)
             self.table.setCellWidget(row, 3, width)
+
+            pole_offset = QDoubleSpinBox()
+            pole_offset.setLocale(QLocale.c())
+            pole_offset.setRange(0.0, 1000.0)
+            pole_offset.setDecimals(2)
+            pole_offset.setSuffix(" m")
+            pole_offset.setValue(2.0)
+            self.table.setCellWidget(row, 4, pole_offset)
             self._update_width_state(row)
 
         self.details = QLabel()
@@ -105,7 +115,9 @@ class RouteImportDialog(QDialog):
                 continue
             width = self.table.cellWidget(row, 3)
             width_value = width.value() if width.isEnabled() else None
-            selections.append(ClassifiedRoute(route, route_type, width_value))
+            offset = self.table.cellWidget(row, 4)
+            offset_value = offset.value() if offset.isEnabled() else None
+            selections.append(ClassifiedRoute(route, route_type, width_value, offset_value))
         return selections
 
     def selected_route(self) -> Route:
@@ -119,20 +131,20 @@ class RouteImportDialog(QDialog):
             QMessageBox.warning(self, "Route classification invalid", str(error))
             return
         main_count = sum(item.type is RouteType.MAIN_ROUTE for item in selections)
-        if main_count != 1:
+        if main_count < 1:
             QMessageBox.warning(
                 self,
                 "Route classification incomplete",
-                "Select and use exactly one Main route.",
+                "Select and use at least one Main route.",
             )
             return
         self.accept()
 
     def _update_width_state(self, row: int) -> None:
         route_type = RouteType(self.table.cellWidget(row, 2).currentData())
-        self.table.cellWidget(row, 3).setEnabled(
-            route_type in {RouteType.MAIN_ROUTE, RouteType.ROAD, RouteType.BRIDGE}
-        )
+        enabled = route_type in {RouteType.MAIN_ROUTE, RouteType.ROAD, RouteType.BRIDGE}
+        self.table.cellWidget(row, 3).setEnabled(enabled)
+        self.table.cellWidget(row, 4).setEnabled(enabled)
 
     def _update_preview(self) -> None:
         row = self.table.currentRow()

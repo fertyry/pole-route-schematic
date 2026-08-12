@@ -22,7 +22,7 @@ from PySide6.QtWidgets import (
 from pole_route.domain.blocks import BLOCK_CATALOG
 from pole_route.domain.pole import Pole
 from pole_route.domain.route import ClassifiedRoute, Route, RouteType
-from pole_route.geometry.road_geometry import RoadGeometryError, build_road_geometry
+from pole_route.geometry.road_geometry import RoadGeometryError, build_road_network_geometry
 from pole_route.geometry.schematic_layout import create_schematic_layout
 from pole_route.importers.kml_importer import RouteImportError, inspect_route_file
 from pole_route.importers.pole_importer import (
@@ -40,8 +40,7 @@ from pole_route.ui.editor_commands import (
     editable_scene_items,
 )
 from pole_route.ui.geometry_renderer import render_road_geometry
-from pole_route.ui.geometry_settings_dialog import GeometrySettingsDialog
-from pole_route.ui.route_import_dialog import RouteImportDialog, draw_route_preview
+from pole_route.ui.route_import_dialog import RouteImportDialog, draw_classified_routes_preview
 from pole_route.ui.schematic_renderer import render_schematic
 from pole_route.ui.schematic_settings_dialog import SchematicSettingsDialog
 
@@ -52,6 +51,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.current_route: Route | None = None
+        self.current_routes: list[ClassifiedRoute] = []
         self.current_context_routes: list[ClassifiedRoute] = []
         self.current_road_width = 6.0
         self.current_poles: list[Pole] = []
@@ -216,38 +216,36 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage("Route import cancelled")
                 return
             classified = dialog.classified_routes()
-            main = next(item for item in classified if item.type is RouteType.MAIN_ROUTE)
-            route = main.route
+            main_routes = [item for item in classified if item.type is RouteType.MAIN_ROUTE]
+            route = main_routes[0].route
         except RouteImportError as error:
             QMessageBox.warning(self, "Route import failed", str(error))
             self.statusBar().showMessage("Route import failed")
             return
 
-        self.show_route(route)
+        self.show_routes(classified)
         self.current_route = route
-        self.current_context_routes = [item for item in classified if item is not main]
-        self.current_road_width = main.width_metres or 6.0
+        self.current_routes = classified
+        self.current_context_routes = [item for item in classified if item.type is not RouteType.MAIN_ROUTE]
+        self.current_road_width = main_routes[0].width_metres or 6.0
         self._update_geometry_action()
         self.statusBar().showMessage(
-            f"Imported main route '{route.name}' and {len(self.current_context_routes)} context line(s)"
+            f"Imported {len(main_routes)} main route(s) and "
+            f"{len(self.current_context_routes)} context line(s)"
         )
 
-    def show_route(self, route: Route) -> None:
-        """Display the confirmed centerline as a geographic-shape preview."""
-        draw_route_preview(self.route_scene, route, 960, 540)
+    def show_routes(self, routes: list[ClassifiedRoute]) -> None:
+        """Display every confirmed LineString in one geographic preview."""
+        draw_classified_routes_preview(
+            self.route_scene,
+            [(item.route, item.type) for item in routes],
+            960,
+            540,
+        )
 
     def _build_geometry(self) -> None:
-        dialog = GeometrySettingsDialog(self, self.current_road_width)
-        if dialog.exec() != GeometrySettingsDialog.DialogCode.Accepted:
-            self.statusBar().showMessage("Geometry build cancelled")
-            return
         try:
-            geometry = build_road_geometry(
-                self.current_route,
-                self.current_poles,
-                dialog.road_width.value(),
-                dialog.pole_offset.value(),
-            )
+            geometry = build_road_network_geometry(self.current_routes, self.current_poles)
         except RoadGeometryError as error:
             QMessageBox.warning(self, "Geometry build failed", str(error))
             self.statusBar().showMessage("Geometry build failed")
@@ -261,7 +259,7 @@ class MainWindow(QMainWindow):
             "green/red projected poles. This is not the final schematic."
         )
         message = (
-            f"Built geometry in {geometry.projection.name}: "
+            f"Built {len(geometry.roads)} road geometries in {geometry.projection.name}: "
             f"{len(geometry.projected_poles)} poles projected"
         )
         if geometry.unplaced_poles:
@@ -322,7 +320,7 @@ class MainWindow(QMainWindow):
 
     def _update_geometry_action(self) -> None:
         self.build_geometry_action.setEnabled(
-            self.current_route is not None and bool(self.current_poles)
+            bool(self.current_routes) and bool(self.current_poles)
         )
         self.current_geometry = None
         self.undo_stack.clear()

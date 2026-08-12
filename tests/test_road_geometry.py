@@ -1,8 +1,12 @@
 import pytest
 
 from pole_route.domain.pole import Pole, PoleSide
-from pole_route.domain.route import GeoPoint, Route
-from pole_route.geometry.road_geometry import RoadGeometryError, build_road_geometry
+from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
+from pole_route.geometry.road_geometry import (
+    RoadGeometryError,
+    build_road_geometry,
+    build_road_network_geometry,
+)
 
 
 def test_builds_road_and_pole_offsets_in_metres() -> None:
@@ -51,3 +55,28 @@ def test_rejects_invalid_geometry_settings(road_width, pole_offset, message) -> 
 
     with pytest.raises(RoadGeometryError, match=message):
         build_road_geometry(route, [], road_width, pole_offset)
+
+
+def test_builds_every_selected_road_with_its_own_width_and_offset() -> None:
+    routes = [
+        ClassifiedRoute(
+            Route("Main 1", "route.kml", (GeoPoint(100, 13), GeoPoint(100.01, 13))),
+            RouteType.MAIN_ROUTE,
+            6.0,
+            2.0,
+        ),
+        ClassifiedRoute(
+            Route("Main 2", "route.kml", (GeoPoint(100.01, 13), GeoPoint(100.01, 13.01))),
+            RouteType.MAIN_ROUTE,
+            10.0,
+            4.0,
+        ),
+    ]
+
+    network = build_road_network_geometry(routes, [])
+
+    assert len(network.roads) == 2
+    assert network.roads[0].road_width_metres == 6.0
+    assert network.roads[0].pole_offset_metres == 2.0
+    assert network.roads[1].road_width_metres == 10.0
+    assert network.roads[1].pole_offset_metres == 4.0
