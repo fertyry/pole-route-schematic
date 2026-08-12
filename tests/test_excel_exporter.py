@@ -11,6 +11,7 @@ from pole_route.exporters.excel_exporter import (
     ExcelExportSettings,
     collect_excel_objects,
     collect_scene_objects,
+    prepare_excel_pages,
 )
 from pole_route.geometry.road_geometry import build_road_geometry
 from pole_route.geometry.schematic_layout import create_schematic_layout
@@ -91,3 +92,24 @@ def test_collecting_export_snapshot_retains_renderer_owned_canvas_items(qapp) ->
     assert len(scene.items()) == expected_count
     assert len(scene._pole_route_item_refs) == expected_count
     assert all(item.scene() is scene for item in scene._pole_route_item_refs)
+
+
+def test_drawing_can_be_split_into_numbered_paper_sheets(qapp) -> None:
+    scene = QGraphicsScene()
+    scene.addLine(0, 50, 1000, 50)
+    for x in (100, 300, 700, 900):
+        pole = EditableRectItem(-5, -5, 10, 10, undo_stack=QUndoStack())
+        pole.setData(0, "pole")
+        pole.setPos(x, 20)
+        scene.addItem(pole)
+
+    pages = prepare_excel_pages(
+        collect_scene_objects(scene),
+        ExcelExportSettings(page_count=2),
+    )
+
+    assert len(pages) == 2
+    assert all(any(item.role == "pole" for item in page) for page in pages)
+    footers = [next(item.text for item in page if item.role == "footer") for page in pages]
+    assert "Sheet 1 / 2" in footers[0]
+    assert "Sheet 2 / 2" in footers[1]

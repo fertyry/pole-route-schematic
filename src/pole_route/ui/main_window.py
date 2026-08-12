@@ -27,7 +27,7 @@ from pole_route.domain.route import ClassifiedRoute, Route, RouteType
 from pole_route.exporters.excel_exporter import (
     ExcelExportError,
     collect_scene_objects,
-    export_objects_to_excel,
+    export_pages_to_excel,
 )
 from pole_route.geometry.road_geometry import RoadGeometryError, build_road_network_geometry
 from pole_route.geometry.schematic_layout import create_schematic_layout
@@ -380,8 +380,8 @@ class MainWindow(QMainWindow):
         if not path.lower().endswith(".xlsx"):
             path += ".xlsx"
         try:
-            object_count = export_objects_to_excel(
-                dialog.export_objects(), path, dialog.settings()
+            object_count = export_pages_to_excel(
+                dialog.export_pages(), path, dialog.settings()
             )
         except ExcelExportError as error:
             QMessageBox.warning(self, "Excel export failed", str(error))
@@ -720,6 +720,9 @@ class MainWindow(QMainWindow):
         return True
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if not self.isVisible():
+            event.accept()
+            return
         if self._confirm_discard_changes():
             event.accept()
         else:

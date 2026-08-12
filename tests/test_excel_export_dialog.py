@@ -1,3 +1,4 @@
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
 
 from pole_route.exporters.excel_exporter import collect_scene_objects
@@ -69,3 +70,17 @@ def test_dialog_destruction_cannot_modify_source_scene(qtbot) -> None:
     assert source_line.scene() is source
     assert source.items() == [source_line]
     assert snapshot
+
+
+def test_dialog_reviews_each_requested_sheet(qtbot) -> None:
+    source = QGraphicsScene()
+    source.addLine(0, 0, 1000, 100)
+    dialog = ExcelExportDialog(collect_scene_objects(source))
+    qtbot.addWidget(dialog)
+
+    dialog.page_count.setValue(3)
+
+    assert len(dialog.export_pages()) == 3
+    assert dialog.page_label.text() == "Sheet 1 / 3"
+    qtbot.mouseClick(dialog.next_page, Qt.MouseButton.LeftButton)
+    assert dialog.page_label.text() == "Sheet 2 / 3"

@@ -51,6 +51,7 @@ class ExcelExportSettings:
     show_compass: bool = True
     road_edge_width: float = 1.0
     centerline_width: float = 0.4
+    page_count: int = 1
 
 
 def collect_excel_objects(
@@ -132,6 +133,56 @@ def export_objects_to_excel(
         excel.Quit()
         pythoncom.CoUninitialize()
     return len(objects)
+
+
+def export_pages_to_excel(
+    pages: list[list[ExcelObject]],
+    path: str | Path,
+    settings: ExcelExportSettings,
+) -> int:
+    """Create one print-ready worksheet for each approved preview page."""
+    if not pages or not any(pages):
+        raise ExcelExportError("The preview has no objects to export.")
+    destination = str(Path(path).resolve())
+    try:
+        import pythoncom
+        import win32com.client
+
+        pythoncom.CoInitialize()
+        excel = win32com.client.DispatchEx("Excel.Application")
+    except Exception as error:
+        raise ExcelExportError(
+            "Microsoft Excel could not be started. Confirm that desktop Excel is installed."
+        ) from error
+    workbook = None
+    try:
+        excel.Visible = False
+        excel.DisplayAlerts = False
+        workbook = excel.Workbooks.Add()
+        while workbook.Worksheets.Count < len(pages):
+            workbook.Worksheets.Add(After=workbook.Worksheets(workbook.Worksheets.Count))
+        while workbook.Worksheets.Count > len(pages):
+            workbook.Worksheets(workbook.Worksheets.Count).Delete()
+        for index, objects in enumerate(pages, start=1):
+            sheet = workbook.Worksheets(index)
+            sheet.Name = f"Sheet {index}"
+            _write_shapes(sheet, objects)
+            sheet.PageSetup.Orientation = 2 if settings.orientation == "landscape" else 1
+            sheet.PageSetup.PaperSize = 9 if settings.paper_size == "A4" else 8
+            sheet.PageSetup.Zoom = False
+            sheet.PageSetup.FitToPagesWide = 1
+            sheet.PageSetup.FitToPagesTall = 1
+        workbook.SaveAs(destination, FileFormat=51)
+        workbook.Close(SaveChanges=False)
+        workbook = None
+    except Exception as error:
+        if workbook is not None:
+            workbook.Close(SaveChanges=False)
+        raise ExcelExportError(f"Excel export failed: {error}") from error
+    finally:
+        excel.Quit()
+        pythoncom.CoUninitialize()
+    return sum(len(page) for page in pages)
 
 
 def _collect_item(item: QGraphicsItem, objects: list[ExcelObject]) -> None:
@@ -236,8 +287,91 @@ def prepare_excel_objects(
         ), settings.pole_size_mm)
         for item in objects
     ]
-    frame = _frame_objects(settings, paper_w, paper_h, margin)
+    frame = _frame_objects(settings, paper_w, paper_h, margin, 1, 1)
     return [*frame, *drawing]
+
+
+def prepare_excel_pages(
+    objects: list[ExcelObject], settings: ExcelExportSettings
+) -> list[list[ExcelObject]]:
+    """Split the drawing along its main horizontal extent and style every paper sheet."""
+    page_count = max(1, int(settings.page_count))
+    if page_count == 1:
+        return [prepare_excel_objects(objects, settings)]
+    content = [
+        item
+        for item in objects
+        if not (item.role == "centerline" and settings.centerline_mode == "hide")
+    ]
+    coordinates = [point for item in content for point in item.points]
+    if not coordinates:
+        return [[]]
+    min_x = min(x for x, _ in coordinates)
+    max_x = max(x for x, _ in coordinates)
+    width = max(max_x - min_x, 1.0)
+    step = width / page_count
+    pages = []
+    for page_index in range(page_count):
+        core_left = min_x + step * page_index
+        core_right = min_x + step * (page_index + 1)
+        selected = [
+            item
+            for item in content
+            if _object_belongs_to_page(item, core_left, core_right, page_index == page_count - 1)
+        ]
+        pages.append(_prepare_page(selected, settings, page_index + 1, page_count))
+    return pages
+
+
+def _object_belongs_to_page(
+    item: ExcelObject, left: float, right: float, include_right: bool
+) -> bool:
+    xs = [point[0] for point in item.points]
+    if not xs:
+        return False
+    if item.kind == "line":
+        return max(xs) >= left and min(xs) <= right
+    center = (min(xs) + max(xs)) / 2
+    return left <= center <= right if include_right else left <= center < right
+
+
+def _prepare_page(
+    objects: list[ExcelObject],
+    settings: ExcelExportSettings,
+    page_number: int,
+    page_count: int,
+) -> list[ExcelObject]:
+    coordinates = [point for item in objects for point in item.points]
+    if not coordinates:
+        return []
+    min_x = min(x for x, _ in coordinates)
+    min_y = min(y for _, y in coordinates)
+    max_x = max(x for x, _ in coordinates)
+    max_y = max(y for _, y in coordinates)
+    paper_w_mm, paper_h_mm = ((297.0, 210.0) if settings.paper_size == "A4" else (420.0, 297.0))
+    if settings.orientation == "portrait":
+        paper_w_mm, paper_h_mm = paper_h_mm, paper_w_mm
+    paper_w, paper_h = paper_w_mm * 72 / 25.4, paper_h_mm * 72 / 25.4
+    margin, header, footer = 28.0, 54.0, 42.0
+    span_x, span_y = max(max_x - min_x, 1.0), max(max_y - min_y, 1.0)
+    scale = min((paper_w - 2 * margin) / span_x, (paper_h - header - footer - 2 * margin) / span_y)
+    drawing = [
+        _apply_pole_size(
+            ExcelObject(
+                item.kind,
+                tuple(((x - min_x) * scale + margin, (y - min_y) * scale + margin + header) for x, y in item.points),
+                item.text, 0,
+                0 if item.fill_color is not None or item.role == "pole" else None,
+                settings.centerline_width if item.role == "centerline" else settings.road_edge_width,
+                item.rotation, item.font_size,
+                "dashed" if item.role == "centerline" else item.line_style,
+                item.role,
+            ),
+            settings.pole_size_mm,
+        )
+        for item in objects
+    ]
+    return [*_frame_objects(settings, paper_w, paper_h, margin, page_number, page_count), *drawing]
 
 
 def _write_shapes(sheet, objects: list[ExcelObject]) -> None:
@@ -308,7 +442,12 @@ def _office_color(color: QColor) -> int:
 
 
 def _frame_objects(
-    settings: ExcelExportSettings, paper_w: float, paper_h: float, margin: float
+    settings: ExcelExportSettings,
+    paper_w: float,
+    paper_h: float,
+    margin: float,
+    page_number: int,
+    page_count: int,
 ) -> list[ExcelObject]:
     if settings.frame_style == "none":
         return []
@@ -332,7 +471,7 @@ def _frame_objects(
         ExcelObject(
             "text",
             ((margin, paper_h - margin - 20), (paper_w - margin, paper_h - margin)),
-            _footer_text(settings),
+            _footer_text(settings, page_number, page_count),
             fill_color=black,
             font_size=8.0,
             role="footer",
@@ -373,8 +512,8 @@ def _frame_objects(
     return objects
 
 
-def _footer_text(settings: ExcelExportSettings) -> str:
-    parts = ["NOT TO SCALE", "Sheet 1 / 1"]
+def _footer_text(settings: ExcelExportSettings, page_number: int, page_count: int) -> str:
+    parts = ["NOT TO SCALE", f"Sheet {page_number} / {page_count}"]
     if settings.drawing_number:
         parts.insert(0, f"Drawing: {settings.drawing_number}")
     if settings.prepared_by:

@@ -4,6 +4,11 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ## [Unreleased]
 
+- Added multi-sheet export review with a configurable sheet count and Previous/Next
+  navigation; Excel export now creates one print-ready worksheet per reviewed sheet.
+- Added automatic horizontal route-span splitting with repeated continuation road
+  lines, per-sheet frames, and `Sheet n / total` numbering.
+
 - Added portable `.prs` project files with New, Open, Save, and Save As actions.
 - Saved projects retain imported route and pole data, per-road geometry settings,
   same-pole groups, editable canvas object hierarchy, positions, and styling.

@@ -12,7 +12,10 @@ from PySide6.QtWidgets import (
     QGraphicsScene,
     QGraphicsView,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
+    QPushButton,
+    QSpinBox,
     QVBoxLayout,
 )
 
@@ -20,6 +23,7 @@ from pole_route.exporters.excel_exporter import (
     ExcelExportSettings,
     ExcelObject,
     prepare_excel_objects,
+    prepare_excel_pages,
 )
 
 
@@ -60,6 +64,11 @@ class ExcelExportDialog(QDialog):
         self.centerline_width.setSuffix(" pt")
         self.compass = QCheckBox("Show north arrow")
         self.compass.setChecked(True)
+        self.page_count = QSpinBox()
+        self.page_count.setLocale(QLocale.c())
+        self.page_count.setRange(1, 20)
+        self.page_count.setValue(1)
+        self.current_page = 0
 
         form = QFormLayout()
         form.addRow("Project title", self.project_title)
@@ -74,10 +83,18 @@ class ExcelExportDialog(QDialog):
         form.addRow("Centerline width", self.centerline_width)
         form.addRow("Pole size", self.pole_size)
         form.addRow("Compass", self.compass)
+        form.addRow("Number of sheets", self.page_count)
 
         self.preview_scene = QGraphicsScene(self)
         self.preview = QGraphicsView(self.preview_scene)
         self.preview.setBackgroundBrush(QBrush(QColor("#777777")))
+        self.previous_page = QPushButton("Previous")
+        self.next_page = QPushButton("Next")
+        self.page_label = QLabel("Sheet 1 / 1")
+        page_navigation = QHBoxLayout()
+        page_navigation.addWidget(self.previous_page)
+        page_navigation.addWidget(self.page_label, 1, Qt.AlignmentFlag.AlignCenter)
+        page_navigation.addWidget(self.next_page)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
@@ -89,7 +106,10 @@ class ExcelExportDialog(QDialog):
         right.addStretch(1)
         right.addWidget(buttons)
         layout = QHBoxLayout(self)
-        layout.addWidget(self.preview, 3)
+        preview_layout = QVBoxLayout()
+        preview_layout.addWidget(self.preview, 1)
+        preview_layout.addLayout(page_navigation)
+        layout.addLayout(preview_layout, 3)
         layout.addLayout(right, 1)
         for control in (
             self.project_title,
@@ -104,6 +124,9 @@ class ExcelExportDialog(QDialog):
         self.road_edge_width.valueChanged.connect(self.refresh_preview)
         self.centerline_width.valueChanged.connect(self.refresh_preview)
         self.compass.toggled.connect(self.refresh_preview)
+        self.page_count.valueChanged.connect(self._page_count_changed)
+        self.previous_page.clicked.connect(lambda: self._change_page(-1))
+        self.next_page.clicked.connect(lambda: self._change_page(1))
         self.refresh_preview()
 
     def settings(self) -> ExcelExportSettings:
@@ -120,11 +143,24 @@ class ExcelExportDialog(QDialog):
             self.compass.isChecked(),
             self.road_edge_width.value(),
             self.centerline_width.value(),
+            self.page_count.value(),
         )
+
+    def _page_count_changed(self) -> None:
+        self.current_page = min(self.current_page, self.page_count.value() - 1)
+        self.refresh_preview()
+
+    def _change_page(self, offset: int) -> None:
+        self.current_page = max(
+            0, min(self.current_page + offset, self.page_count.value() - 1)
+        )
+        self.refresh_preview()
 
     def refresh_preview(self) -> None:
         next_scene = QGraphicsScene(self)
-        for item in prepare_excel_objects(self.source_objects, self.settings()):
+        pages = prepare_excel_pages(self.source_objects, self.settings())
+        self.current_page = min(self.current_page, len(pages) - 1)
+        for item in pages[self.current_page]:
             _draw_preview_object(next_scene, item)
         if not next_scene.items():
             return
@@ -135,10 +171,17 @@ class ExcelExportDialog(QDialog):
         self.preview.setScene(next_scene)
         self.preview.fitInView(bounds, Qt.AspectRatioMode.KeepAspectRatio)
         previous_scene.deleteLater()
+        self.page_label.setText(f"Sheet {self.current_page + 1} / {len(pages)}")
+        self.previous_page.setEnabled(self.current_page > 0)
+        self.next_page.setEnabled(self.current_page < len(pages) - 1)
 
     def export_objects(self) -> list[ExcelObject]:
         """Return the exact styled snapshot currently represented by the preview."""
         return prepare_excel_objects(self.source_objects, self.settings())
+
+    def export_pages(self) -> list[list[ExcelObject]]:
+        """Return every styled sheet represented by the review."""
+        return prepare_excel_pages(self.source_objects, self.settings())
 
 
 def _draw_preview_object(scene: QGraphicsScene, item: ExcelObject) -> None:
