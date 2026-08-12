@@ -1,7 +1,9 @@
 """Main application window."""
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QUndoStack
+from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QFileDialog,
     QGraphicsScene,
@@ -37,6 +39,17 @@ from pole_route.importers.pole_importer import (
     poles_from_table,
     suggest_column_mapping,
 )
+from pole_route.project.storage import (
+    ProjectFileError,
+    load_project_file,
+    poles_from_data,
+    poles_to_data,
+    restore_scene,
+    routes_from_data,
+    routes_to_data,
+    save_project_file,
+    scene_to_data,
+)
 from pole_route.ui.column_mapping_dialog import ColumnMappingDialog
 from pole_route.ui.drawing_view import DrawingMode, DrawingView
 from pole_route.ui.editor_commands import (
@@ -64,7 +77,11 @@ class MainWindow(QMainWindow):
         self.current_poles: list[Pole] = []
         self.current_geometry = None
         self.same_pole_groups: list[frozenset[str]] = []
+        self.project_path: str | None = None
+        self.project_dirty = False
+        self._changing_project = False
         self.undo_stack = QUndoStack(self)
+        self.undo_stack.cleanChanged.connect(self._undo_clean_changed)
         self.setWindowTitle("PoleRoute Schematic - Sprint 3")
         self.resize(1100, 720)
         self._build_toolbar()
@@ -76,10 +93,27 @@ class MainWindow(QMainWindow):
         toolbar.setMovable(False)
         self.addToolBar(toolbar)
 
-        for label in ("New", "Open"):
-            action = QAction(label, self)
-            action.setEnabled(False)
-            toolbar.addAction(action)
+        self.new_action = QAction("New", self)
+        self.new_action.setShortcut(QKeySequence.StandardKey.New)
+        self.new_action.triggered.connect(self._new_project)
+        toolbar.addAction(self.new_action)
+
+        self.open_action = QAction("Open", self)
+        self.open_action.setShortcut(QKeySequence.StandardKey.Open)
+        self.open_action.triggered.connect(self._choose_project_file)
+        toolbar.addAction(self.open_action)
+
+        self.save_action = QAction("Save", self)
+        self.save_action.setShortcut(QKeySequence.StandardKey.Save)
+        self.save_action.triggered.connect(self._save_project)
+        toolbar.addAction(self.save_action)
+
+        self.save_as_action = QAction("Save as", self)
+        self.save_as_action.setShortcut(QKeySequence.StandardKey.SaveAs)
+        self.save_as_action.triggered.connect(self._save_project_as)
+        toolbar.addAction(self.save_as_action)
+
+        toolbar.addSeparator()
 
         import_route_action = QAction("Import route", self)
         import_route_action.triggered.connect(self._choose_route_file)
@@ -259,6 +293,7 @@ class MainWindow(QMainWindow):
             f"Imported {len(main_routes)} main route(s) and "
             f"{len(self.current_context_routes)} context line(s)"
         )
+        self._mark_dirty()
 
     def show_routes(self, routes: list[ClassifiedRoute]) -> None:
         """Display every confirmed LineString in one geographic preview."""
@@ -323,6 +358,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"Generated editable schematic with {len(layout.poles)} poles ({spacing_description})"
         )
+        self._mark_dirty()
 
     def _export_excel(self) -> None:
         source_objects = collect_scene_objects(self.route_scene)
@@ -459,6 +495,7 @@ class MainWindow(QMainWindow):
         optional_missing = [field for field in OPTIONAL_FIELDS if not mapping[field]]
         suffix = " (optional fields omitted)" if optional_missing else ""
         self.statusBar().showMessage(f"Imported {len(poles)} poles{suffix}")
+        self._mark_dirty()
 
     def show_poles(self, poles: list[Pole]) -> None:
         """Replace the table contents with imported pole records."""
@@ -500,6 +537,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"Marked {len(group)} records as one physical pole; regenerate the schematic"
         )
+        self._mark_dirty()
 
     def _toggle_canvas_editor(self, enabled: bool) -> None:
         self.heading.setVisible(not enabled)
@@ -511,3 +549,178 @@ class MainWindow(QMainWindow):
             self.canvas.fitInView(self.route_scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
         else:
             self.splitter.setSizes([240, 600])
+
+    def _undo_clean_changed(self, clean: bool) -> None:
+        if not clean and not self._changing_project:
+            self._mark_dirty()
+
+    def _mark_dirty(self) -> None:
+        if not self._changing_project:
+            self.project_dirty = True
+            self._update_window_title()
+
+    def _mark_clean(self) -> None:
+        self.project_dirty = False
+        self.undo_stack.setClean()
+        self._update_window_title()
+
+    def _update_window_title(self) -> None:
+        name = Path(self.project_path).stem if self.project_path else "Untitled"
+        marker = " *" if self.project_dirty else ""
+        self.setWindowTitle(f"PoleRoute Schematic - {name}{marker}")
+
+    def _choose_project_file(self) -> None:
+        if not self._confirm_discard_changes():
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open PoleRoute project", "", "PoleRoute project (*.prs)"
+        )
+        if path:
+            self.open_project(path)
+
+    def _new_project(self) -> None:
+        if not self._confirm_discard_changes():
+            return
+        self._changing_project = True
+        try:
+            self.current_route = None
+            self.current_routes = []
+            self.current_context_routes = []
+            self.current_road_width = 6.0
+            self.current_poles = []
+            self.current_geometry = None
+            self.same_pole_groups = []
+            self.project_path = None
+            self.route_scene.clear()
+            self.route_scene.setSceneRect(0, 0, 1000, 600)
+            self.pole_table.setRowCount(0)
+            self.undo_stack.clear()
+            self._update_geometry_action()
+            self.generate_schematic_action.setEnabled(False)
+            self.workspace_note.setText(
+                "Import a route and pole data, then build the metric road-geometry preview."
+            )
+        finally:
+            self._changing_project = False
+        self._mark_clean()
+        self.statusBar().showMessage("New project")
+
+    def _save_project(self) -> bool:
+        return self._write_project(self.project_path) if self.project_path else self._save_project_as()
+
+    def _save_project_as(self) -> bool:
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save PoleRoute project",
+            self.project_path or "PoleRoute-Schematic.prs",
+            "PoleRoute project (*.prs)",
+        )
+        if not path:
+            return False
+        if not path.lower().endswith(".prs"):
+            path += ".prs"
+        return self._write_project(path)
+
+    def _write_project(self, path: str | None) -> bool:
+        if not path:
+            return False
+        try:
+            save_project_file(
+                path,
+                {
+                    "routes": routes_to_data(self.current_routes),
+                    "poles": poles_to_data(self.current_poles),
+                    "same_pole_groups": [sorted(group) for group in self.same_pole_groups],
+                    "canvas": scene_to_data(self.route_scene),
+                    "workspace_note": self.workspace_note.text(),
+                    "has_schematic": self.export_action.isEnabled(),
+                },
+            )
+        except ProjectFileError as error:
+            QMessageBox.warning(self, "Project save failed", str(error))
+            return False
+        self.project_path = path
+        self._mark_clean()
+        self.statusBar().showMessage(f"Saved project to {path}")
+        return True
+
+    def open_project(self, path: str) -> bool:
+        try:
+            document = load_project_file(path)
+            routes = routes_from_data(document.get("routes", []))
+            poles = poles_from_data(document.get("poles", []))
+            geometry = build_road_network_geometry(routes, poles) if routes and poles else None
+        except (ProjectFileError, RoadGeometryError, KeyError, TypeError, ValueError) as error:
+            QMessageBox.warning(self, "Project open failed", str(error))
+            return False
+
+        self._changing_project = True
+        try:
+            self.current_routes = routes
+            main_routes = [item for item in routes if item.type is RouteType.MAIN_ROUTE]
+            self.current_route = main_routes[0].route if main_routes else None
+            self.current_context_routes = [
+                item for item in routes if item.type is not RouteType.MAIN_ROUTE
+            ]
+            self.current_road_width = (
+                (main_routes[0].width_metres or 6.0) if main_routes else 6.0
+            )
+            self.current_poles = poles
+            self.current_geometry = geometry
+            self.same_pole_groups = [
+                frozenset(group) for group in document.get("same_pole_groups", [])
+            ]
+            self.show_poles(poles)
+            self._show_same_pole_groups()
+            self.undo_stack.clear()
+            restore_scene(self.route_scene, document.get("canvas", {}), self.undo_stack)
+            self.project_path = path
+            has_schematic = bool(document.get("has_schematic"))
+            self.build_geometry_action.setEnabled(bool(routes) and bool(poles))
+            self.generate_schematic_action.setEnabled(bool(geometry and geometry.projected_poles))
+            self.reset_layout_action.setEnabled(has_schematic)
+            self.edit_canvas_action.setEnabled(has_schematic)
+            self.export_action.setEnabled(has_schematic)
+            for action in self.drawing_actions.values():
+                action.setEnabled(has_schematic)
+            self.blocks_button.setEnabled(has_schematic)
+            self.workspace_note.setText(document.get("workspace_note", "Project opened"))
+            self.canvas.fitInView(
+                self.route_scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio
+            )
+        finally:
+            self._changing_project = False
+        self._mark_clean()
+        self.statusBar().showMessage(f"Opened project {path}")
+        return True
+
+    def _show_same_pole_groups(self) -> None:
+        for group in self.same_pole_groups:
+            label = " / ".join(sorted(group))
+            for row, pole in enumerate(self.current_poles):
+                if pole.number in group:
+                    self.pole_table.setItem(row, 5, QTableWidgetItem(label))
+
+    def _confirm_discard_changes(self) -> bool:
+        if not self.project_dirty:
+            return True
+        answer = QMessageBox.warning(
+            self,
+            "Unsaved project",
+            "Save changes to the current project before continuing?",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save,
+        )
+        if answer is QMessageBox.StandardButton.Cancel:
+            return False
+        if answer is QMessageBox.StandardButton.Save:
+            return self._save_project()
+        return True
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self._confirm_discard_changes():
+            event.accept()
+        else:
+            event.ignore()

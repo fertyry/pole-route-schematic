@@ -4,6 +4,12 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ## [Unreleased]
 
+- Added portable `.prs` project files with New, Open, Save, and Save As actions.
+- Saved projects retain imported route and pole data, per-road geometry settings,
+  same-pole groups, editable canvas object hierarchy, positions, and styling.
+- Added unsaved-change indicators and Save/Discard/Cancel confirmation before
+  starting another project, opening a project, or closing the application.
+
 - Fixed the live canvas disappearing as soon as Export Excel was clicked by retaining
   PySide graphics-item wrappers on their source scene before snapshot collection.
 

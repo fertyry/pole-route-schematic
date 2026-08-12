@@ -1,5 +1,10 @@
 # PoleRoute Schematic
 
+Projects can be saved as portable `.prs` files and opened later without requiring the
+original KML, KMZ, Excel, or CSV source files to remain in the same location. The
+project file retains route and pole inputs, road settings, same-pole groups, and the
+editable canvas objects.
+
 PoleRoute Schematic is an early-stage Windows desktop application for turning route and utility-pole data into an editable schematic drawing.
 
 > Project status: Sprint 3 in progress. Multi-LineString route classification, pole import, metric geometry, selectable schematic spacing, undoable editing, drawing tools, and semantic blocks are implemented. Context topology, project persistence, and export are not implemented yet.
