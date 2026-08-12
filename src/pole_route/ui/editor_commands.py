@@ -137,5 +137,6 @@ def editable_scene_items(scene: QGraphicsScene) -> list[QGraphicsItem]:
     return [
         item
         for item in scene.items()
-        if item.parentItem() is None and item.data(0) in {"road", "pole", "label", "drawing"}
+        if item.parentItem() is None
+        and item.data(0) in {"road", "pole", "label", "drawing", "block"}
     ]

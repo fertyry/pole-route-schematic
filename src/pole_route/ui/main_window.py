@@ -8,15 +8,18 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QToolBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from pole_route.domain.blocks import BLOCK_CATALOG
 from pole_route.domain.pole import Pole
 from pole_route.domain.route import Route
 from pole_route.geometry.road_geometry import RoadGeometryError, build_road_geometry
@@ -127,6 +130,23 @@ class MainWindow(QMainWindow):
             toolbar.addAction(action)
             self.drawing_actions[mode] = action
         self.drawing_actions[DrawingMode.SELECT].setChecked(True)
+
+        self.blocks_button = QToolButton()
+        self.blocks_button.setText("Blocks")
+        self.blocks_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.blocks_button.setEnabled(False)
+        blocks_menu = QMenu(self.blocks_button)
+        current_category = None
+        for definition in BLOCK_CATALOG:
+            if current_category is not None and definition.category != current_category:
+                blocks_menu.addSeparator()
+            action = blocks_menu.addAction(definition.label)
+            action.triggered.connect(
+                lambda _checked=False, block_type=definition.type: self._select_block(block_type)
+            )
+            current_category = definition.category
+        self.blocks_button.setMenu(blocks_menu)
+        toolbar.addWidget(self.blocks_button)
 
         export_action = QAction("Export", self)
         export_action.setEnabled(False)
@@ -252,6 +272,7 @@ class MainWindow(QMainWindow):
         self.reset_layout_action.setEnabled(True)
         for action in self.drawing_actions.values():
             action.setEnabled(True)
+        self.blocks_button.setEnabled(True)
         self.drawing_actions[DrawingMode.SELECT].setChecked(True)
         self.canvas.set_mode(DrawingMode.SELECT)
         spacing_description = (
@@ -300,8 +321,18 @@ class MainWindow(QMainWindow):
         self.reset_layout_action.setEnabled(False)
         for action in self.drawing_actions.values():
             action.setEnabled(False)
+        self.blocks_button.setEnabled(False)
         self.drawing_actions[DrawingMode.SELECT].setChecked(True)
         self.canvas.set_mode(DrawingMode.SELECT)
+
+    def _select_block(self, block_type) -> None:
+        for action in self.drawing_actions.values():
+            action.setChecked(False)
+        self.canvas.set_block_mode(block_type)
+        self.statusBar().showMessage(
+            f"{block_type.value.replace('_', ' ').title()}: drag from the start/connection "
+            "point to the end; hold Alt to disable road snapping"
+        )
         self.generate_schematic_action.setEnabled(False)
 
     def _choose_pole_file(self) -> None:

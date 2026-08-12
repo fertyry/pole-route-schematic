@@ -6,6 +6,8 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ### Added
 
+- Extensible Blocks menu with Side road, T-junction, Crossroad, Vehicle bridge, and Footbridge
+- Two-point semantic block placement with automatic main-road anchor snapping and Alt override
 - Shift-modified 45-degree angle snapping for the Line tool
 - Confirmed Equal spacing or Projected station spacing schematic generation modes
 - Select, Line, Rectangle, Ellipse, and Text canvas tools
