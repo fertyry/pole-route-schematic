@@ -41,6 +41,7 @@ from pole_route.ui.editor_commands import (
     ResetLayoutCommand,
     editable_scene_items,
 )
+from pole_route.ui.excel_export_dialog import ExcelExportDialog
 from pole_route.ui.geometry_renderer import render_road_geometry
 from pole_route.ui.route_import_dialog import RouteImportDialog, draw_classified_routes_preview
 from pole_route.ui.schematic_renderer import render_schematic
@@ -320,6 +321,10 @@ class MainWindow(QMainWindow):
         )
 
     def _export_excel(self) -> None:
+        dialog = ExcelExportDialog(self.route_scene, self)
+        if dialog.exec() != ExcelExportDialog.DialogCode.Accepted:
+            self.statusBar().showMessage("Excel export cancelled")
+            return
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Export editable Excel drawing",
@@ -331,7 +336,7 @@ class MainWindow(QMainWindow):
         if not path.lower().endswith(".xlsx"):
             path += ".xlsx"
         try:
-            object_count = export_scene_to_excel(self.route_scene, path)
+            object_count = export_scene_to_excel(self.route_scene, path, dialog.settings())
         except ExcelExportError as error:
             QMessageBox.warning(self, "Excel export failed", str(error))
             self.statusBar().showMessage("Excel export failed")

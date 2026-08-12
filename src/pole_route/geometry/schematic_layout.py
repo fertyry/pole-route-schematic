@@ -3,6 +3,7 @@
 from enum import StrEnum
 from math import atan2, degrees
 
+from shapely.geometry import LineString
 from shapely.ops import unary_union
 
 from pole_route.domain.pole import PoleSide
@@ -187,12 +188,7 @@ def _create_network_layout(
         road.centerline.buffer(road.road_width_metres / 2.0, cap_style="flat", join_style="round")
         for road in geometry.roads
     ])
-    polygons = list(road_surface.geoms) if hasattr(road_surface, "geoms") else [road_surface]
-    boundaries = tuple(
-        line_points(ring)
-        for polygon in polygons
-        for ring in (polygon.exterior, *polygon.interiors)
-    )
+    boundaries = tuple(line_points(line) for line in _open_road_boundaries(road_surface, geometry))
 
     raw_poles = [
         SchematicPole(
@@ -244,6 +240,21 @@ def _schematic_road_angle(line, station: float) -> float:
     before = line.interpolate(max(0.0, station - step))
     after = line.interpolate(min(line.length, station + step))
     return degrees(atan2(-(after.y - before.y), after.x - before.x))
+
+
+def _open_road_boundaries(road_surface, geometry: RoadNetworkGeometry):
+    """Remove only exposed end caps while retaining joined junction boundaries."""
+    cap_lines = []
+    for road in geometry.roads:
+        cap_lines.extend(
+            (
+                LineString((road.left_edge.coords[0], road.right_edge.coords[0])),
+                LineString((road.left_edge.coords[-1], road.right_edge.coords[-1])),
+            )
+        )
+    tolerance = max(min(road.road_width_metres for road in geometry.roads) * 0.02, 0.01)
+    opened = road_surface.boundary.difference(unary_union(cap_lines).buffer(tolerance))
+    return list(opened.geoms) if hasattr(opened, "geoms") else [opened]
 
 
 def _marker_id(number: str, groups: tuple[frozenset[str], ...]) -> str:

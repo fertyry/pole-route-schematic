@@ -119,8 +119,21 @@ def test_network_schematic_contains_every_road() -> None:
 
     assert len(layout.roads) == 2
     road_group = next(item for item in scene.items() if item.data(0) == "road")
-    assert len(layout.road_boundaries) == 1
-    assert len(road_group.childItems()) == 3
+    assert layout.road_boundaries
+    assert len(road_group.childItems()) == len(layout.road_boundaries) + len(layout.roads)
+
+
+def test_network_road_boundaries_have_open_exposed_ends() -> None:
+    route = ClassifiedRoute(
+        Route("Main", "route.kml", (GeoPoint(100, 13), GeoPoint(100.01, 13))),
+        RouteType.MAIN_ROUTE,
+        6.0,
+        2.0,
+    )
+    layout = create_schematic_layout(build_road_network_geometry([route], []))
+
+    assert len(layout.road_boundaries) == 2
+    assert all(points[0] != points[-1] for points in layout.road_boundaries)
 
 
 def test_square_pole_is_aligned_with_its_local_road() -> None:

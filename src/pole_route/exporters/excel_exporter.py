@@ -33,20 +33,45 @@ class ExcelObject:
     line_width: float = 1.0
     rotation: float = 0.0
     font_size: float = 10.0
+    line_style: str = "solid"
+    role: str = "drawing"
 
 
-def collect_excel_objects(scene: QGraphicsScene) -> list[ExcelObject]:
+@dataclass(frozen=True, slots=True)
+class ExcelExportSettings:
+    project_title: str = "PoleRoute Schematic"
+    location: str = ""
+    prepared_by: str = ""
+    drawing_number: str = ""
+    paper_size: str = "A4"
+    orientation: str = "landscape"
+    frame_style: str = "standard"
+    centerline_mode: str = "dashed"
+    pole_size_mm: float = 4.0
+    show_compass: bool = True
+    road_edge_width: float = 1.0
+    centerline_width: float = 0.4
+
+
+def collect_excel_objects(
+    scene: QGraphicsScene, settings: ExcelExportSettings | None = None
+) -> list[ExcelObject]:
     """Flatten visible scene graphics into editable Excel-shape descriptions."""
     objects: list[ExcelObject] = []
     items = [item for item in scene.items() if item.parentItem() is None and item.isVisible()]
     for item in reversed(items):
         _collect_item(item, objects)
-    return _normalise(objects)
+    return prepare_excel_objects(objects, settings or ExcelExportSettings())
 
 
-def export_scene_to_excel(scene: QGraphicsScene, path: str | Path) -> int:
+def export_scene_to_excel(
+    scene: QGraphicsScene,
+    path: str | Path,
+    settings: ExcelExportSettings | None = None,
+) -> int:
     """Create an XLSX workbook containing editable Shapes from the current scene."""
-    objects = collect_excel_objects(scene)
+    settings = settings or ExcelExportSettings()
+    objects = collect_excel_objects(scene, settings)
     if not objects:
         raise ExcelExportError("The canvas has no objects to export.")
     destination = str(Path(path).resolve())
@@ -69,8 +94,8 @@ def export_scene_to_excel(scene: QGraphicsScene, path: str | Path) -> int:
         sheet = workbook.Worksheets(1)
         sheet.Name = "PoleRoute Schematic"
         _write_shapes(sheet, objects)
-        sheet.PageSetup.Orientation = 2
-        sheet.PageSetup.PaperSize = 8
+        sheet.PageSetup.Orientation = 2 if settings.orientation == "landscape" else 1
+        sheet.PageSetup.PaperSize = 9 if settings.paper_size == "A4" else 8
         sheet.PageSetup.Zoom = False
         sheet.PageSetup.FitToPagesWide = 1
         sheet.PageSetup.FitToPagesTall = 1
@@ -114,6 +139,7 @@ def _collect_item(item: QGraphicsItem, objects: list[ExcelObject]) -> None:
                 fill_color=_office_color(item.brush().color()),
                 rotation=_scene_rotation(item),
                 font_size=max(item.font().pointSizeF(), 8.0),
+                role=item.data(0) or "label",
             )
         )
         return
@@ -133,6 +159,7 @@ def _collect_item(item: QGraphicsItem, objects: list[ExcelObject]) -> None:
                 ),
                 line_width=max(pen.widthF(), 0.5),
                 rotation=_scene_rotation(item),
+                role=item.data(0) or "drawing",
             )
         )
         return
@@ -148,30 +175,47 @@ def _line_object(item, start: QPointF, end: QPointF) -> ExcelObject:
         ((start.x(), start.y()), (end.x(), end.y())),
         line_color=_office_color(pen.color()),
         line_width=max(pen.widthF(), 0.5),
+        line_style="dashed" if pen.style() is not Qt.PenStyle.SolidLine else "solid",
+        role="centerline" if pen.style() is not Qt.PenStyle.SolidLine else "road_edge",
     )
 
 
-def _normalise(objects: list[ExcelObject]) -> list[ExcelObject]:
+def prepare_excel_objects(
+    objects: list[ExcelObject], settings: ExcelExportSettings
+) -> list[ExcelObject]:
+    """Apply print styling, paper fit, frame, title block, and compass."""
+    objects = [item for item in objects if not (item.role == "centerline" and settings.centerline_mode == "hide")]
     coordinates = [point for item in objects for point in item.points]
     if not coordinates:
         return objects
     min_x = min(point[0] for point in coordinates)
     min_y = min(point[1] for point in coordinates)
-    scale = 0.72
-    margin = 24.0
-    return [
-        ExcelObject(
+    paper_w_mm, paper_h_mm = ((297.0, 210.0) if settings.paper_size == "A4" else (420.0, 297.0))
+    if settings.orientation == "portrait":
+        paper_w_mm, paper_h_mm = paper_h_mm, paper_w_mm
+    paper_w, paper_h = paper_w_mm * 72 / 25.4, paper_h_mm * 72 / 25.4
+    margin, header, footer = 28.0, 54.0, 42.0
+    max_x = max(point[0] for point in coordinates)
+    max_y = max(point[1] for point in coordinates)
+    span_x, span_y = max(max_x - min_x, 1.0), max(max_y - min_y, 1.0)
+    scale = min((paper_w - 2 * margin) / span_x, (paper_h - header - footer - 2 * margin) / span_y)
+    drawing = [
+        _apply_pole_size(ExcelObject(
             item.kind,
-            tuple(((x - min_x) * scale + margin, (y - min_y) * scale + margin) for x, y in item.points),
+            tuple(((x - min_x) * scale + margin, (y - min_y) * scale + margin + header) for x, y in item.points),
             item.text,
-            item.line_color,
-            item.fill_color,
-            item.line_width,
+            0,
+            0 if item.fill_color is not None or item.role == "pole" else None,
+            settings.centerline_width if item.role == "centerline" else settings.road_edge_width,
             item.rotation,
             item.font_size,
-        )
+            "dashed" if item.role == "centerline" else item.line_style,
+            item.role,
+        ), settings.pole_size_mm)
         for item in objects
     ]
+    frame = _frame_objects(settings, paper_w, paper_h, margin)
+    return [*frame, *drawing]
 
 
 def _write_shapes(sheet, objects: list[ExcelObject]) -> None:
@@ -207,6 +251,8 @@ def _set_line(shape, item: ExcelObject) -> None:
     shape.Line.Visible = -1
     shape.Line.ForeColor.RGB = item.line_color
     shape.Line.Weight = item.line_width
+    if item.line_style == "dashed":
+        shape.Line.DashStyle = 4
 
 
 def _bounds(points: tuple[tuple[float, float], ...]) -> tuple[float, float, float, float]:
@@ -237,3 +283,98 @@ def _scene_rotation(item: QGraphicsItem) -> float:
 
 def _office_color(color: QColor) -> int:
     return color.red() + color.green() * 256 + color.blue() * 65536
+
+
+def _frame_objects(
+    settings: ExcelExportSettings, paper_w: float, paper_h: float, margin: float
+) -> list[ExcelObject]:
+    if settings.frame_style == "none":
+        return []
+    black = 0
+    objects = [
+        ExcelObject(
+            "rectangle",
+            ((margin / 2, margin / 2), (paper_w - margin / 2, paper_h - margin / 2)),
+            line_color=black,
+            line_width=1.0,
+            role="frame",
+        ),
+        ExcelObject(
+            "text",
+            ((margin, margin), (paper_w - margin, margin + 24)),
+            settings.project_title or "PoleRoute Schematic",
+            fill_color=black,
+            font_size=14.0,
+            role="title",
+        ),
+        ExcelObject(
+            "text",
+            ((margin, paper_h - margin - 20), (paper_w - margin, paper_h - margin)),
+            _footer_text(settings),
+            fill_color=black,
+            font_size=8.0,
+            role="footer",
+        ),
+    ]
+    if settings.location:
+        objects.append(
+            ExcelObject(
+                "text",
+                ((margin, margin + 24), (paper_w - margin, margin + 42)),
+                settings.location,
+                fill_color=black,
+                font_size=10.0,
+                role="subtitle",
+            )
+        )
+    if settings.show_compass:
+        cx, cy = paper_w - margin - 24, margin + 30
+        objects.extend(
+            [
+                ExcelObject(
+                    "line",
+                    ((cx, cy + 22), (cx, cy - 10)),
+                    line_color=black,
+                    line_width=1.5,
+                    role="compass",
+                ),
+                ExcelObject(
+                    "text",
+                    ((cx - 6, cy - 28), (cx + 12, cy - 10)),
+                    "N",
+                    fill_color=black,
+                    font_size=10.0,
+                    role="compass",
+                ),
+            ]
+        )
+    return objects
+
+
+def _footer_text(settings: ExcelExportSettings) -> str:
+    parts = ["NOT TO SCALE", "Sheet 1 / 1"]
+    if settings.drawing_number:
+        parts.insert(0, f"Drawing: {settings.drawing_number}")
+    if settings.prepared_by:
+        parts.insert(0, f"Prepared by: {settings.prepared_by}")
+    return "    |    ".join(parts)
+
+
+def _apply_pole_size(item: ExcelObject, size_mm: float) -> ExcelObject:
+    if item.role != "pole" or item.kind != "rectangle":
+        return item
+    (left, top), (right, bottom) = item.points
+    center_x, center_y = (left + right) / 2, (top + bottom) / 2
+    size = size_mm * 72 / 25.4
+    return ExcelObject(
+        item.kind,
+        ((center_x - size / 2, center_y - size / 2), (center_x + size / 2, center_y + size / 2)),
+        item.text,
+        item.line_color,
+        item.fill_color,
+        item.line_width,
+        item.rotation,
+        item.font_size,
+        item.line_style,
+        item.role,
+    )

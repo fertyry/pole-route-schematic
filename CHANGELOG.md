@@ -4,6 +4,10 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ## [Unreleased]
 
+- Added a live Excel export preview with project information, A4/A3 paper and
+  orientation controls, monochrome styling, frame/footer, compass, centerline mode,
+  and pole symbol size in millimetres.
+
 - Added Windows-only editable Excel export using native Line, Shape, and Text Box
   objects rather than a flattened image.
 
