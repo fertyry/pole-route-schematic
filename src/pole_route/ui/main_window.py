@@ -388,8 +388,8 @@ class MainWindow(QMainWindow):
         for layer_name in ("Roads", "Poles", "Labels", "Blocks", "Annotations"):
             self._set_layer_visible(layer_name, True)
             self._set_layer_locked(layer_name, layer_name == "Roads")
-        self.canvas.fit_scene()
-        QTimer.singleShot(0, self.canvas.fit_scene)
+        self.canvas.refresh_scene()
+        QTimer.singleShot(0, self.canvas.refresh_scene)
         self.reset_layout_action.setEnabled(True)
         for action in self.drawing_actions.values():
             action.setEnabled(True)

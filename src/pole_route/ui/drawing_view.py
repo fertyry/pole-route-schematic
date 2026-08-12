@@ -44,6 +44,7 @@ class DrawingView(QGraphicsView):
         self.block_type = BlockType.SIDE_ROAD
         self._rotation_degrees = 0.0
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
 
     def set_mode(self, mode: DrawingMode) -> None:
         self._discard_preview()
@@ -226,6 +227,13 @@ class DrawingView(QGraphicsView):
         self.fitInView(fitted_bounds, Qt.AspectRatioMode.KeepAspectRatio)
         self.centerOn(fitted_bounds.center())
         self.viewport().update()
+
+    def refresh_scene(self) -> None:
+        """Force Qt to redraw a newly replaced scene, then fit its visible objects."""
+        self.resetCachedContent()
+        self.scene().invalidate()
+        self.fit_scene()
+        self.viewport().repaint()
 
     def set_rotation(self, degrees: float) -> None:
         current_scale_x = (self.transform().m11() ** 2 + self.transform().m12() ** 2) ** 0.5

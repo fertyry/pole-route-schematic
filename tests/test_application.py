@@ -408,3 +408,35 @@ def test_fit_scene_recenters_after_scene_is_replaced(qtbot) -> None:
     assert window.canvas.viewport().rect().contains(center_in_view)
     assert window.canvas.viewport().rect().contains(window.canvas.mapFromScene(120, 120))
     assert window.canvas.viewport().rect().contains(window.canvas.mapFromScene(1480, 730))
+
+
+def test_refreshed_canvas_exposes_rendered_items_in_viewport(qtbot) -> None:
+    from pole_route.domain.pole import Pole, PoleSide
+    from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
+    from pole_route.geometry.road_geometry import build_road_network_geometry
+    from pole_route.geometry.schematic_layout import create_schematic_layout
+    from pole_route.ui.schematic_renderer import render_schematic
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(1000, 700)
+    window.show()
+    route = ClassifiedRoute(
+        Route("Main", "route.kml", (GeoPoint(100, 13), GeoPoint(100.01, 13.005))),
+        RouteType.MAIN_ROUTE,
+        6.0,
+        1.0,
+    )
+    poles = [Pole("1", 13.001, 100.002, "EP.12", PoleSide.RIGHT)]
+    layout = create_schematic_layout(build_road_network_geometry([route], poles))
+
+    render_schematic(window.route_scene, layout, window.undo_stack)
+    window.canvas.refresh_scene()
+    qtbot.wait(10)
+
+    visible_types = {
+        item.data(0)
+        for item in window.canvas.items()
+        if item.parentItem() is None and item.data(0)
+    }
+    assert {"road", "pole", "label"} <= visible_types
