@@ -6,6 +6,8 @@ from PySide6.QtWidgets import (
     QGraphicsEllipseItem,
     QGraphicsItem,
     QGraphicsItemGroup,
+    QGraphicsLineItem,
+    QGraphicsRectItem,
     QGraphicsScene,
     QGraphicsSceneMouseEvent,
     QGraphicsSimpleTextItem,
@@ -46,6 +48,25 @@ class DeleteItemsCommand(QUndoCommand):
             if item.scene() is None:
                 self.scene.addItem(item)
                 item.setSelected(True)
+
+
+class AddItemCommand(QUndoCommand):
+    def __init__(self, scene: QGraphicsScene, item: QGraphicsItem) -> None:
+        super().__init__(f"Add {item.data(0) or 'object'}")
+        self.scene = scene
+        self.item = item
+        self._first_redo = True
+
+    def redo(self) -> None:
+        if self._first_redo:
+            self._first_redo = False
+            return
+        if self.item.scene() is None:
+            self.scene.addItem(self.item)
+
+    def undo(self) -> None:
+        if self.item.scene() is self.scene:
+            self.scene.removeItem(self.item)
 
 
 class ResetLayoutCommand(QUndoCommand):
@@ -93,6 +114,18 @@ class EditableTextItem(_MoveTrackingMixin, QGraphicsSimpleTextItem):
         self._initialize_move_tracking(undo_stack)
 
 
+class EditableLineItem(_MoveTrackingMixin, QGraphicsLineItem):
+    def __init__(self, *args, undo_stack: QUndoStack) -> None:
+        super().__init__(*args)
+        self._initialize_move_tracking(undo_stack)
+
+
+class EditableRectItem(_MoveTrackingMixin, QGraphicsRectItem):
+    def __init__(self, *args, undo_stack: QUndoStack) -> None:
+        super().__init__(*args)
+        self._initialize_move_tracking(undo_stack)
+
+
 class EditableItemGroup(_MoveTrackingMixin, QGraphicsItemGroup):
     def __init__(self, undo_stack: QUndoStack) -> None:
         super().__init__()
@@ -106,4 +139,3 @@ def editable_scene_items(scene: QGraphicsScene) -> list[QGraphicsItem]:
         for item in scene.items()
         if item.parentItem() is None and item.data(0) in {"road", "pole", "label", "drawing"}
     ]
-

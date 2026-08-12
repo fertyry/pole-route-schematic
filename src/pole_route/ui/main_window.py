@@ -1,11 +1,10 @@
 """Main application window."""
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QKeySequence, QUndoStack
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QFileDialog,
     QGraphicsScene,
-    QGraphicsView,
     QHeaderView,
     QLabel,
     QMainWindow,
@@ -31,6 +30,7 @@ from pole_route.importers.pole_importer import (
     suggest_column_mapping,
 )
 from pole_route.ui.column_mapping_dialog import ColumnMappingDialog
+from pole_route.ui.drawing_view import DrawingMode, DrawingView
 from pole_route.ui.editor_commands import (
     DeleteItemsCommand,
     ResetLayoutCommand,
@@ -105,6 +105,28 @@ class MainWindow(QMainWindow):
         self.reset_layout_action.triggered.connect(self._reset_layout)
         toolbar.addAction(self.reset_layout_action)
 
+        toolbar.addSeparator()
+        self.drawing_actions: dict[DrawingMode, QAction] = {}
+        drawing_group = QActionGroup(self)
+        drawing_group.setExclusive(True)
+        for mode, label in (
+            (DrawingMode.SELECT, "Select"),
+            (DrawingMode.LINE, "Line"),
+            (DrawingMode.RECTANGLE, "Rectangle"),
+            (DrawingMode.ELLIPSE, "Ellipse"),
+            (DrawingMode.TEXT, "Text"),
+        ):
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setEnabled(False)
+            action.triggered.connect(
+                lambda _checked, selected_mode=mode: self.canvas.set_mode(selected_mode)
+            )
+            drawing_group.addAction(action)
+            toolbar.addAction(action)
+            self.drawing_actions[mode] = action
+        self.drawing_actions[DrawingMode.SELECT].setChecked(True)
+
         export_action = QAction("Export", self)
         export_action.setEnabled(False)
         toolbar.addAction(export_action)
@@ -114,10 +136,9 @@ class MainWindow(QMainWindow):
         self.route_scene.selectionChanged.connect(self._update_editor_actions)
         self.route_scene.setSceneRect(0, 0, 1000, 600)
 
-        canvas = QGraphicsView(self.route_scene)
-        canvas.setObjectName("schematicCanvas")
-        canvas.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        canvas.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+        self.canvas = DrawingView(self.route_scene, self.undo_stack)
+        self.canvas.setObjectName("schematicCanvas")
+        self.canvas.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         heading = QLabel("Schematic canvas")
         heading.setObjectName("canvasHeading")
@@ -141,7 +162,7 @@ class MainWindow(QMainWindow):
 
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.addWidget(self.pole_table)
-        splitter.addWidget(canvas)
+        splitter.addWidget(self.canvas)
         splitter.setSizes([240, 360])
 
         layout = QVBoxLayout()
@@ -223,6 +244,10 @@ class MainWindow(QMainWindow):
         self.undo_stack.clear()
         render_schematic(self.route_scene, layout, self.undo_stack)
         self.reset_layout_action.setEnabled(True)
+        for action in self.drawing_actions.values():
+            action.setEnabled(True)
+        self.drawing_actions[DrawingMode.SELECT].setChecked(True)
+        self.canvas.set_mode(DrawingMode.SELECT)
         self.workspace_note.setText(
             "Non-scale schematic: poles use equal visual spacing. Select and drag the road, "
             "individual poles, or labels to edit the drawing."
@@ -262,6 +287,10 @@ class MainWindow(QMainWindow):
         self.current_geometry = None
         self.undo_stack.clear()
         self.reset_layout_action.setEnabled(False)
+        for action in self.drawing_actions.values():
+            action.setEnabled(False)
+        self.drawing_actions[DrawingMode.SELECT].setChecked(True)
+        self.canvas.set_mode(DrawingMode.SELECT)
         self.generate_schematic_action.setEnabled(False)
 
     def _choose_pole_file(self) -> None:
