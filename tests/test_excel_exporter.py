@@ -1,10 +1,21 @@
+import gc
+
 import pytest
 from PySide6.QtCore import QPointF
 from PySide6.QtGui import QBrush, QColor, QPen, QUndoStack
 from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
 
-from pole_route.exporters.excel_exporter import ExcelExportSettings, collect_excel_objects
+from pole_route.domain.pole import Pole, PoleSide
+from pole_route.domain.route import GeoPoint, Route
+from pole_route.exporters.excel_exporter import (
+    ExcelExportSettings,
+    collect_excel_objects,
+    collect_scene_objects,
+)
+from pole_route.geometry.road_geometry import build_road_geometry
+from pole_route.geometry.schematic_layout import create_schematic_layout
 from pole_route.ui.editor_commands import EditableRectItem, EditableTextItem
+from pole_route.ui.schematic_renderer import render_schematic
 
 
 def test_scene_is_flattened_to_editable_excel_objects(qapp) -> None:
@@ -63,3 +74,20 @@ def test_monochrome_style_frame_and_pole_paper_size(qapp) -> None:
     assert right - left == pytest.approx(4 * 72 / 25.4)
     assert any(item.role == "frame" for item in objects)
     assert any(item.role == "title" and item.text == "Test Project" for item in objects)
+
+
+def test_collecting_export_snapshot_retains_renderer_owned_canvas_items(qapp) -> None:
+    scene = QGraphicsScene()
+    route = Route("Road", "route.kml", (GeoPoint(100, 13), GeoPoint(100.01, 13)))
+    pole = Pole("P-1", 13.0001, 100.005, side=PoleSide.LEFT)
+    layout = create_schematic_layout(build_road_geometry(route, [pole], 6, 2))
+    render_schematic(scene, layout, QUndoStack())
+    expected_count = len(scene.items())
+
+    snapshot = collect_scene_objects(scene)
+    gc.collect()
+
+    assert snapshot
+    assert len(scene.items()) == expected_count
+    assert len(scene._pole_route_item_refs) == expected_count
+    assert all(item.scene() is scene for item in scene._pole_route_item_refs)

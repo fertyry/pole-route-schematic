@@ -4,6 +4,9 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ## [Unreleased]
 
+- Fixed the live canvas disappearing as soon as Export Excel was clicked by retaining
+  PySide graphics-item wrappers on their source scene before snapshot collection.
+
 - Fully isolated the export-review dialog from the live canvas scene so closing or
   editing the review can never delete source drawing objects.
 

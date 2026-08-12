@@ -62,8 +62,16 @@ def collect_excel_objects(
 
 def collect_scene_objects(scene: QGraphicsScene) -> list[ExcelObject]:
     """Snapshot visible scene objects without applying paper or plot styling."""
+    # PySide can keep Python ownership of QGraphicsItems even after addItem().  Retain
+    # every wrapper on the scene before iterating so a temporary scene.items() list
+    # cannot garbage-collect and delete the live canvas objects after export starts.
+    scene._pole_route_item_refs = scene.items()
     objects: list[ExcelObject] = []
-    items = [item for item in scene.items() if item.parentItem() is None and item.isVisible()]
+    items = [
+        item
+        for item in scene._pole_route_item_refs
+        if item.parentItem() is None and item.isVisible()
+    ]
     for item in reversed(items):
         _collect_item(item, objects)
     return objects
