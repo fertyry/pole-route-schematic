@@ -1,6 +1,6 @@
 import pytest
 from PySide6.QtGui import QUndoStack
-from PySide6.QtWidgets import QGraphicsScene
+from PySide6.QtWidgets import QGraphicsRectItem, QGraphicsScene
 
 from pole_route.domain.pole import Pole, PoleSide
 from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
@@ -76,6 +76,8 @@ def test_rendered_schematic_objects_are_selectable_and_movable(qapp) -> None:
     for item in typed_items:
         assert item.flags() & item.GraphicsItemFlag.ItemIsSelectable
         assert item.flags() & item.GraphicsItemFlag.ItemIsMovable
+    pole_items = [item for item in scene.items() if item.data(0) == "pole"]
+    assert all(isinstance(item, QGraphicsRectItem) for item in pole_items)
 
 
 def test_poles_snapped_to_same_location_are_stacked() -> None:

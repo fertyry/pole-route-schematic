@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 
 from pole_route.domain.pole import PoleSide
 from pole_route.domain.schematic import SchematicLayout
-from pole_route.ui.editor_commands import EditableEllipseItem, EditableItemGroup, EditableTextItem
+from pole_route.ui.editor_commands import EditableItemGroup, EditableRectItem, EditableTextItem
 
 EDITABLE_FLAGS = (
     QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
@@ -70,7 +70,7 @@ def render_schematic(scene: QGraphicsScene, layout: SchematicLayout, undo_stack:
         marker_id = pole.marker_id or pole.number
         if marker_id not in rendered_markers:
             rendered_markers.add(marker_id)
-            pole_item = EditableEllipseItem(-7, -7, 14, 14, undo_stack=undo_stack)
+            pole_item = EditableRectItem(-7, -7, 14, 14, undo_stack=undo_stack)
             pole_item.setData(0, "pole")
             pole_item.setData(1, marker_id)
             pole_item.setPos(pole.x, pole.y)

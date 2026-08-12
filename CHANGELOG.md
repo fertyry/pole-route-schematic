@@ -4,6 +4,8 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ## [Unreleased]
 
+- Changed pole markers from circles to simple square symbols.
+
 - Added view-only canvas navigation: wheel scrolls vertically, Shift+wheel scrolls
   horizontally, Ctrl+wheel zooms, and the middle mouse button is ignored.
 
