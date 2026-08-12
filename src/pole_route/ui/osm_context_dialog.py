@@ -8,7 +8,9 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QGraphicsScene,
     QGraphicsView,
+    QHBoxLayout,
     QLabel,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -65,6 +67,15 @@ class OSMContextDialog(QDialog):
             width.setValue(road.suggested_width_metres)
             self.roads_table.setCellWidget(row, 3, width)
         self.roads_table.resizeColumnsToContents()
+        selection_buttons = QHBoxLayout()
+        self.select_all_button = QPushButton("Select all")
+        self.select_all_button.clicked.connect(lambda: self._set_all_roads(True))
+        self.clear_all_button = QPushButton("Clear all")
+        self.clear_all_button.clicked.connect(lambda: self._set_all_roads(False))
+        selection_buttons.addWidget(self.select_all_button)
+        selection_buttons.addWidget(self.clear_all_button)
+        selection_buttons.addStretch(1)
+        roads_layout.addLayout(selection_buttons)
         roads_layout.addWidget(self.roads_table)
         tabs.addTab(roads_page, f"Roads / Sois ({len(context.roads)})")
 
@@ -114,6 +125,11 @@ class OSMContextDialog(QDialog):
                 )
             )
         return selected
+
+    def _set_all_roads(self, selected: bool) -> None:
+        state = Qt.CheckState.Checked if selected else Qt.CheckState.Unchecked
+        for row in range(self.roads_table.rowCount()):
+            self.roads_table.item(row, 0).setCheckState(state)
 
 
 def _draw_context_preview(

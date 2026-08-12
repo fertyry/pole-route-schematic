@@ -9,16 +9,17 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from shapely.geometry import LineString
+from shapely.ops import nearest_points, substring
 
 from pole_route.domain.context import ContextPlace, ContextRoad, OSMContext
 from pole_route.domain.route import GeoPoint, Route
 from pole_route.geometry.projection import MetricProjection
 
 OVERPASS_URLS = (
-    "https://overpass.kumi.systems/api/interpreter",
     "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
 )
-DEFAULT_CORRIDOR_METRES = 180.0
+DEFAULT_CORRIDOR_METRES = 15.0
 
 
 class OSMContextError(RuntimeError):
@@ -84,10 +85,7 @@ def parse_osm_context(
                 continue
             candidate = LineString([projection.to_metric(point) for point in points])
             distance_to_main = candidate.distance(main_metric)
-            # Roads are useful schematic context when they meet (or nearly meet) the
-            # surveyed centerline. The wider corridor remains available to landmarks.
-            road_connection_tolerance = min(25.0, corridor_metres)
-            if distance_to_main > road_connection_tolerance or candidate.length < 8.0:
+            if distance_to_main > corridor_metres or candidate.length < 8.0:
                 continue
             highway = str(tags["highway"])
             source_name = tags.get("name") or tags.get("name:th")
@@ -102,9 +100,25 @@ def parse_osm_context(
             if main_buffer_overlap / candidate.length > 0.70:
                 continue
             name = source_name or f"Unnamed connecting road {element['id']}"
+            point_on_candidate, _point_on_main = nearest_points(candidate, main_metric)
+            station = candidate.project(point_on_candidate)
+            clipped = substring(
+                candidate,
+                max(0.0, station - corridor_metres),
+                min(candidate.length, station + corridor_metres),
+            )
+            if not isinstance(clipped, LineString) or clipped.length < 5.0:
+                continue
+            clipped_points = tuple(
+                projection.to_geographic(float(x), float(y)) for x, y in clipped.coords
+            )
             roads.append(
                 ContextRoad(
-                    Route(str(name), f"OpenStreetMap:way/{element['id']}", points),
+                    Route(
+                        str(name),
+                        f"OpenStreetMap:way/{element['id']}",
+                        clipped_points,
+                    ),
                     highway,
                     _suggested_width(highway, tags),
                 )
@@ -121,38 +135,18 @@ def parse_osm_context(
 
 
 def _build_query(route: Route, corridor_metres: float) -> str:
-    sample_points = _corridor_sample_points(route, max(120.0, corridor_metres * 1.4))
-    around_filters = [
-        f"(around:{corridor_metres:.0f},{point.latitude:.7f},{point.longitude:.7f})"
-        for point in sample_points
-    ]
-    road_queries = "".join(f'way["highway"]{area};' for area in around_filters)
-    place_queries = "".join(
-        (
-            f'nwr["name"]["amenity"~"hospital|school|university|college|marketplace|place_of_worship"]{area};'
-            f'nwr["name"]["shop"="mall"]{area};'
-            f'nwr["name"]["tourism"~"attraction|museum"]{area};'
-            f'nwr["name"]["leisure"~"stadium|sports_centre"]{area};'
-        )
-        for area in around_filters
+    coordinates = ",".join(
+        f"{point.latitude:.7f},{point.longitude:.7f}" for point in route.points
     )
+    area = f"(around:{corridor_metres:.0f},{coordinates})"
     return (
-        f"[out:json][timeout:50];({road_queries}{place_queries});out tags center geom;"
-    )
-
-
-def _corridor_sample_points(route: Route, interval_metres: float) -> tuple[GeoPoint, ...]:
-    projection = MetricProjection.for_points(route.points)
-    metric_line = LineString([projection.to_metric(point) for point in route.points])
-    distances = [0.0]
-    distance = interval_metres
-    while distance < metric_line.length:
-        distances.append(distance)
-        distance += interval_metres
-    distances.append(metric_line.length)
-    return tuple(
-        projection.to_geographic(metric_line.interpolate(station).x, metric_line.interpolate(station).y)
-        for station in distances
+        "[out:json][timeout:35];("
+        f'way["highway"]{area};'
+        f'nwr["name"]["amenity"~"hospital|school|university|college|marketplace|place_of_worship"]{area};'
+        f'nwr["name"]["shop"="mall"]{area};'
+        f'nwr["name"]["tourism"~"attraction|museum"]{area};'
+        f'nwr["name"]["leisure"~"stadium|sports_centre"]{area};'
+        ");out tags center geom;"
     )
 
 
@@ -166,7 +160,7 @@ def _download_overpass(query: str) -> bytes:
             headers={"User-Agent": "PoleRoute-Schematic/0.1 (OSM context preview)"},
         )
         try:
-            with urlopen(request, timeout=55) as response:
+            with urlopen(request, timeout=25) as response:
                 return response.read()
         except (HTTPError, URLError, TimeoutError, OSError) as error:
             last_error = error

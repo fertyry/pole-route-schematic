@@ -119,6 +119,10 @@ def test_osm_context_dialog_requires_confirmation_and_returns_checked_roads(qtbo
     assert len(selected) == 1
     assert selected[0].route.name == "Soi Test"
     assert selected[0].create_pole_line is False
+    qtbot.mouseClick(dialog.clear_all_button, Qt.MouseButton.LeftButton)
+    assert dialog.selected_routes() == []
+    qtbot.mouseClick(dialog.select_all_button, Qt.MouseButton.LeftButton)
+    assert len(dialog.selected_routes()) == 1
 
 
 def test_mapping_dialog_uses_explicit_confirmation(qtbot) -> None:
