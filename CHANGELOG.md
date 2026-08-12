@@ -4,6 +4,9 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ## [Unreleased]
 
+- Added view-only canvas navigation: wheel scrolls vertically, Shift+wheel scrolls
+  horizontally, Ctrl+wheel zooms, and the middle mouse button is ignored.
+
 ### Fixed
 
 - Schematic spacing confirmation returns a stable spacing mode with PySide6

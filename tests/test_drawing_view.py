@@ -1,6 +1,6 @@
 import pytest
-from PySide6.QtCore import QPointF
-from PySide6.QtGui import QUndoStack
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import QUndoStack, QWheelEvent
 from PySide6.QtWidgets import QGraphicsScene
 
 from pole_route.ui.drawing_view import DrawingMode, DrawingView, snap_line_endpoint
@@ -66,3 +66,64 @@ def test_shift_line_endpoint_snaps_to_45_degree_increments() -> None:
     assert horizontal.y() == pytest.approx(10)
     assert abs((diagonal.x() - 10) - (diagonal.y() - 10)) < 1e-8
     assert vertical.x() == pytest.approx(10)
+
+
+def test_ctrl_wheel_zooms_without_changing_scene_items(qtbot) -> None:
+    scene = QGraphicsScene(0, 0, 2000, 2000)
+    stack = QUndoStack()
+    item = EditableEllipseItem(-5, -5, 10, 10, undo_stack=stack)
+    item.setPos(500, 600)
+    scene.addItem(item)
+    view = DrawingView(scene, stack)
+    view.resize(400, 300)
+    qtbot.addWidget(view)
+    view.show()
+    before_scale = view.transform().m11()
+    before_position = QPointF(item.pos())
+
+    event = QWheelEvent(
+        QPointF(100, 100),
+        QPointF(100, 100),
+        QPoint(),
+        QPoint(0, 120),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.ControlModifier,
+        Qt.ScrollPhase.ScrollUpdate,
+        False,
+    )
+    view.wheelEvent(event)
+
+    assert view.transform().m11() > before_scale
+    assert item.pos() == before_position
+    assert item.scene() is scene
+
+
+def test_wheel_scrolls_without_transforming_or_removing_items(qtbot) -> None:
+    scene = QGraphicsScene(0, 0, 2000, 2000)
+    stack = QUndoStack()
+    item = EditableEllipseItem(-5, -5, 10, 10, undo_stack=stack)
+    item.setPos(500, 600)
+    scene.addItem(item)
+    view = DrawingView(scene, stack)
+    view.resize(400, 300)
+    qtbot.addWidget(view)
+    view.show()
+    view.verticalScrollBar().setValue(500)
+    before_scroll = view.verticalScrollBar().value()
+    before_scale = view.transform().m11()
+
+    event = QWheelEvent(
+        QPointF(100, 100),
+        QPointF(100, 100),
+        QPoint(),
+        QPoint(0, 120),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.ScrollUpdate,
+        False,
+    )
+    view.wheelEvent(event)
+
+    assert view.verticalScrollBar().value() < before_scroll
+    assert view.transform().m11() == before_scale
+    assert item.scene() is scene
