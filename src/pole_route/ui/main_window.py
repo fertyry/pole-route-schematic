@@ -4,7 +4,7 @@ from dataclasses import asdict, replace
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QLocale, Qt
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -412,6 +412,7 @@ class MainWindow(QMainWindow):
             "Starting Microsoft Excel...", "", 0, len(pages) + 1, self
         )
         progress.setWindowTitle("Exporting Excel")
+        progress.setLocale(QLocale.c())
         progress.setCancelButton(None)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setMinimumDuration(0)

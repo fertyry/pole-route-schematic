@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QLocale, Qt
 from PySide6.QtWidgets import (
     QDialogButtonBox,
     QGraphicsPathItem,
@@ -21,6 +21,7 @@ def test_application_metadata(qtbot) -> None:
 
     assert application.applicationName() == "PoleRoute Schematic"
     assert application.applicationVersion() == "0.1.0"
+    assert QLocale().zeroDigit() == "0"
 
 
 def test_main_window_contains_canvas(qtbot) -> None:
