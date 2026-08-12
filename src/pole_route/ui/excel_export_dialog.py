@@ -39,9 +39,9 @@ class ExcelExportDialog(QDialog):
         self.source_objects = list(source_objects)
         self.setWindowTitle("Excel export preview")
         self.resize(1150, 760)
-        self.project_title = QLineEdit(initial_settings.project_title)
-        self.location = QLineEdit(initial_settings.location)
-        self.work_description = QLineEdit(initial_settings.work_description)
+        self._project_title = initial_settings.project_title
+        self._location = initial_settings.location
+        self._work_description = initial_settings.work_description
         self.prepared_by = QLineEdit(initial_settings.prepared_by)
         self.drawing_number = QLineEdit(initial_settings.drawing_number)
         self.paper_size = QComboBox()
@@ -95,9 +95,6 @@ class ExcelExportDialog(QDialog):
         self._refresh_timer.timeout.connect(self.refresh_preview)
 
         form = QFormLayout()
-        form.addRow("Project title", self.project_title)
-        form.addRow("Location", self.location)
-        form.addRow("Work description", self.work_description)
         form.addRow("Prepared by", self.prepared_by)
         form.addRow("Drawing number", self.drawing_number)
         form.addRow("Paper size", self.paper_size)
@@ -137,9 +134,6 @@ class ExcelExportDialog(QDialog):
         layout.addLayout(preview_layout, 3)
         layout.addLayout(right, 1)
         for control in (
-            self.project_title,
-            self.location,
-            self.work_description,
             self.prepared_by,
             self.drawing_number,
         ):
@@ -157,8 +151,8 @@ class ExcelExportDialog(QDialog):
 
     def settings(self) -> ExcelExportSettings:
         return ExcelExportSettings(
-            project_title=self.project_title.text().strip(),
-            location=self.location.text().strip(),
+            project_title=self._project_title,
+            location=self._location,
             prepared_by=self.prepared_by.text().strip(),
             drawing_number=self.drawing_number.text().strip(),
             paper_size=self.paper_size.currentText(),
@@ -170,7 +164,7 @@ class ExcelExportDialog(QDialog):
             road_edge_width=self.road_edge_width.value(),
             centerline_width=self.centerline_width.value(),
             page_count=self.page_count.value(),
-            work_description=self.work_description.text().strip(),
+            work_description=self._work_description,
         )
 
     def _page_count_changed(self) -> None:

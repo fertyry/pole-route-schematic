@@ -12,14 +12,11 @@ def test_export_dialog_previews_paper_and_updates_settings(qtbot) -> None:
     dialog = ExcelExportDialog(collect_scene_objects(source))
     qtbot.addWidget(dialog)
 
-    dialog.project_title.setText("My Project")
-    dialog.work_description.setText("144 poles and New Cable Tray 1 Set")
     dialog.paper_size.setCurrentText("A3")
     dialog.orientation.setCurrentText("Portrait")
 
     settings = dialog.settings()
-    assert settings.project_title == "My Project"
-    assert settings.work_description == "144 poles and New Cable Tray 1 Set"
+    assert settings.project_title == "PoleRoute Schematic"
     assert settings.paper_size == "A3"
     assert settings.orientation == "portrait"
     assert dialog.preview_scene.items()
@@ -42,9 +39,9 @@ def test_export_dialog_restores_saved_project_metadata(qtbot) -> None:
     )
     qtbot.addWidget(dialog)
 
-    assert dialog.project_title.text() == "Saved project"
-    assert dialog.location.text() == "Saved route"
-    assert dialog.work_description.text() == "Saved work details"
+    assert dialog.settings().project_title == "Saved project"
+    assert dialog.settings().location == "Saved route"
+    assert dialog.settings().work_description == "Saved work details"
     assert dialog.paper_size.currentText() == "A3"
     assert dialog.page_count.value() == 7
 
@@ -58,7 +55,7 @@ def test_repeated_preview_changes_keep_objects_and_source_scene(qtbot) -> None:
     preview_scene = dialog.preview_scene
 
     for index in range(20):
-        dialog.project_title.setText(f"Project {index}")
+        dialog.prepared_by.setText(f"Designer {index}")
         dialog.paper_size.setCurrentText("A3" if index % 2 else "A4")
         dialog.orientation.setCurrentText("Portrait" if index % 2 else "Landscape")
         assert dialog.preview_scene.items()
@@ -92,7 +89,7 @@ def test_dialog_destruction_cannot_modify_source_scene(qtbot) -> None:
     snapshot = collect_scene_objects(source)
     dialog = ExcelExportDialog(snapshot)
     qtbot.addWidget(dialog)
-    dialog.project_title.setText("Changed in review")
+    dialog.prepared_by.setText("Changed in review")
     dialog.accept()
     dialog.deleteLater()
     qtbot.wait(10)

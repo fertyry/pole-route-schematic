@@ -4,7 +4,6 @@ from PySide6.QtWidgets import (
     QGraphicsPathItem,
     QGraphicsTextItem,
     QGraphicsView,
-    QLabel,
     QTableWidgetSelectionRange,
 )
 
@@ -30,20 +29,6 @@ def test_main_window_contains_canvas(qtbot) -> None:
 
     assert window.windowTitle() == "PoleRoute Schematic - Sprint 3"
     assert window.findChild(QGraphicsView, "schematicCanvas") is not None
-
-
-def test_workflow_tab_lists_the_complete_process(qtbot) -> None:
-    window = MainWindow()
-    qtbot.addWidget(window)
-
-    assert window.workspace_tabs.count() == 2
-    assert window.workspace_tabs.tabText(1) == "Workflow"
-    workflow_text = " ".join(
-        label.text() for label in window.workspace_tabs.widget(1).findChildren(QLabel)
-    )
-    assert "Import routes" in workflow_text
-    assert "Build geometry" in workflow_text
-    assert "Preview and export" in workflow_text
 
 
 def test_main_window_can_show_poles(qtbot) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import atan2, cos, degrees, hypot, radians, sin
 from pathlib import Path
+from typing import Callable
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor
@@ -142,11 +143,15 @@ def export_pages_to_excel(
     pages: list[list[ExcelObject]],
     path: str | Path,
     settings: ExcelExportSettings,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> int:
     """Create one print-ready worksheet for each approved preview page."""
     if not pages or not any(pages):
         raise ExcelExportError("The preview has no objects to export.")
     destination = str(Path(path).resolve())
+    total_steps = len(pages) + 1
+    if progress_callback is not None:
+        progress_callback(0, total_steps, "Starting Microsoft Excel...")
     try:
         import pythoncom
         import win32com.client
@@ -167,6 +172,12 @@ def export_pages_to_excel(
         while workbook.Worksheets.Count > len(pages):
             workbook.Worksheets(workbook.Worksheets.Count).Delete()
         for index, objects in enumerate(pages, start=1):
+            if progress_callback is not None:
+                progress_callback(
+                    index - 1,
+                    total_steps,
+                    f"Creating sheet {index} of {len(pages)}...",
+                )
             sheet = workbook.Worksheets(index)
             sheet.Name = f"Sheet {index}"
             _write_shapes(sheet, objects)
@@ -175,9 +186,15 @@ def export_pages_to_excel(
             sheet.PageSetup.Zoom = False
             sheet.PageSetup.FitToPagesWide = 1
             sheet.PageSetup.FitToPagesTall = 1
+            if progress_callback is not None:
+                progress_callback(index, total_steps, f"Completed sheet {index} of {len(pages)}")
+        if progress_callback is not None:
+            progress_callback(len(pages), total_steps, "Saving Excel workbook...")
         workbook.SaveAs(destination, FileFormat=51)
         workbook.Close(SaveChanges=False)
         workbook = None
+        if progress_callback is not None:
+            progress_callback(total_steps, total_steps, "Excel export complete")
     except Exception as error:
         if workbook is not None:
             workbook.Close(SaveChanges=False)

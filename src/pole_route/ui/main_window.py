@@ -1,6 +1,6 @@
 """Main application window."""
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 
 from pathlib import Path
 
@@ -15,11 +15,12 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QSplitter,
-    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QToolBar,
     QToolButton,
+    QProgressDialog,
+    QApplication,
     QVBoxLayout,
     QWidget,
 )
@@ -64,6 +65,7 @@ from pole_route.ui.editor_commands import (
 )
 from pole_route.ui.excel_export_dialog import ExcelExportDialog
 from pole_route.ui.geometry_renderer import render_road_geometry
+from pole_route.ui.project_info_dialog import ProjectInfoDialog
 from pole_route.ui.route_import_dialog import RouteImportDialog, draw_classified_routes_preview
 from pole_route.ui.schematic_renderer import render_schematic
 from pole_route.ui.schematic_settings_dialog import SchematicSettingsDialog
@@ -117,6 +119,10 @@ class MainWindow(QMainWindow):
         self.save_as_action.setShortcut(QKeySequence.StandardKey.SaveAs)
         self.save_as_action.triggered.connect(self._save_project_as)
         toolbar.addAction(self.save_as_action)
+
+        self.project_info_action = QAction("Project info", self)
+        self.project_info_action.triggered.connect(self._edit_project_info)
+        toolbar.addAction(self.project_info_action)
 
         toolbar.addSeparator()
 
@@ -258,88 +264,22 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.workspace_note)
         layout.addWidget(self.splitter, 1)
 
-        workspace_tab = QWidget()
-        workspace_tab.setLayout(layout)
+        central_widget = QWidget()
+        central_widget.setLayout(layout)
+        self.setCentralWidget(central_widget)
 
-        self.workspace_tabs = QTabWidget()
-        self.workspace_tabs.setObjectName("workspaceTabs")
-        self.workspace_tabs.addTab(workspace_tab, "Workspace")
-        self.workspace_tabs.addTab(self._build_workflow_tab(), "Workflow")
-        self.setCentralWidget(self.workspace_tabs)
-
-    def _build_workflow_tab(self) -> QWidget:
-        """Create a plain-language checklist linked to the real commands."""
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        title = QLabel("PoleRoute Schematic workflow")
-        title.setStyleSheet("font-size: 20px; font-weight: 600; padding: 12px 4px;")
-        layout.addWidget(title)
-
-        introduction = QLabel(
-            "Work from top to bottom. You can save the project at any stage and return later."
+    def _edit_project_info(self) -> None:
+        dialog = ProjectInfoDialog(self.export_settings, self)
+        if dialog.exec() != ProjectInfoDialog.DialogCode.Accepted:
+            return
+        project_title, location, work_description = dialog.values()
+        self.export_settings = replace(
+            self.export_settings,
+            project_title=project_title,
+            location=location,
+            work_description=work_description,
         )
-        introduction.setWordWrap(True)
-        introduction.setStyleSheet("color: #b8b8b8; padding-bottom: 10px;")
-        layout.addWidget(introduction)
-
-        steps = (
-            (
-                "1. Start or open a project",
-                "Create a new job, or open a .prs file to continue previous work.",
-                self.open_action,
-            ),
-            (
-                "2. Import routes",
-                "Choose KML/KMZ LineStrings, classify main routes and roads/sois, then set width, pole offset, and Reverse where needed.",
-                self.import_route_action,
-            ),
-            (
-                "3. Import poles",
-                "Choose Excel/CSV, review the column mapping, and confirm the pole data.",
-                self.import_poles_action,
-            ),
-            (
-                "4. Build geometry",
-                "Check road edges, selected offset lines, and the projected pole positions in the metric preview.",
-                self.build_geometry_action,
-            ),
-            (
-                "5. Generate schematic",
-                "Choose the pole-spacing method and create the editable, non-scale schematic.",
-                self.generate_schematic_action,
-            ),
-            (
-                "6. Review and edit",
-                "Open the full canvas, mark shared physical poles, move labels, add drawing objects, and save the .prs project.",
-                self.edit_canvas_action,
-            ),
-            (
-                "7. Preview and export",
-                "Review paper size, sheet division, title information, line styles, pole size, and compass before creating Excel.",
-                self.export_action,
-            ),
-        )
-        for heading, description, action in steps:
-            row = QWidget()
-            row_layout = QVBoxLayout(row)
-            row_layout.setContentsMargins(12, 8, 12, 8)
-            step_heading = QLabel(heading)
-            step_heading.setStyleSheet("font-size: 15px; font-weight: 600;")
-            step_description = QLabel(description)
-            step_description.setWordWrap(True)
-            button = QToolButton()
-            button.setDefaultAction(action)
-            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-            row_layout.addWidget(step_heading)
-            row_layout.addWidget(step_description)
-            row_layout.addWidget(button, 0, Qt.AlignmentFlag.AlignLeft)
-            row.setStyleSheet(
-                "QWidget { background: #262626; border-radius: 6px; }"
-                "QLabel { background: transparent; }"
-            )
-            layout.addWidget(row)
-        layout.addStretch(1)
-        return tab
+        self._mark_dirty()
 
     def _choose_route_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -467,14 +407,33 @@ class MainWindow(QMainWindow):
             return
         if not path.lower().endswith(".xlsx"):
             path += ".xlsx"
+        pages = dialog.export_pages()
+        progress = QProgressDialog(
+            "Starting Microsoft Excel...", "", 0, len(pages) + 1, self
+        )
+        progress.setWindowTitle("Exporting Excel")
+        progress.setCancelButton(None)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+        progress.show()
+
+        def update_progress(current: int, total: int, message: str) -> None:
+            progress.setMaximum(total)
+            progress.setLabelText(message)
+            progress.setValue(current)
+            QApplication.processEvents()
+
         try:
             object_count = export_pages_to_excel(
-                dialog.export_pages(), path, dialog.settings()
+                pages, path, dialog.settings(), progress_callback=update_progress
             )
         except ExcelExportError as error:
             QMessageBox.warning(self, "Excel export failed", str(error))
             self.statusBar().showMessage("Excel export failed")
             return
+        finally:
+            progress.close()
         self.statusBar().showMessage(
             f"Exported {object_count} editable object(s) to {path}"
         )
