@@ -305,6 +305,28 @@ def test_sheet_boundaries_follow_route_distance_not_pole_count(qapp) -> None:
     assert first_groups & second_groups == {"P-5"}
 
 
+def test_sheet_boundary_may_pass_through_side_road_to_keep_equal_distance(qapp) -> None:
+    objects = [
+        ExcelObject("line", ((0, 0), (400, 0)), role="main_centerline", group_id="main"),
+        ExcelObject("line", ((200, -40), (200, 40)), role="centerline", group_id="Soi"),
+    ]
+    for index, x in enumerate((0, 100, 200, 300, 400), start=1):
+        objects.append(
+            ExcelObject(
+                "rectangle", ((x - 2, -2), (x + 2, 2)),
+                role="pole", group_id=f"P-{index}",
+            )
+        )
+
+    first, second = prepare_excel_pages(
+        objects, ExcelExportSettings(page_count=2)
+    )
+
+    first_groups = {item.group_id for item in first if item.role == "pole"}
+    second_groups = {item.group_id for item in second if item.role == "pole"}
+    assert first_groups & second_groups == {"P-3"}
+
+
 def test_tagged_main_route_is_split_start_to_end_and_rotated_horizontal(qapp) -> None:
     objects = [
         ExcelObject(

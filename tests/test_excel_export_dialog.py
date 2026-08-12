@@ -1,8 +1,11 @@
+import pytest
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
 
 from pole_route.exporters.excel_exporter import ExcelExportSettings, collect_scene_objects
-from pole_route.ui.excel_export_dialog import ExcelExportDialog
+from pole_route.ui.excel_export_dialog import ExcelExportDialog, _draw_preview_object
+from pole_route.exporters.excel_exporter import ExcelObject
 
 
 def test_export_dialog_previews_paper_and_updates_settings(qtbot) -> None:
@@ -127,3 +130,18 @@ def test_dialog_reviews_each_requested_sheet(qtbot) -> None:
     assert dialog.page_label.text() == "Sheet 1 / 3"
     qtbot.mouseClick(dialog.next_page, Qt.MouseButton.LeftButton)
     assert dialog.page_label.text() == "Sheet 2 / 3"
+
+
+def test_vertical_road_name_rotates_around_requested_center(qapp) -> None:
+    scene = QGraphicsScene()
+    item = ExcelObject(
+        "text", ((190, 90), (210, 110)), "Soi Test", rotation=90.0,
+        role="road_name",
+    )
+
+    _draw_preview_object(scene, item)
+
+    rendered = scene.items()[0]
+    center = rendered.sceneBoundingRect().center()
+    assert center.x() == pytest.approx(200.0, abs=1.0)
+    assert center.y() == pytest.approx(100.0, abs=1.0)

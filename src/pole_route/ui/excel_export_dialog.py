@@ -281,7 +281,16 @@ def _draw_preview_object(scene: QGraphicsScene, item: ExcelObject) -> None:
         font = text.font()
         font.setPointSizeF(item.font_size)
         text.setFont(font)
-        text.setPos(*item.points[0])
+        if item.role == "road_name":
+            desired_center = QPointF(
+                sum(x for x, _ in item.points) / len(item.points),
+                sum(y for _, y in item.points) / len(item.points),
+            )
+            local_center = text.boundingRect().center()
+            text.setTransformOriginPoint(local_center)
+            text.setPos(desired_center - local_center)
+        else:
+            text.setPos(*item.points[0])
         text.setRotation(item.rotation)
     else:
         (left, top), (right, bottom) = item.points

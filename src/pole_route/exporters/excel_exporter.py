@@ -549,11 +549,6 @@ def _pole_boundary_indices(
 ) -> list[int]:
     """Choose real pole boundaries while avoiding side-road junctions."""
     last = len(ordered_poles) - 1
-    junctions = [
-        axis.project(Point(_object_center(item)))
-        for item in content
-        if item.role == "centerline" and item.kind == "line"
-    ]
     result = [0]
     for page in range(1, page_count):
         target_station = axis.length * page / page_count
@@ -566,23 +561,15 @@ def _pole_boundary_indices(
         lower = result[-1] + 1
         upper = last - (page_count - page)
         ideal = max(lower, min(ideal, upper))
-        candidates = range(max(lower, ideal - 4), min(upper, ideal + 4) + 1)
-
-        def score(index: int) -> tuple[float, float]:
-            station = pole_stations[ordered_poles[index]]
-            nearest_junction = min((abs(station - value) for value in junctions), default=float("inf"))
-            previous_gap = abs(
-                station - pole_stations[ordered_poles[max(0, index - 1)]]
+        candidates = range(lower, upper + 1)
+        result.append(
+            min(
+                candidates,
+                key=lambda index: abs(
+                    pole_stations[ordered_poles[index]] - target_station
+                ),
             )
-            next_gap = abs(
-                pole_stations[ordered_poles[min(last, index + 1)]] - station
-            )
-            danger_distance = max((previous_gap + next_gap) * 0.75, 18.0)
-            junction_penalty = max(0.0, danger_distance - nearest_junction) * 1000.0
-            station_error = abs(station - target_station)
-            return (junction_penalty + station_error, station_error)
-
-        result.append(min(candidates, key=score))
+        )
     result.append(last)
     return result
 
@@ -899,6 +886,8 @@ def _write_shapes(sheet, objects: list[ExcelObject]) -> None:
                 shape.Line.EndArrowheadStyle = 3
         elif item.kind == "text":
             left, top, width, height = _bounds(item.points)
+            desired_center_x = left + width / 2.0
+            desired_center_y = top + height / 2.0
             shape = sheet.Shapes.AddTextbox(1, left, top, max(width, 20), max(height, 14))
             shape.TextFrame2.TextRange.Text = item.text
             shape.TextFrame2.TextRange.Font.Size = item.font_size
@@ -906,6 +895,9 @@ def _write_shapes(sheet, objects: list[ExcelObject]) -> None:
             shape.TextFrame2.AutoSize = 1
             shape.Line.Visible = 0
             shape.Fill.Visible = 0
+            if item.role == "road_name":
+                shape.Left = desired_center_x - shape.Width / 2.0
+                shape.Top = desired_center_y - shape.Height / 2.0
             shape.Rotation = item.rotation
         else:
             left, top, width, height = _bounds(item.points)
