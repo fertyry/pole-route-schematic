@@ -6,26 +6,11 @@ All notable changes to PoleRoute Schematic will be documented here. The format f
 
 ### Fixed
 
-- QGraphicsView now forces a full cache reset and repaint after schematic scene replacement
-- Schematic rendering is atomic and resets generated layer visibility before replacing the preview
-- Canvas Fit now derives its bounds from the drawing objects actually rendered
-- Canvas wheel navigation now uses wheel for vertical scroll, Shift+wheel for horizontal
-  scroll, Ctrl+wheel for zoom, and ignores middle-button dragging
-- Newly generated schematics automatically fit and recenter after earlier canvas pan or zoom
-- Left-click selection no longer applies stale Properties values or begins an accidental tiny drag
-- Roads are locked by default after schematic generation to prevent moving the entire network
-- Middle-button canvas panning no longer moves a road or object beneath the pointer
-- Editor angle, font-size, and line-width controls always use Arabic digits
 - Schematic spacing confirmation returns a stable spacing mode with PySide6
 - Block placement ignores clicks and very short drags without repeated errors
 
 ### Added
 
-- Multi-object rotation around a shared center with single-step Undo/Redo
-- Fixed Roads, Poles, Labels, Blocks, and Annotations layers with show, lock, and select-all controls
-- Selection-aware Properties panel for text, color, font size, line width/style, and z-order
-- Undoable object appearance edits
-- Canvas zoom, fit, middle-button pan, angle rotation, North up, and align-to-selection controls
 - Dedicated Edit canvas mode that expands the drawing workspace and restores the data view
 - Explicit Same pole grouping for multiple equipment records on one physical pole
 - Network, straight equal-spacing, and straight relative-spacing generation choices

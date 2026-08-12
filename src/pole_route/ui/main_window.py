@@ -1,21 +1,15 @@
 """Main application window."""
 
-from math import atan2, cos, degrees, radians, sin
-
-from PySide6.QtCore import QLocale, QPointF, Qt, QTimer
-from PySide6.QtGui import QAction, QActionGroup, QBrush, QColor, QKeySequence, QPen, QUndoStack
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
-    QColorDialog,
-    QDockWidget,
     QFileDialog,
-    QGraphicsItem,
     QGraphicsScene,
     QHeaderView,
     QLabel,
     QMainWindow,
     QMenu,
     QMessageBox,
-    QSpinBox,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -43,15 +37,12 @@ from pole_route.ui.drawing_view import DrawingMode, DrawingView
 from pole_route.ui.editor_commands import (
     DeleteItemsCommand,
     MoveItemCommand,
-    PropertyChangeCommand,
     ResetLayoutCommand,
     editable_scene_items,
 )
 from pole_route.ui.geometry_renderer import render_road_geometry
-from pole_route.ui.layers_panel import LayersPanel, layer_types
-from pole_route.ui.properties_panel import PropertiesPanel
 from pole_route.ui.route_import_dialog import RouteImportDialog, draw_classified_routes_preview
-from pole_route.ui.schematic_renderer import SchematicRenderError, render_schematic
+from pole_route.ui.schematic_renderer import render_schematic
 from pole_route.ui.schematic_settings_dialog import SchematicSettingsDialog
 
 
@@ -72,9 +63,6 @@ class MainWindow(QMainWindow):
         self.resize(1100, 720)
         self._build_toolbar()
         self._build_workspace()
-        self._build_properties_panel()
-        self._build_layers_panel()
-        self._build_view_toolbar()
         self.statusBar().showMessage("Ready - import an Excel or CSV pole-data file")
 
     def _build_toolbar(self) -> None:
@@ -228,62 +216,6 @@ class MainWindow(QMainWindow):
         central_widget.setLayout(layout)
         self.setCentralWidget(central_widget)
 
-    def _build_properties_panel(self) -> None:
-        self.properties_panel = PropertiesPanel(self)
-        dock = QDockWidget("Properties", self)
-        dock.setObjectName("propertiesDock")
-        dock.setWidget(self.properties_panel)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
-        self.properties_dock = dock
-
-        self.properties_panel.textCommitted.connect(self._change_selected_text)
-        self.properties_panel.colorRequested.connect(self._choose_selected_color)
-        self.properties_panel.lineWidthCommitted.connect(self._change_selected_line_width)
-        self.properties_panel.lineStyleCommitted.connect(self._change_selected_line_style)
-        self.properties_panel.fontSizeCommitted.connect(self._change_selected_font_size)
-        self.properties_panel.rotationCommitted.connect(self._rotate_selected_objects)
-        self.properties_panel.bringForwardRequested.connect(lambda: self._change_selected_z(1))
-        self.properties_panel.sendBackwardRequested.connect(lambda: self._change_selected_z(-1))
-
-    def _build_layers_panel(self) -> None:
-        self.layers_panel = LayersPanel(self)
-        dock = QDockWidget("Layers", self)
-        dock.setObjectName("layersDock")
-        dock.setWidget(self.layers_panel)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
-        self.tabifyDockWidget(self.properties_dock, dock)
-        self.properties_dock.raise_()
-        self.layers_panel.visibilityChanged.connect(self._set_layer_visible)
-        self.layers_panel.lockChanged.connect(self._set_layer_locked)
-        self.layers_panel.selectRequested.connect(self._select_layer)
-
-    def _build_view_toolbar(self) -> None:
-        self.addToolBarBreak()
-        toolbar = QToolBar("View")
-        toolbar.setMovable(False)
-        self.addToolBar(toolbar)
-        for label, callback in (
-            ("Zoom +", self.canvas.zoom_in),
-            ("Zoom -", self.canvas.zoom_out),
-            ("Fit", self.canvas.fit_scene),
-            ("Rotate left", lambda: self._set_canvas_rotation(self.canvas.rotation_degrees - 15)),
-            ("Rotate right", lambda: self._set_canvas_rotation(self.canvas.rotation_degrees + 15)),
-            ("North up", lambda: self._set_canvas_rotation(0)),
-            ("Align selected", self._align_view_to_selected),
-        ):
-            action = QAction(label, self)
-            action.triggered.connect(callback)
-            toolbar.addAction(action)
-        self.rotation_angle = QSpinBox()
-        self.rotation_angle.setLocale(QLocale.c())
-        self.rotation_angle.setRange(-180, 180)
-        self.rotation_angle.setSuffix(" deg")
-        self.rotation_angle.setToolTip("Canvas rotation angle")
-        self.rotation_angle.editingFinished.connect(
-            lambda: self._set_canvas_rotation(self.rotation_angle.value())
-        )
-        toolbar.addWidget(self.rotation_angle)
-
     def _choose_route_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
@@ -360,36 +292,14 @@ class MainWindow(QMainWindow):
             return
         layout_mode = dialog.layout_mode()
         spacing_mode = dialog.spacing_mode()
-        try:
-            layout = create_schematic_layout(
-                self.current_geometry,
-                spacing_mode,
-                layout_mode,
-                tuple(self.same_pole_groups),
-            )
-            render_schematic(self.route_scene, layout, self.undo_stack)
-        except (SchematicRenderError, ValueError, TypeError) as error:
-            QMessageBox.warning(self, "Schematic generation failed", str(error))
-            self.statusBar().showMessage(f"Schematic generation failed: {error}")
-            return
+        layout = create_schematic_layout(
+            self.current_geometry,
+            spacing_mode,
+            layout_mode,
+            tuple(self.same_pole_groups),
+        )
         self.undo_stack.clear()
-        rendered_objects = [
-            item for item in self.route_scene.items() if item.parentItem() is None
-        ]
-        if not rendered_objects:
-            QMessageBox.warning(
-                self,
-                "Schematic generation failed",
-                "No drawing objects were created. Rebuild geometry and try again.",
-            )
-            self.statusBar().showMessage("Schematic generation failed: empty canvas")
-            return
-        self.layers_panel.reset_for_generated_scene()
-        for layer_name in ("Roads", "Poles", "Labels", "Blocks", "Annotations"):
-            self._set_layer_visible(layer_name, True)
-            self._set_layer_locked(layer_name, layer_name == "Roads")
-        self.canvas.refresh_scene()
-        QTimer.singleShot(0, self.canvas.refresh_scene)
+        render_schematic(self.route_scene, layout, self.undo_stack)
         self.reset_layout_action.setEnabled(True)
         for action in self.drawing_actions.values():
             action.setEnabled(True)
@@ -433,7 +343,6 @@ class MainWindow(QMainWindow):
             item for item in self.route_scene.selectedItems() if item.data(0) == "pole"
         ]
         self.stack_poles_action.setEnabled(len(selected_poles) >= 2)
-        self.properties_panel.show_for_items(self._selected_editor_items())
 
     def _stack_selected_poles(self) -> None:
         poles = [item for item in self.route_scene.selectedItems() if item.data(0) == "pole"]
@@ -562,233 +471,3 @@ class MainWindow(QMainWindow):
             self.canvas.fitInView(self.route_scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
         else:
             self.splitter.setSizes([240, 600])
-
-    def _selected_editor_item(self):
-        return next(iter(self._selected_editor_items()), None)
-
-    def _selected_editor_items(self):
-        return [item for item in self.route_scene.selectedItems() if item.parentItem() is None]
-
-    def _pen_items(self, item):
-        if item is None:
-            return []
-        if hasattr(item, "pen"):
-            return [item]
-        return [child for child in item.childItems() if hasattr(child, "pen")]
-
-    def _change_selected_text(self, text: str) -> None:
-        item = self._selected_editor_item()
-        if item is None or not hasattr(item, "text") or item.text() == text:
-            return
-        self.undo_stack.push(PropertyChangeCommand("Change text", item.setText, item.text(), text))
-
-    def _choose_selected_color(self) -> None:
-        item = self._selected_editor_item()
-        if item is None:
-            return
-        initial = item.brush().color() if hasattr(item, "brush") else QColor("#d0d0d0")
-        color = QColorDialog.getColor(initial, self, "Choose object color")
-        if not color.isValid():
-            return
-        if hasattr(item, "setBrush") and hasattr(item, "text"):
-            before = item.brush().color()
-            self.undo_stack.push(
-                PropertyChangeCommand(
-                    "Change color", lambda value: item.setBrush(QBrush(value)), before, color
-                )
-            )
-            return
-        targets = self._pen_items(item)
-        before = [QPen(target.pen()) for target in targets]
-
-        def apply(value):
-            for target, pen in zip(targets, value, strict=True):
-                target.setPen(pen)
-
-        after = []
-        for pen in before:
-            changed = QPen(pen)
-            changed.setColor(color)
-            after.append(changed)
-        self.undo_stack.push(PropertyChangeCommand("Change color", apply, before, after))
-
-    def _change_selected_line_width(self, width: float) -> None:
-        targets = [
-            target
-            for item in self._selected_editor_items()
-            for target in self._pen_items(item)
-        ]
-        if not targets:
-            return
-        before = [QPen(target.pen()) for target in targets]
-        if all(pen.widthF() == width for pen in before):
-            return
-        after = []
-        for pen in before:
-            changed = QPen(pen)
-            changed.setWidthF(width)
-            after.append(changed)
-        self._push_pen_change("Change line width", targets, before, after)
-
-    def _change_selected_line_style(self, style: str) -> None:
-        targets = [
-            target
-            for item in self._selected_editor_items()
-            for target in self._pen_items(item)
-        ]
-        if not targets:
-            return
-        before = [QPen(target.pen()) for target in targets]
-        after = []
-        pen_style = Qt.PenStyle.DashLine if style == "dash" else Qt.PenStyle.SolidLine
-        for pen in before:
-            changed = QPen(pen)
-            changed.setStyle(pen_style)
-            after.append(changed)
-        self._push_pen_change("Change line style", targets, before, after)
-
-    def _push_pen_change(self, description, targets, before, after) -> None:
-        def apply(value):
-            for target, pen in zip(targets, value, strict=True):
-                target.setPen(pen)
-
-        self.undo_stack.push(PropertyChangeCommand(description, apply, before, after))
-
-    def _change_selected_font_size(self, size: int) -> None:
-        items = [item for item in self._selected_editor_items() if hasattr(item, "font")]
-        if not items:
-            return
-        before = [(item, item.font()) for item in items]
-        after = []
-        for item, font in before:
-            changed = type(font)(font)
-            changed.setPointSize(size)
-            after.append((item, changed))
-
-        def apply(values):
-            for target, font in values:
-                target.setFont(font)
-
-        self.undo_stack.push(PropertyChangeCommand("Change font size", apply, before, after))
-
-    def _change_selected_z(self, delta: float) -> None:
-        items = self._selected_editor_items()
-        if not items:
-            return
-        before = [(item, item.zValue()) for item in items]
-        after = [(item, value + delta) for item, value in before]
-
-        def apply(values):
-            for target, value in values:
-                target.setZValue(value)
-
-        self.undo_stack.push(
-            PropertyChangeCommand("Change object order", apply, before, after)
-        )
-
-    def _rotate_selected_objects(self, angle: float) -> None:
-        items = self._selected_editor_items()
-        if not items:
-            return
-        first_angle = items[0].rotation()
-        delta = angle - first_angle
-        if abs(delta) < 1e-9:
-            return
-        bounds = items[0].sceneBoundingRect()
-        for item in items[1:]:
-            bounds = bounds.united(item.sceneBoundingRect())
-        pivot = bounds.center()
-        before = [
-            (item, QPointF(item.pos()), item.rotation(), QPointF(item.transformOriginPoint()))
-            for item in items
-        ]
-        turn = radians(delta)
-        after = []
-        for item in items:
-            scene_center = item.sceneBoundingRect().center()
-            offset = scene_center - pivot
-            desired_center = QPointF(
-                pivot.x() + offset.x() * cos(turn) - offset.y() * sin(turn),
-                pivot.y() + offset.x() * sin(turn) + offset.y() * cos(turn),
-            )
-            origin = item.boundingRect().center()
-            item.setTransformOriginPoint(origin)
-            item.setRotation(item.rotation() + delta)
-            moved_center = item.sceneBoundingRect().center()
-            item.setPos(item.pos() + desired_center - moved_center)
-            after.append(
-                (item, QPointF(item.pos()), item.rotation(), QPointF(item.transformOriginPoint()))
-            )
-
-        def apply(states):
-            for target, position, rotation, origin in states:
-                target.setTransformOriginPoint(origin)
-                target.setRotation(rotation)
-                target.setPos(position)
-
-        apply(before)
-        self.undo_stack.push(PropertyChangeCommand("Rotate objects", apply, before, after))
-
-    def _layer_items(self, name: str):
-        types = layer_types(name)
-        return [
-            item
-            for item in self.route_scene.items()
-            if item.parentItem() is None and item.data(0) in types
-        ]
-
-    def _set_layer_visible(self, name: str, visible: bool) -> None:
-        for item in self._layer_items(name):
-            item.setVisible(visible)
-
-    def _set_layer_locked(self, name: str, locked: bool) -> None:
-        editable_flags = (
-            QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
-            | QGraphicsItem.GraphicsItemFlag.ItemIsMovable
-        )
-        for item in self._layer_items(name):
-            if locked:
-                item.setSelected(False)
-                item.setFlags(item.flags() & ~editable_flags)
-            else:
-                item.setFlags(item.flags() | editable_flags)
-
-    def _select_layer(self, name: str) -> None:
-        self.route_scene.clearSelection()
-        for item in self._layer_items(name):
-            if item.isVisible() and item.flags() & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable:
-                item.setSelected(True)
-
-    def _set_canvas_rotation(self, angle: float) -> None:
-        normalized = int(((angle + 180) % 360) - 180)
-        self.canvas.set_rotation(normalized)
-        self.rotation_angle.blockSignals(True)
-        self.rotation_angle.setValue(normalized)
-        self.rotation_angle.blockSignals(False)
-
-    def _align_view_to_selected(self) -> None:
-        item = self._selected_editor_item()
-        if item is None:
-            self.statusBar().showMessage("Select a line, road, or block to align the canvas")
-            return
-        candidates = [item, *item.childItems()]
-        vectors = []
-        for candidate in candidates:
-            if hasattr(candidate, "line"):
-                line = candidate.line()
-                start = candidate.mapToScene(line.p1())
-                end = candidate.mapToScene(line.p2())
-                vectors.append((start, end, line.length()))
-            elif hasattr(candidate, "path") and candidate.path().elementCount() >= 2:
-                path = candidate.path()
-                first = path.elementAt(0)
-                last = path.elementAt(path.elementCount() - 1)
-                start = candidate.mapToScene(first.x, first.y)
-                end = candidate.mapToScene(last.x, last.y)
-                vectors.append((start, end, (end - start).manhattanLength()))
-        if not vectors:
-            self.statusBar().showMessage("The selected object has no direction to align")
-            return
-        start, end, _length = max(vectors, key=lambda value: value[2])
-        angle = degrees(atan2(end.y() - start.y(), end.x() - start.x()))
-        self._set_canvas_rotation(-angle)

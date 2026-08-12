@@ -1,12 +1,11 @@
 from PySide6.QtCore import QPointF
-from PySide6.QtGui import QPen, QUndoStack
+from PySide6.QtGui import QUndoStack
 from PySide6.QtWidgets import QGraphicsScene
 
 from pole_route.ui.editor_commands import (
     DeleteItemsCommand,
     EditableEllipseItem,
     MoveItemCommand,
-    PropertyChangeCommand,
     ResetLayoutCommand,
     editable_scene_items,
 )
@@ -64,20 +63,3 @@ def test_reset_layout_is_undoable(qapp) -> None:
     stack.undo()
     assert first.pos() == QPointF(100, 200)
     assert second.pos() == QPointF(300, 400)
-
-
-def test_property_change_command_undoes_and_redoes_pen(qapp) -> None:
-    scene = QGraphicsScene()
-    stack = QUndoStack()
-    item = _item(scene, stack, 10, 20)
-    item.setPen(QPen(item.pen().color(), 2.0))
-    before = QPen(item.pen())
-    after = QPen(item.pen())
-    after.setWidthF(5.0)
-
-    stack.push(PropertyChangeCommand("Change width", item.setPen, before, after))
-    assert item.pen().widthF() == 5.0
-    stack.undo()
-    assert item.pen().widthF() == 2.0
-    stack.redo()
-    assert item.pen().widthF() == 5.0

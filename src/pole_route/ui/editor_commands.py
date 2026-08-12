@@ -3,7 +3,6 @@
 from PySide6.QtCore import QPointF
 from PySide6.QtGui import QUndoCommand, QUndoStack
 from PySide6.QtWidgets import (
-    QApplication,
     QGraphicsEllipseItem,
     QGraphicsItem,
     QGraphicsItemGroup,
@@ -84,51 +83,23 @@ class ResetLayoutCommand(QUndoCommand):
             item.setPos(current)
 
 
-class PropertyChangeCommand(QUndoCommand):
-    """Apply and reverse one object-property edit."""
-
-    def __init__(self, description: str, apply_value, before, after) -> None:
-        super().__init__(description)
-        self.apply_value = apply_value
-        self.before = before
-        self.after = after
-
-    def redo(self) -> None:
-        self.apply_value(self.after)
-
-    def undo(self) -> None:
-        self.apply_value(self.before)
-
-
 class _MoveTrackingMixin:
     undo_stack: QUndoStack
     _drag_start: QPointF | None
-    _drag_scene_start: QPointF | None
 
     def _initialize_move_tracking(self, undo_stack: QUndoStack) -> None:
         self.undo_stack = undo_stack
         self._drag_start = None
-        self._drag_scene_start = None
 
     def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         self._drag_start = QPointF(self.pos())
-        self._drag_scene_start = QPointF(event.scenePos())
         super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event: QGraphicsSceneMouseEvent) -> None:
-        if self._drag_scene_start is not None:
-            distance = (event.scenePos() - self._drag_scene_start).manhattanLength()
-            if distance < QApplication.startDragDistance():
-                event.accept()
-                return
-        super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         super().mouseReleaseEvent(event)
         if self._drag_start is not None and self.pos() != self._drag_start:
             self.undo_stack.push(MoveItemCommand(self, self._drag_start, self.pos()))
         self._drag_start = None
-        self._drag_scene_start = None
 
 
 class EditableEllipseItem(_MoveTrackingMixin, QGraphicsEllipseItem):

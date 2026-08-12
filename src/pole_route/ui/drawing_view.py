@@ -4,7 +4,7 @@ from enum import StrEnum
 from math import atan2, cos, hypot, pi, sin
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QMouseEvent, QPen, QUndoStack, QWheelEvent
+from PySide6.QtGui import QBrush, QColor, QMouseEvent, QPen, QUndoStack
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsView, QInputDialog
 
 from pole_route.domain.blocks import BlockType
@@ -42,9 +42,7 @@ class DrawingView(QGraphicsView):
         self.line_color = QColor("#f2c94c")
         self.line_width = 2.0
         self.block_type = BlockType.SIDE_ROAD
-        self._rotation_degrees = 0.0
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
-        self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
 
     def set_mode(self, mode: DrawingMode) -> None:
         self._discard_preview()
@@ -66,9 +64,6 @@ class DrawingView(QGraphicsView):
         self.set_mode(DrawingMode.BLOCK)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.MiddleButton:
-            event.accept()
-            return
         if self.mode is DrawingMode.SELECT or event.button() != Qt.MouseButton.LeftButton:
             super().mousePressEvent(event)
             return
@@ -105,9 +100,6 @@ class DrawingView(QGraphicsView):
             self._update_shape(self._preview, self._start, end)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.MiddleButton:
-            event.accept()
-            return
         if self._start is None or self._preview is None:
             super().mouseReleaseEvent(event)
             return
@@ -193,61 +185,6 @@ class DrawingView(QGraphicsView):
             self.scene().removeItem(self._preview)
         self._start = None
         self._preview = None
-
-    def wheelEvent(self, event: QWheelEvent) -> None:
-        delta = event.angleDelta().y()
-        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            factor = 1.15 if delta > 0 else 1 / 1.15
-            self.scale(factor, factor)
-            event.accept()
-            return
-        scrollbar = (
-            self.horizontalScrollBar()
-            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier
-            else self.verticalScrollBar()
-        )
-        scrollbar.setValue(scrollbar.value() - delta)
-        event.accept()
-
-    def zoom_in(self) -> None:
-        self.scale(1.2, 1.2)
-
-    def zoom_out(self) -> None:
-        self.scale(1 / 1.2, 1 / 1.2)
-
-    def fit_scene(self) -> None:
-        item_bounds = self.scene().itemsBoundingRect()
-        if item_bounds.isEmpty():
-            return
-        padding = max(item_bounds.width(), item_bounds.height()) * 0.05 + 20.0
-        fitted_bounds = item_bounds.adjusted(-padding, -padding, padding, padding)
-        self.scene().setSceneRect(fitted_bounds)
-        self.resetTransform()
-        self.rotate(self._rotation_degrees)
-        self.fitInView(fitted_bounds, Qt.AspectRatioMode.KeepAspectRatio)
-        self.centerOn(fitted_bounds.center())
-        self.viewport().update()
-
-    def refresh_scene(self) -> None:
-        """Force Qt to redraw a newly replaced scene, then fit its visible objects."""
-        self.resetCachedContent()
-        self.scene().invalidate()
-        self.fit_scene()
-        self.viewport().repaint()
-
-    def set_rotation(self, degrees: float) -> None:
-        current_scale_x = (self.transform().m11() ** 2 + self.transform().m12() ** 2) ** 0.5
-        self.resetTransform()
-        self.scale(current_scale_x, current_scale_x)
-        self.rotate(degrees)
-        self._rotation_degrees = degrees
-
-    def rotate_by(self, degrees: float) -> None:
-        self.set_rotation(self._rotation_degrees + degrees)
-
-    @property
-    def rotation_degrees(self) -> float:
-        return self._rotation_degrees
 
 
 def snap_line_endpoint(start: QPointF, end: QPointF, increment_degrees: float = 45.0) -> QPointF:
