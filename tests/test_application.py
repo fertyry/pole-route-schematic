@@ -4,7 +4,9 @@ from PySide6.QtWidgets import (
     QGraphicsPathItem,
     QGraphicsTextItem,
     QGraphicsView,
+    QMenu,
     QTableWidgetSelectionRange,
+    QToolBar,
 )
 
 from pole_route.importers.pole_importer import PoleTable
@@ -28,8 +30,21 @@ def test_main_window_contains_canvas(qtbot) -> None:
     window = MainWindow()
     qtbot.addWidget(window)
 
-    assert window.windowTitle() == "PoleRoute Schematic - Sprint 3"
+    assert window.windowTitle() == "PoleRoute Schematic - V2 Preview"
     assert window.findChild(QGraphicsView, "schematicCanvas") is not None
+
+
+def test_v2_ui_groups_commands_by_work_stage(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    assert window.findChild(QToolBar, "workflowToolbar") is not None
+    assert window.findChild(QToolBar, "drawingToolbar") is not None
+    assert window.findChild(QMenu, "projectMenu").title() == "Project"
+    assert window.findChild(QMenu, "dataMenu").title() == "Data"
+    assert window.findChild(QMenu, "geometryMenu").title() == "Geometry"
+    assert window.findChild(QMenu, "drawingMenu").title() == "Drawing"
+    assert window.findChild(QMenu, "outputMenu").title() == "Output"
 
 
 def test_main_window_can_show_poles(qtbot) -> None:

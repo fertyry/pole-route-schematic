@@ -4,7 +4,7 @@ from dataclasses import asdict, replace
 
 from pathlib import Path
 
-from PySide6.QtCore import QLocale, Qt
+from PySide6.QtCore import QLocale, QSize, Qt
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QSplitter,
+    QStyle,
     QTableWidget,
     QTableWidgetItem,
     QToolBar,
@@ -89,28 +90,34 @@ class MainWindow(QMainWindow):
         self._changing_project = False
         self.undo_stack = QUndoStack(self)
         self.undo_stack.cleanChanged.connect(self._undo_clean_changed)
-        self.setWindowTitle("PoleRoute Schematic - Sprint 3")
+        self.setWindowTitle("PoleRoute Schematic - V2 Preview")
         self.resize(1100, 720)
         self._build_toolbar()
         self._build_workspace()
         self.statusBar().showMessage("Ready - import an Excel or CSV pole-data file")
 
     def _build_toolbar(self) -> None:
-        toolbar = QToolBar("Project")
+        toolbar = QToolBar("Workflow")
+        toolbar.setObjectName("workflowToolbar")
         toolbar.setMovable(False)
+        toolbar.setIconSize(QSize(20, 20))
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.addToolBar(toolbar)
 
         self.new_action = QAction("New", self)
+        self.new_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileIcon))
         self.new_action.setShortcut(QKeySequence.StandardKey.New)
         self.new_action.triggered.connect(self._new_project)
         toolbar.addAction(self.new_action)
 
         self.open_action = QAction("Open", self)
+        self.open_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton))
         self.open_action.setShortcut(QKeySequence.StandardKey.Open)
         self.open_action.triggered.connect(self._choose_project_file)
         toolbar.addAction(self.open_action)
 
         self.save_action = QAction("Save", self)
+        self.save_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton))
         self.save_action.setShortcut(QKeySequence.StandardKey.Save)
         self.save_action.triggered.connect(self._save_project)
         toolbar.addAction(self.save_action)
@@ -127,19 +134,23 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
 
         self.import_route_action = QAction("Import route", self)
+        self.import_route_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DriveNetIcon))
         self.import_route_action.triggered.connect(self._choose_route_file)
         toolbar.addAction(self.import_route_action)
 
         self.import_poles_action = QAction("Import poles", self)
+        self.import_poles_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
         self.import_poles_action.triggered.connect(self._choose_pole_file)
         toolbar.addAction(self.import_poles_action)
 
         self.build_geometry_action = QAction("Build geometry", self)
+        self.build_geometry_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
         self.build_geometry_action.setEnabled(False)
         self.build_geometry_action.triggered.connect(self._build_geometry)
         toolbar.addAction(self.build_geometry_action)
 
         self.generate_schematic_action = QAction("Generate schematic", self)
+        self.generate_schematic_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
         self.generate_schematic_action.setEnabled(False)
         self.generate_schematic_action.triggered.connect(self._generate_schematic)
         toolbar.addAction(self.generate_schematic_action)
@@ -207,6 +218,7 @@ class MainWindow(QMainWindow):
         self.blocks_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.blocks_button.setEnabled(False)
         blocks_menu = QMenu(self.blocks_button)
+        self.blocks_menu = blocks_menu
         current_category = None
         for definition in BLOCK_CATALOG:
             if current_category is not None and definition.category != current_category:
@@ -217,12 +229,85 @@ class MainWindow(QMainWindow):
             )
             current_category = definition.category
         self.blocks_button.setMenu(blocks_menu)
-        toolbar.addWidget(self.blocks_button)
+        self.blocks_toolbar_action = toolbar.addWidget(self.blocks_button)
 
         self.export_action = QAction("Export Excel", self)
+        self.export_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton))
         self.export_action.setEnabled(False)
         self.export_action.triggered.connect(self._export_excel)
         toolbar.addAction(self.export_action)
+        self._organize_v2_commands(toolbar)
+
+    def _organize_v2_commands(self, workflow_toolbar: QToolBar) -> None:
+        """Group existing commands into a V2 menu bar and focused toolbars."""
+        project_menu = self.menuBar().addMenu("Project")
+        project_menu.setObjectName("projectMenu")
+        project_menu.addActions(
+            [
+                self.new_action,
+                self.open_action,
+                self.save_action,
+                self.save_as_action,
+                self.project_info_action,
+            ]
+        )
+
+        data_menu = self.menuBar().addMenu("Data")
+        data_menu.setObjectName("dataMenu")
+        data_menu.addActions(
+            [self.import_route_action, self.import_poles_action, self.same_pole_action]
+        )
+
+        geometry_menu = self.menuBar().addMenu("Geometry")
+        geometry_menu.setObjectName("geometryMenu")
+        geometry_menu.addActions(
+            [self.build_geometry_action, self.generate_schematic_action]
+        )
+
+        drawing_menu = self.menuBar().addMenu("Drawing")
+        drawing_menu.setObjectName("drawingMenu")
+        drawing_menu.addAction(self.edit_canvas_action)
+        drawing_menu.addSeparator()
+        drawing_menu.addActions([self.undo_action, self.redo_action, self.delete_action])
+        drawing_menu.addActions([self.reset_layout_action, self.stack_poles_action])
+        drawing_menu.addSeparator()
+        drawing_menu.addActions(list(self.drawing_actions.values()))
+        drawing_menu.addMenu(self.blocks_menu)
+
+        output_menu = self.menuBar().addMenu("Output")
+        output_menu.setObjectName("outputMenu")
+        output_menu.addAction(self.export_action)
+
+        # The first row shows only the normal end-to-end workflow.
+        for action in (
+            self.save_as_action,
+            self.project_info_action,
+            self.same_pole_action,
+            self.edit_canvas_action,
+            self.undo_action,
+            self.redo_action,
+            self.delete_action,
+            self.reset_layout_action,
+            self.stack_poles_action,
+            *self.drawing_actions.values(),
+            self.blocks_toolbar_action,
+        ):
+            workflow_toolbar.removeAction(action)
+
+        drawing_toolbar = QToolBar("Drawing tools")
+        drawing_toolbar.setObjectName("drawingToolbar")
+        drawing_toolbar.setMovable(False)
+        drawing_toolbar.setIconSize(QSize(18, 18))
+        drawing_toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        drawing_toolbar.addAction(self.edit_canvas_action)
+        drawing_toolbar.addSeparator()
+        drawing_toolbar.addActions([self.undo_action, self.redo_action, self.delete_action])
+        drawing_toolbar.addActions([self.reset_layout_action, self.stack_poles_action])
+        drawing_toolbar.addSeparator()
+        drawing_toolbar.addActions(list(self.drawing_actions.values()))
+        drawing_toolbar.addWidget(self.blocks_button)
+        self.addToolBarBreak()
+        self.addToolBar(drawing_toolbar)
 
     def _build_workspace(self) -> None:
         self.route_scene = QGraphicsScene(self)
