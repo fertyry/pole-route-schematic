@@ -892,15 +892,30 @@ def _write_shapes(sheet, objects: list[ExcelObject]) -> None:
             # centre follows the correct junction.  They must not also become the
             # initial Excel text-box size: a scaled 600-point-wide box makes a
             # rotated label jump across the sheet even though the preview is fine.
-            textbox_width = 20.0 if item.role == "road_name" else max(width, 20)
-            textbox_height = 14.0 if item.role == "road_name" else max(height, 14)
+            if item.role == "road_name":
+                # Keep the label as one horizontal line before rotation.  A very
+                # narrow AutoSize box makes Excel wrap Thai text one glyph per
+                # line, which becomes a pile of letters after the box is rotated.
+                textbox_width = max(36.0, len(item.text) * item.font_size * 0.72)
+                textbox_height = max(14.0, item.font_size * 1.8)
+            else:
+                textbox_width = max(width, 20)
+                textbox_height = max(height, 14)
             shape = sheet.Shapes.AddTextbox(
                 1, left, top, textbox_width, textbox_height
             )
             shape.TextFrame2.TextRange.Text = item.text
             shape.TextFrame2.TextRange.Font.Size = item.font_size
             shape.TextFrame2.TextRange.Font.Fill.ForeColor.RGB = item.fill_color
-            shape.TextFrame2.AutoSize = 1
+            if item.role == "road_name":
+                shape.TextFrame2.WordWrap = 0
+                shape.TextFrame2.MarginLeft = 0
+                shape.TextFrame2.MarginRight = 0
+                shape.TextFrame2.MarginTop = 0
+                shape.TextFrame2.MarginBottom = 0
+                shape.TextFrame2.AutoSize = 0
+            else:
+                shape.TextFrame2.AutoSize = 1
             shape.Line.Visible = 0
             shape.Fill.Visible = 0
             shape.Rotation = item.rotation

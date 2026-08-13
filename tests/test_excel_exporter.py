@@ -260,6 +260,11 @@ def test_excel_road_name_is_recentred_after_rotation() -> None:
 
     class FakeTextFrame:
         TextRange = FakeTextRange()
+        WordWrap = 1
+        MarginLeft = 1
+        MarginRight = 1
+        MarginTop = 1
+        MarginBottom = 1
 
         @property
         def AutoSize(self):
@@ -267,7 +272,7 @@ def test_excel_road_name_is_recentred_after_rotation() -> None:
 
         @AutoSize.setter
         def AutoSize(self, value):
-            events.append("autosize")
+            events.append(f"autosize:{value}")
 
     class FakeVisibility:
         Visible = 0
@@ -295,8 +300,8 @@ def test_excel_road_name_is_recentred_after_rotation() -> None:
 
     class FakeShapes:
         def AddTextbox(self, _orientation, _left, _top, width, height):
-            assert width == pytest.approx(20.0)
-            assert height == pytest.approx(14.0)
+            assert width == pytest.approx(57.6)
+            assert height == pytest.approx(18.0)
             return shape
 
     class FakeSheet:
@@ -315,7 +320,8 @@ def test_excel_road_name_is_recentred_after_rotation() -> None:
         ],
     )
 
-    assert events == ["autosize", "rotation"]
+    assert events == ["autosize:0", "rotation"]
+    assert shape.TextFrame2.WordWrap == 0
     assert shape.Left + shape.Width / 2.0 == pytest.approx(100.0)
     assert shape.Top + shape.Height / 2.0 == pytest.approx(200.0)
 
