@@ -69,8 +69,11 @@ pytest
 - LineString direction matters. Reverse it during route import instead of adding
   compensating logic later in the workflow.
 - Large intersections are supplied explicitly as Cross-road or T-junction
-  LineStrings. DXF export unions these structural routes with the Main road before
-  deriving a shared road outline; ordinary sois continue to come from OpenStreetMap.
+  LineStrings. They act as location and direction guides: DXF export uses matching
+  nearby OpenStreetMap carriageways when available, falls back to the manual geometry,
+  and unions the result with the Main road before deriving a shared road outline.
+- Roads/sois accepted in the OpenStreetMap review are authoritative and must not be
+  silently removed by a later exporter.
 - Two records can describe one physical pole. The canvas shows one pole symbol and
   retains the separate equipment/detail text.
 - Pole symbols are square and aligned with their road.

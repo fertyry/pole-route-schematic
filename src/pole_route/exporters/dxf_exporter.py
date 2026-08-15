@@ -63,10 +63,14 @@ def export_geometry_to_dxf(geometry: RoadNetworkGeometry, path: str | Path) -> i
         if road.route_type
         in {RouteType.MAIN_ROUTE, RouteType.CROSS_ROAD, RouteType.T_JUNCTION}
     )
-    structural_surface = _joined_road_surface(structural_roads)
+    surface_roads, matched_osm_roads = _structural_surface_roads(
+        geometry.roads, structural_roads
+    )
+    integrated_road_ids = {id(road) for road in (*structural_roads, *matched_osm_roads)}
+    structural_surface = _joined_road_surface(surface_roads)
     if structural_surface is not None:
         network_boundary = _remove_road_end_caps(
-            structural_surface.boundary, structural_roads
+            structural_surface.boundary, surface_roads
         )
         for part in _line_parts(network_boundary):
             _add_dxf_line(modelspace, "ROAD_NETWORK_EDGE", part)
@@ -77,7 +81,7 @@ def export_geometry_to_dxf(geometry: RoadNetworkGeometry, path: str | Path) -> i
         center_layer, edge_layer = _road_layers(road)
         _add_dxf_line(modelspace, center_layer, road.centerline)
         object_count += 1
-        if road in structural_roads:
+        if id(road) in integrated_road_ids:
             edges = ()
         else:
             edges = (road.left_edge, road.right_edge)
@@ -149,6 +153,67 @@ def _joined_road_surface(roads):
     return unary_union(surfaces) if surfaces else None
 
 
+def _structural_surface_roads(all_roads, structural_roads):
+    """Use nearby OSM geometry for manual junctions when a reliable match exists."""
+    main_roads = tuple(road for road in structural_roads if road.is_main_route)
+    manual_roads = tuple(
+        road
+        for road in structural_roads
+        if road.route_type in {RouteType.CROSS_ROAD, RouteType.T_JUNCTION}
+    )
+    osm_roads = tuple(road for road in all_roads if road.route_type is RouteType.ROAD)
+    if not main_roads or not manual_roads:
+        return tuple(structural_roads), ()
+    main_axis = unary_union([road.centerline for road in main_roads])
+    surfaces = list(main_roads)
+    matched: list = []
+    for manual in manual_roads:
+        manual_anchor, _ = nearest_points(main_axis, manual.centerline)
+        candidates = []
+        for road in osm_roads:
+            road_anchor, _ = nearest_points(main_axis, road.centerline)
+            if road.road_width_metres < 8.0:
+                continue
+            if manual_anchor.distance(road_anchor) > max(
+                20.0, manual.road_width_metres / 2.0 + 5.0
+            ):
+                continue
+            if manual.centerline.distance(road.centerline) > max(
+                15.0, manual.road_width_metres / 2.0
+            ):
+                continue
+            if _orientation_difference(manual.centerline, road.centerline) > 15.0:
+                continue
+            candidates.append(road)
+        if candidates:
+            surfaces.extend(candidates)
+            matched.extend(candidates)
+        else:
+            surfaces.append(manual)
+    return tuple(_unique_roads(surfaces)), tuple(_unique_roads(matched))
+
+
+def _unique_roads(roads):
+    result = []
+    seen: set[int] = set()
+    for road in roads:
+        if id(road) not in seen:
+            seen.add(id(road))
+            result.append(road)
+    return result
+
+
+def _orientation_difference(first: LineString, second: LineString) -> float:
+    difference = abs(_overall_line_angle(first) - _overall_line_angle(second)) % 180.0
+    return min(difference, 180.0 - difference)
+
+
+def _overall_line_angle(line: LineString) -> float:
+    start = line.coords[0]
+    end = line.coords[-1]
+    return degrees(atan2(end[1] - start[1], end[0] - start[0])) % 180.0
+
+
 def _remove_road_end_caps(boundary, roads):
     """Open only the true route ends while preserving joined intersection corners."""
     cap_masks = []
@@ -194,41 +259,8 @@ def _add_dxf_text(
 
 
 def _deduplicate_context_roads(geometry: RoadNetworkGeometry):
-    """Collapse split OSM carriageways at the same named junction for CAD."""
-    main_roads = [road for road in geometry.roads if road.is_main_route]
-    manual_roads = [
-        road
-        for road in geometry.roads
-        if road.route_type in {RouteType.CROSS_ROAD, RouteType.T_JUNCTION}
-    ]
-    context_roads = [
-        road
-        for road in geometry.roads
-        if not road.is_main_route and road not in manual_roads
-    ]
-    if not main_roads:
-        return tuple(geometry.roads)
-    main_axis = unary_union([road.centerline for road in main_roads])
-    accepted = []
-    junctions: list[tuple[str, object]] = []
-    for road in context_roads:
-        anchor, _ = nearest_points(main_axis, road.centerline)
-        if any(
-            anchor.distance(nearest_points(main_axis, manual.centerline)[0])
-            <= max(12.0, manual.road_width_metres / 2.0 + 5.0)
-            for manual in manual_roads
-        ):
-            continue
-        name = _normalized_road_name(road.route_name)
-        duplicate_distance = 12.0 if name else 6.0
-        if any(
-            existing_name == name and anchor.distance(existing_anchor) <= duplicate_distance
-            for existing_name, existing_anchor in junctions
-        ):
-            continue
-        junctions.append((name, anchor))
-        accepted.append(road)
-    return tuple(main_roads + manual_roads + accepted)
+    """Preserve every road explicitly accepted in the surroundings review."""
+    return tuple(geometry.roads)
 
 
 def _road_layers(road) -> tuple[str, str]:

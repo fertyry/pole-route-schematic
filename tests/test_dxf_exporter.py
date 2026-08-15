@@ -83,6 +83,38 @@ def test_dxf_export_joins_manual_cross_road_into_main_road_outline(tmp_path) -> 
     junction = geometry.roads[0].centerline.intersection(geometry.roads[1].centerline)
     main_edge_point = Point(junction.x, junction.y + 10.0)
     assert outline.distance(main_edge_point) > 1.0
+
+
+def test_dxf_export_preserves_selected_nearby_sois(tmp_path) -> None:
+    main = Route(
+        "Main",
+        "roads.kml",
+        (GeoPoint(100.0, 13.0), GeoPoint(100.002, 13.0)),
+    )
+    soi_one = Route(
+        "Soi 1",
+        "osm-1",
+        (GeoPoint(100.0008, 13.0), GeoPoint(100.0008, 13.0002)),
+    )
+    soi_two = Route(
+        "Soi 1",
+        "osm-2",
+        (GeoPoint(100.00085, 13.0), GeoPoint(100.00085, 13.0002)),
+    )
+    geometry = build_road_network_geometry(
+        [
+            ClassifiedRoute(main, RouteType.MAIN_ROUTE, 20.0, 2.0),
+            ClassifiedRoute(soi_one, RouteType.ROAD, 6.0, 2.0, False),
+            ClassifiedRoute(soi_two, RouteType.ROAD, 6.0, 2.0, False),
+        ],
+        [],
+    )
+    destination = tmp_path / "selected-sois.dxf"
+
+    export_geometry_to_dxf(geometry, destination)
+
+    modelspace = ezdxf.readfile(destination).modelspace()
+    assert len(modelspace.query('LWPOLYLINE[layer=="SOI_CENTERLINE"]')) == 2
 import ezdxf
 from shapely.geometry import LineString, Point
 from shapely.ops import unary_union

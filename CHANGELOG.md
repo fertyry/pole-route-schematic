@@ -10,6 +10,10 @@
 - Suppressed duplicate OpenStreetMap roads near manually classified large junctions in DXF export.
 - Joined Main, Cross-road, and T-junction road surfaces before deriving DXF road
   outlines, so large junction mouths are open and their corners form one clean network.
+- Treat manual Cross-road and T-junction LineStrings as location/direction guides and
+  use matching nearby OpenStreetMap carriageways for the DXF junction outline when available.
+- Preserve every road/soi explicitly accepted in the surroundings review during DXF
+  export instead of silently removing nearby or same-named roads.
 - Fixed valid sois disappearing when their OSM centerline ended at the edge of a wide
   divided road, 4–15 metres from the user-drawn Main centerline.
 
