@@ -201,3 +201,32 @@ def test_same_pole_records_render_one_marker_and_keep_both_labels() -> None:
     assert len(labels) == 2
     assert layout.poles[0].x == layout.poles[1].x
     assert layout.poles[0].y == layout.poles[1].y
+
+
+def test_transformer_rack_renders_two_markers_and_connecting_symbol() -> None:
+    route = ClassifiedRoute(
+        Route("Main", "route.kml", (GeoPoint(100, 13), GeoPoint(100.01, 13))),
+        RouteType.MAIN_ROUTE,
+        6.0,
+        2.0,
+    )
+    poles = [
+        Pole("6", 13.0001, 100.005, side=PoleSide.LEFT),
+        Pole("7", 13.0001, 100.005, side=PoleSide.LEFT),
+    ]
+    group = frozenset({"6", "7"})
+    layout = create_schematic_layout(
+        build_road_network_geometry([route], poles),
+        same_pole_groups=(group,),
+        transformer_rack_groups=(group,),
+    )
+    scene = QGraphicsScene()
+
+    render_schematic(scene, layout, QUndoStack())
+
+    markers = [item for item in scene.items() if item.data(0) == "pole"]
+    racks = [item for item in scene.items() if item.data(0) == "transformer_rack"]
+    labels = [item for item in scene.items() if item.data(0) == "label"]
+    assert len(markers) == 2
+    assert len(racks) == 1
+    assert len(labels) == 2

@@ -35,13 +35,14 @@ def create_schematic_layout(
     spacing_mode: PoleSpacingMode = PoleSpacingMode.EQUAL,
     layout_mode: SchematicLayoutMode | None = None,
     same_pole_groups: tuple[frozenset[str], ...] = (),
+    transformer_rack_groups: tuple[frozenset[str], ...] = (),
 ) -> SchematicLayout:
     """Order poles by route station and apply the selected visual spacing."""
     if isinstance(geometry, RoadNetworkGeometry) and layout_mode in {
         None,
         SchematicLayoutMode.NETWORK,
     }:
-        return _create_network_layout(geometry, same_pole_groups)
+        return _create_network_layout(geometry, same_pole_groups, transformer_rack_groups)
 
     if isinstance(geometry, RoadNetworkGeometry):
         spacing_mode = (
@@ -130,6 +131,7 @@ def create_schematic_layout(
                 stations[index],
                 _marker_id(projected.pole.number, same_pole_groups),
                 installed_quantity=projected.pole.installed_quantity,
+                physical_kind=_physical_kind(projected.pole.number, transformer_rack_groups),
             )
         )
 
@@ -147,6 +149,7 @@ def create_schematic_layout(
 def _create_network_layout(
     geometry: RoadNetworkGeometry,
     same_pole_groups: tuple[frozenset[str], ...],
+    transformer_rack_groups: tuple[frozenset[str], ...],
 ) -> SchematicLayout:
     """Preserve the shared topology of every imported road in one editable schematic."""
     canvas_width = 1600.0
@@ -236,6 +239,7 @@ def _create_network_layout(
                 geometry.roads[projected.route_index].centerline.project(projected.snapped),
             ),
             projected.pole.installed_quantity,
+            _physical_kind(projected.pole.number, transformer_rack_groups),
         )
         for projected in geometry.projected_poles
     ]
@@ -254,6 +258,7 @@ def _create_network_layout(
                 pole.marker_id,
                 pole.road_angle_degrees,
                 pole.installed_quantity,
+                pole.physical_kind,
             )
         )
     return SchematicLayout(
@@ -348,3 +353,7 @@ def _marker_id(number: str, groups: tuple[frozenset[str], ...]) -> str:
         if number in group:
             return f"same-pole-{index}"
     return number
+
+
+def _physical_kind(number: str, transformer_rack_groups: tuple[frozenset[str], ...]) -> str:
+    return "transformer_rack" if any(number in group for group in transformer_rack_groups) else "single"

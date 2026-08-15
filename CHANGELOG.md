@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added mandatory duplicate-coordinate review after pole import, distinguishing one
+  physical pole with multiple work items, transformer racks, separate poles needing
+  coordinate correction, and accessory records.
+- Added persisted transformer-rack groups and an editable two-pole rack symbol in the
+  schematic while retaining every imported work-item label.
+
 - Added optional installed-quantity import mapping, project persistence, UI display,
   and quantity columns in Excel/CAD pole schedules.
 - Fixed Thai header alias matching so combining vowel and tone marks do not prevent

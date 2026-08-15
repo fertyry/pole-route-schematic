@@ -58,6 +58,13 @@ from pole_route.project.storage import (
 )
 from pole_route.ui.column_mapping_dialog import ColumnMappingDialog
 from pole_route.ui.drawing_view import DrawingMode, DrawingView
+from pole_route.ui.duplicate_pole_dialog import (
+    ACCESSORY,
+    SAME_POLE,
+    TRANSFORMER_RACK,
+    DuplicatePoleDialog,
+    find_close_pole_groups,
+)
 from pole_route.ui.editor_commands import (
     DeleteItemsCommand,
     MoveItemCommand,
@@ -86,6 +93,7 @@ class MainWindow(QMainWindow):
         self.current_poles: list[Pole] = []
         self.current_geometry = None
         self.same_pole_groups: list[frozenset[str]] = []
+        self.transformer_rack_groups: list[frozenset[str]] = []
         self.export_settings = ExcelExportSettings()
         self.project_path: str | None = None
         self.project_dirty = False
@@ -601,6 +609,7 @@ class MainWindow(QMainWindow):
             spacing_mode,
             layout_mode,
             tuple(self.same_pole_groups),
+            tuple(self.transformer_rack_groups),
         )
         self.undo_stack.clear()
         render_schematic(self.route_scene, layout, self.undo_stack)
@@ -824,9 +833,25 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Pole import failed")
             return
 
-        self.show_poles(poles)
+        same_pole_groups: list[frozenset[str]] = []
+        transformer_rack_groups: list[frozenset[str]] = []
+        close_groups = find_close_pole_groups(poles)
+        if close_groups:
+            review = DuplicatePoleDialog(poles, close_groups, self)
+            if review.exec() != DuplicatePoleDialog.DialogCode.Accepted:
+                self.statusBar().showMessage("Pole import cancelled during duplicate-coordinate review")
+                return
+            for group, decision in review.decisions():
+                if decision in {SAME_POLE, ACCESSORY}:
+                    same_pole_groups.append(group)
+                elif decision == TRANSFORMER_RACK:
+                    same_pole_groups.append(group)
+                    transformer_rack_groups.append(group)
         self.current_poles = poles
-        self.same_pole_groups = []
+        self.same_pole_groups = same_pole_groups
+        self.transformer_rack_groups = transformer_rack_groups
+        self.show_poles(poles)
+        self._show_same_pole_groups()
         self._update_geometry_action()
         optional_missing = [field for field in OPTIONAL_FIELDS if not mapping[field]]
         suffix = " (optional fields omitted)" if optional_missing else ""
@@ -927,6 +952,7 @@ class MainWindow(QMainWindow):
             self.current_poles = []
             self.current_geometry = None
             self.same_pole_groups = []
+            self.transformer_rack_groups = []
             self.export_settings = ExcelExportSettings()
             self.project_path = None
             self.route_scene.clear()
@@ -970,6 +996,9 @@ class MainWindow(QMainWindow):
                     "routes": routes_to_data(self.current_routes),
                     "poles": poles_to_data(self.current_poles),
                     "same_pole_groups": [sorted(group) for group in self.same_pole_groups],
+                    "transformer_rack_groups": [
+                        sorted(group) for group in self.transformer_rack_groups
+                    ],
                     "canvas": scene_to_data(self.route_scene),
                     "workspace_note": self.workspace_note.text(),
                     "has_schematic": self.export_action.isEnabled(),
@@ -1009,6 +1038,9 @@ class MainWindow(QMainWindow):
             self.current_geometry = geometry
             self.same_pole_groups = [
                 frozenset(group) for group in document.get("same_pole_groups", [])
+            ]
+            self.transformer_rack_groups = [
+                frozenset(group) for group in document.get("transformer_rack_groups", [])
             ]
             self.export_settings = ExcelExportSettings(
                 **document.get("export_settings", {})
