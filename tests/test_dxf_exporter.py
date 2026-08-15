@@ -31,7 +31,7 @@ def test_dxf_export_contains_metric_layers_and_reusable_pole_block(tmp_path) -> 
     assert "MAIN_ROAD_EDGE" in document
     assert "SOI_EDGE" in document
     assert "POLE_OFFSET" in document
-    assert "POLE_1M" in document
+    assert "PRS_POLE" in document
     assert "POLE_LABELS" in document
     assert "ROAD_LABELS" in document
     assert "INSERT" in document
@@ -80,7 +80,8 @@ def test_dxf_export_joins_manual_cross_road_into_main_road_outline(tmp_path) -> 
 
     export_geometry_to_dxf(geometry, destination)
 
-    modelspace = ezdxf.readfile(destination).modelspace()
+    document = ezdxf.readfile(destination)
+    modelspace = document.modelspace()
     outlines = [
         LineString(tuple((point[0], point[1]) for point in entity.get_points()))
         for entity in modelspace.query('LWPOLYLINE[layer=="ROAD_NETWORK_EDGE"]')
@@ -159,6 +160,7 @@ def test_dxf_export_creates_automatic_a4_sheet_layouts(tmp_path) -> None:
     # viewport; roads are not copied and simplified in Paper Space.
     assert len(first_sheet.query('LWPOLYLINE[layer=="MAIN_ROAD_EDGE"]')) == 0
     assert document.layers.get("SHEET_VIEWPORT").dxf.plot == 0
+    assert document.layers.get("POLE_OFFSET").dxf.plot == 0
     start, end = _sheet_station_ranges(geometry, expected)[0]
     axis = geometry.roads[0].centerline
     sheet_axis = substring(axis, start, end)
@@ -238,13 +240,51 @@ def test_dxf_export_draws_one_transformer_rack_block_for_group(tmp_path) -> None
         transformer_rack_groups=(frozenset({"P1", "P1/1", "A1"}),),
     )
 
-    modelspace = ezdxf.readfile(destination).modelspace()
-    assert len(modelspace.query('INSERT[name=="TRANSFORMER_RACK"]')) == 1
-    assert len(modelspace.query('INSERT[name=="POLE_1M"]')) == 0
+    document = ezdxf.readfile(destination)
+    modelspace = document.modelspace()
+    racks = modelspace.query('INSERT[name=="PRS_TRANSFORMER_RACK"]')
+    assert len(racks) == 1
+    assert len(modelspace.query('INSERT[name=="PRS_POLE"]')) == 0
+    assert racks[0].get_attrib_text("POLE_IDS") == "P1|P1/1|A1"
+    assert racks[0].get_attrib_text("QUANTITIES") == "2|2|1"
+    assert racks[0].get_attrib_text("KIND") == "TRANSFORMER_RACK"
+    assert len(list(document.blocks.get("PRS_TRANSFORMER_RACK").query("SOLID"))) == 2
     labels = list(modelspace.query('TEXT[layer=="POLE_LABELS"]'))
     assert len({entity.dxf.text for entity in labels}) == 3
     assert all(entity.dxf.rotation == 0.0 for entity in labels)
     assert len({(entity.dxf.insert.x, entity.dxf.insert.y) for entity in labels}) == 3
+
+
+def test_dxf_export_groups_one_physical_pole_and_keeps_source_metadata(tmp_path) -> None:
+    route = Route(
+        "Main",
+        "main.kml",
+        (GeoPoint(100.0, 13.0), GeoPoint(100.002, 13.0)),
+    )
+    poles = [
+        Pole("P1", 13.00005, 100.001, "work one", PoleSide.LEFT, 1),
+        Pole("P2", 13.00005, 100.001, "work two", PoleSide.LEFT, 2),
+    ]
+    geometry = build_road_network_geometry(
+        [ClassifiedRoute(route, RouteType.MAIN_ROUTE, 12.0, 2.0)], poles
+    )
+    destination = tmp_path / "same-pole.dxf"
+
+    export_geometry_to_dxf(
+        geometry,
+        destination,
+        include_sheet_layouts=False,
+        same_pole_groups=(frozenset({"P1", "P2"}),),
+    )
+
+    document = ezdxf.readfile(destination)
+    poles_in_cad = document.modelspace().query('INSERT[name=="PRS_POLE"]')
+    assert len(poles_in_cad) == 1
+    assert poles_in_cad[0].get_attrib_text("POLE_IDS") == "P1|P2"
+    assert poles_in_cad[0].get_attrib_text("DETAILS") == "work one|work two"
+    assert poles_in_cad[0].get_attrib_text("QUANTITIES") == "1|2"
+    assert poles_in_cad[0].get_attrib_text("STATION_M")
+    assert len(list(document.blocks.get("PRS_POLE").query("SOLID"))) == 1
 import ezdxf
 from shapely.geometry import LineString, Point
 from shapely.ops import unary_union

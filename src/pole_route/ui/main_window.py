@@ -725,6 +725,7 @@ class MainWindow(QMainWindow):
                 path,
                 self.export_settings,
                 include_sheet_layouts=include_sheet_layouts,
+                same_pole_groups=tuple(self.same_pole_groups),
                 transformer_rack_groups=tuple(self.transformer_rack_groups),
             )
         except DxfExportError as error:

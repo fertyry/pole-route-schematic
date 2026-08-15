@@ -100,7 +100,8 @@ pytest
   de-duplicated.
 - DXF is the CAD interchange format. It retains UTM metre coordinates and separates
   Main centerlines, road edges, context roads, pole-offset lines, poles, and labels
-  into CAD layers. Pole symbols use the reusable `POLE_1M` block.
+  into CAD layers. Ordinary physical poles use the reusable solid `PRS_POLE`
+  block and transformer racks use `PRS_TRANSFORMER_RACK`.
 - Pole labels in the full-length CAD Master stay horizontal for readable manual
   editing. Records at one coordinate are vertically staggered. Their final
   orientation and frame collision handling belong to the edited-DXF sheet-cutting
@@ -133,9 +134,16 @@ main route has been imported.
 - Confirmed one-pole and accessory groups reuse the existing one-marker/many-label
   behavior. Transformer-rack groups render two editable square markers joined by a
   rack line on the schematic. Both group types persist in `.prs` files.
-- Transformer-rack groups also export as one reusable `TRANSFORMER_RACK` CAD block
-  with two nominally three-metre-separated legs, while retaining every work-item
-  label. This preserves the physical structure during downstream CAD editing.
+- Transformer-rack groups also export as one reusable `PRS_TRANSFORMER_RACK` CAD
+  block with two nominally three-metre-separated solid legs, while retaining every
+  work-item label. Ordinary one-pole groups export as one solid `PRS_POLE` insert.
+- Every physical-pole insert carries invisible `POLE_IDS`, `DETAILS`, `QUANTITIES`,
+  `PHYSICAL_GROUP`, `STATION_M`, and `KIND` attributes. Visible Model Space text is
+  an editing aid; the edited-DXF sheet-cutting stage must regenerate final labels
+  from these block attributes, so moving a block does not break record ownership.
+- `POLE_OFFSET` remains visible as a CAD construction guide but is non-plotting.
+  Ordinary soi centerlines and edges are clipped out of the joined structural road
+  surface so they do not run across the Main-road carriageway.
 
 ## Known design work still open
 
@@ -160,6 +168,7 @@ External test files currently used by the project owner:
 - `D:\TestFile\A003\A003.kml`
 - `D:\TestFile\A003\A0031.prs`
 - `D:\TestFile\A004\A004latlong.xlsx`
+- `D:\TestFile\A004\A0043.prs`
 - `C:\Users\ferty\Downloads\Master A3\editpageno.lsp`
 - `C:\Users\ferty\Downloads\Master A3\editpageno2.lsp`
 

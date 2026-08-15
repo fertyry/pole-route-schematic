@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Replaced outline CAD pole markers with reusable solid `PRS_POLE` and
+  `PRS_TRANSFORMER_RACK` blocks carrying invisible source-record identity, detail,
+  installed-quantity, physical-group, station, and type attributes.
+- Made the CAD pole-offset layer non-plotting and clipped ordinary soi centerlines
+  at joined structural-road surfaces to keep road mouths open without line overrun.
 - Added mandatory duplicate-coordinate review after pole import, distinguishing one
   physical pole with multiple work items, transformer racks, separate poles needing
   coordinate correction, and accessory records.

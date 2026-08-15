@@ -42,12 +42,58 @@ LAYERS = (
 DXF_TARGET_SPAN_METRES = 350.0
 
 
+def _add_solid_square(block, center_x: float) -> None:
+    """Add a filled one-metre pole marker to a reusable block definition."""
+    block.add_solid(
+        (
+            (center_x - 0.5, -0.5),
+            (center_x + 0.5, -0.5),
+            (center_x - 0.5, 0.5),
+            (center_x + 0.5, 0.5),
+        ),
+        dxfattribs={"layer": "POLES"},
+    )
+
+
+def _add_pole_metadata_attdefs(block) -> None:
+    """Define invisible identity fields carried by every physical pole insert."""
+    for tag in (
+        "POLE_IDS",
+        "DETAILS",
+        "QUANTITIES",
+        "PHYSICAL_GROUP",
+        "STATION_M",
+        "KIND",
+    ):
+        block.add_attdef(
+            tag,
+            insert=(0.0, 0.0),
+            height=0.01,
+            dxfattribs={"layer": "POLES", "flags": 1},
+        )
+
+
+def _pole_metadata(members, station: float, block_name: str) -> dict[str, str]:
+    """Return stable source data used to rebuild labels after CAD editing."""
+    poles = [member.pole for member in members]
+    pole_ids = [pole.number for pole in poles]
+    return {
+        "POLE_IDS": "|".join(pole_ids),
+        "DETAILS": "|".join(pole.detail for pole in poles),
+        "QUANTITIES": "|".join(str(pole.installed_quantity) for pole in poles),
+        "PHYSICAL_GROUP": "|".join(pole_ids),
+        "STATION_M": f"{station:.3f}",
+        "KIND": "TRANSFORMER_RACK" if block_name == "PRS_TRANSFORMER_RACK" else "POLE",
+    }
+
+
 def export_geometry_to_dxf(
     geometry: RoadNetworkGeometry,
     path: str | Path,
     settings: ExcelExportSettings | None = None,
     *,
     include_sheet_layouts: bool = True,
+    same_pole_groups: tuple[frozenset[str], ...] = (),
     transformer_rack_groups: tuple[frozenset[str], ...] = (),
 ) -> int:
     """Write real metric geometry, Unicode labels, CAD layers, and pole blocks."""
@@ -65,21 +111,18 @@ def export_geometry_to_dxf(
     # printed as part of the drawing frame.
     document.layers.get("SHEET_VIEWPORT").dxf.plot = 0
     document.layers.get("SHEET_BREAK").dxf.plot = 0
+    # This is a construction/projection guide. Keep it editable in Model Space
+    # but do not include it in plotted sheets.
+    document.layers.get("POLE_OFFSET").dxf.plot = 0
 
-    pole_block = document.blocks.new("POLE_1M")
-    pole_block.add_lwpolyline(
-        ((-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)),
-        close=True,
-        dxfattribs={"layer": "POLES"},
-    )
-    rack_block = document.blocks.new("TRANSFORMER_RACK")
+    pole_block = document.blocks.new("PRS_POLE")
+    _add_solid_square(pole_block, 0.0)
+    _add_pole_metadata_attdefs(pole_block)
+    rack_block = document.blocks.new("PRS_TRANSFORMER_RACK")
     for x in (-1.5, 1.5):
-        rack_block.add_lwpolyline(
-            ((x - 0.5, -0.5), (x + 0.5, -0.5), (x + 0.5, 0.5), (x - 0.5, 0.5)),
-            close=True,
-            dxfattribs={"layer": "POLES"},
-        )
+        _add_solid_square(rack_block, x)
     rack_block.add_line((-1.0, 0.0), (1.0, 0.0), dxfattribs={"layer": "POLES"})
+    _add_pole_metadata_attdefs(rack_block)
     _define_sheet_break_block(document)
     modelspace = document.modelspace()
     export_roads = _deduplicate_context_roads(geometry)
@@ -106,8 +149,14 @@ def export_geometry_to_dxf(
     labelled_roads: set[str] = set()
     for road in export_roads:
         center_layer, edge_layer = _road_layers(road)
-        _add_dxf_line(modelspace, center_layer, road.centerline)
-        object_count += 1
+        visible_centerline = (
+            road.centerline
+            if structural_surface is None or id(road) in integrated_road_ids
+            else road.centerline.difference(structural_surface.buffer(0.02))
+        )
+        for part in _line_parts(visible_centerline):
+            _add_dxf_line(modelspace, center_layer, part)
+            object_count += 1
         if id(road) in integrated_road_ids:
             edges = ()
         else:
@@ -143,8 +192,7 @@ def export_geometry_to_dxf(
             )
             object_count += 1
 
-    rendered_poles: set[tuple[float, float]] = set()
-    rendered_racks: set[frozenset[str]] = set()
+    rendered_groups: set[frozenset[str]] = set()
     label_slots: dict[tuple[float, float], int] = {}
     for projected in geometry.projected_poles:
         position = (round(projected.snapped.x, 3), round(projected.snapped.y, 3))
@@ -156,21 +204,27 @@ def export_geometry_to_dxf(
             (group for group in transformer_rack_groups if projected.pole.number in group),
             None,
         )
-        if rack_group is not None and rack_group not in rendered_racks:
-            rendered_racks.add(rack_group)
-            modelspace.add_blockref(
-                "TRANSFORMER_RACK",
+        same_group = next(
+            (group for group in same_pole_groups if projected.pole.number in group),
+            None,
+        )
+        physical_group = rack_group or same_group or frozenset({projected.pole.number})
+        if physical_group not in rendered_groups:
+            rendered_groups.add(physical_group)
+            members = [
+                item
+                for item in geometry.projected_poles
+                if item.pole.number in physical_group
+            ]
+            main = next((item for item in geometry.roads if item.is_main_route), road)
+            station = main.centerline.project(projected.original)
+            block_name = "PRS_TRANSFORMER_RACK" if rack_group else "PRS_POLE"
+            reference = modelspace.add_blockref(
+                block_name,
                 (projected.snapped.x, projected.snapped.y),
                 dxfattribs={"layer": "POLES", "rotation": rotation},
             )
-            object_count += 1
-        elif rack_group is None and position not in rendered_poles:
-            rendered_poles.add(position)
-            modelspace.add_blockref(
-                "POLE_1M",
-                (projected.snapped.x, projected.snapped.y),
-                dxfattribs={"layer": "POLES", "rotation": rotation},
-            )
+            reference.add_auto_attribs(_pole_metadata(members, station, block_name))
             object_count += 1
         label = projected.pole.number
         if projected.pole.detail:
