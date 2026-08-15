@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from math import atan2, ceil, cos, degrees, hypot, radians, sin
+from math import atan2, ceil, cos, degrees, hypot, sin
 from pathlib import Path
 
 import ezdxf
@@ -145,6 +145,7 @@ def export_geometry_to_dxf(
 
     rendered_poles: set[tuple[float, float]] = set()
     rendered_racks: set[frozenset[str]] = set()
+    label_slots: dict[tuple[float, float], int] = {}
     for projected in geometry.projected_poles:
         position = (round(projected.snapped.x, 3), round(projected.snapped.y, 3))
         road = geometry.roads[projected.route_index]
@@ -175,18 +176,18 @@ def export_geometry_to_dxf(
         if projected.pole.detail:
             label += f"  {projected.pole.detail}"
         label_height = 1.8
-        label_angle = radians(rotation)
-        tangent_x, tangent_y = cos(label_angle), sin(label_angle)
-        normal_x, normal_y = -tangent_y, tangent_x
-        estimated_width = len(label) * label_height * 0.55
+        label_slot = label_slots.get(position, 0)
+        label_slots[position] = label_slot + 1
         _add_dxf_text(
             modelspace,
             "POLE_LABELS",
-            projected.snapped.x + normal_x * 1.5 - tangent_x * estimated_width / 2.0,
-            projected.snapped.y + normal_y * 1.5 - tangent_y * estimated_width / 2.0,
+            projected.snapped.x + 1.2,
+            projected.snapped.y + 1.2 + label_slot * (label_height + 0.4),
             label,
             label_height,
-            rotation=rotation,
+            # Keep the CAD Master easy to read and edit.  Text is re-oriented
+            # per sheet only after the edited DXF returns for page cutting.
+            rotation=0.0,
         )
         object_count += 1
 

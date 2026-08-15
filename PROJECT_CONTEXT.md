@@ -101,6 +101,10 @@ pytest
 - DXF is the CAD interchange format. It retains UTM metre coordinates and separates
   Main centerlines, road edges, context roads, pole-offset lines, poles, and labels
   into CAD layers. Pole symbols use the reusable `POLE_1M` block.
+- Pole labels in the full-length CAD Master stay horizontal for readable manual
+  editing. Records at one coordinate are vertically staggered. Their final
+  orientation and frame collision handling belong to the edited-DXF sheet-cutting
+  stage, after each sheet viewport has been aligned.
 - Road-name labels must stay associated with their junction, remain inside the
   sheet, and not distort page fitting.
 

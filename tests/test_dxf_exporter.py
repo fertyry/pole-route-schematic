@@ -241,8 +241,10 @@ def test_dxf_export_draws_one_transformer_rack_block_for_group(tmp_path) -> None
     modelspace = ezdxf.readfile(destination).modelspace()
     assert len(modelspace.query('INSERT[name=="TRANSFORMER_RACK"]')) == 1
     assert len(modelspace.query('INSERT[name=="POLE_1M"]')) == 0
-    labels = {entity.dxf.text for entity in modelspace.query('TEXT[layer=="POLE_LABELS"]')}
-    assert len(labels) == 3
+    labels = list(modelspace.query('TEXT[layer=="POLE_LABELS"]'))
+    assert len({entity.dxf.text for entity in labels}) == 3
+    assert all(entity.dxf.rotation == 0.0 for entity in labels)
+    assert len({(entity.dxf.insert.x, entity.dxf.insert.y) for entity in labels}) == 3
 import ezdxf
 from shapely.geometry import LineString, Point
 from shapely.ops import unary_union
