@@ -1,11 +1,14 @@
 from pole_route.domain.pole import Pole, PoleSide
 from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
 from pole_route.exporters.dxf_exporter import (
+    _sheet_station_ranges,
     export_geometry_to_dxf,
     recommended_dxf_sheet_count,
 )
 from pole_route.exporters.excel_exporter import ExcelExportSettings
 from pole_route.geometry.road_geometry import build_road_network_geometry
+from ezdxf.math import Vec3
+from shapely.ops import substring
 
 
 def test_dxf_export_contains_metric_layers_and_reusable_pole_block(tmp_path) -> None:
@@ -156,6 +159,14 @@ def test_dxf_export_creates_automatic_a4_sheet_layouts(tmp_path) -> None:
     # viewport; roads are not copied and simplified in Paper Space.
     assert len(first_sheet.query('LWPOLYLINE[layer=="MAIN_ROAD_EDGE"]')) == 0
     assert document.layers.get("SHEET_VIEWPORT").dxf.plot == 0
+    start, end = _sheet_station_ranges(geometry, expected)[0]
+    axis = geometry.roads[0].centerline
+    sheet_axis = substring(axis, start, end)
+    model_center = sheet_axis.interpolate(sheet_axis.length / 2.0)
+    paper_center = viewports[0].get_transformation_matrix().transform(
+        Vec3(model_center.x, model_center.y)
+    )
+    assert paper_center.isclose(Vec3(148.5, 126.0), abs_tol=0.01)
 import ezdxf
 from shapely.geometry import LineString, Point
 from shapely.ops import unary_union

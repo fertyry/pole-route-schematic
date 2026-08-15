@@ -225,22 +225,25 @@ def _add_sheet_layouts(
         end = axis_part.coords[-1]
         angle = atan2(end[1] - origin[1], end[0] - origin[0])
         view_center = axis_part.interpolate(axis_part.length / 2.0)
+        # DXF stores VIEWPORT view-center coordinates in the display coordinate
+        # system (DCS).  Once a view twist is applied, passing the unrotated WCS
+        # point makes AutoCAD look far away from the actual model geometry.
+        dcs_center = (
+            view_center.x * cos(angle) + view_center.y * sin(angle),
+            -view_center.x * sin(angle) + view_center.y * cos(angle),
+        )
 
         # A sheet is a real Paper Space viewport into the complete Model Space
         # drawing.  Do not reconstruct road geometry here: doing so loses road
         # labels, layers, joined junction outlines, and later CAD edits.
-        layout.new_entity(
-            "VIEWPORT",
+        layout.add_viewport(
+            center=(148.5, 126.0),
+            size=(267.0, 104.0),
+            view_center_point=dcs_center,
+            view_height=104.0 / scale,
+            status=2,
             dxfattribs={
                 "layer": "SHEET_VIEWPORT",
-                "center": (148.5, 126.0, 0.0),
-                "width": 267.0,
-                "height": 104.0,
-                "status": 2,
-                "view_center_point": (view_center.x, view_center.y, 0.0),
-                "view_target_point": (0.0, 0.0, 0.0),
-                "view_direction_vector": (0.0, 0.0, 1.0),
-                "view_height": 104.0 / scale,
                 # VIEWPORT stores the twist in degrees.  The negative route
                 # angle makes the selected Main-route section horizontal.
                 "view_twist_angle": -degrees(angle),
