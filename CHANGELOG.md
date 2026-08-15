@@ -8,6 +8,8 @@
   the longer approach arm.
 - Added dedicated editable CAD layers for large cross roads and T-junction branches.
 - Suppressed duplicate OpenStreetMap roads near manually classified large junctions in DXF export.
+- Joined Main, Cross-road, and T-junction road surfaces before deriving DXF road
+  outlines, so large junction mouths are open and their corners form one clean network.
 - Fixed valid sois disappearing when their OSM centerline ended at the edge of a wide
   divided road, 4–15 metres from the user-drawn Main centerline.
 

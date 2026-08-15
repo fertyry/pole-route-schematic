@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from math import atan2, degrees
+from math import atan2, degrees, hypot
 from pathlib import Path
 
 import ezdxf
@@ -25,6 +25,7 @@ LAYERS = (
     ("CROSS_ROAD_EDGE", 1, "CONTINUOUS"),
     ("T_CENTERLINE", 30, "DASHED"),
     ("T_ROAD_EDGE", 30, "CONTINUOUS"),
+    ("ROAD_NETWORK_EDGE", 7, "CONTINUOUS"),
     ("SOI_CENTERLINE", 8, "DASHED"),
     ("SOI_EDGE", 9, "CONTINUOUS"),
     ("POLE_OFFSET", 3, "DASHED"),
@@ -54,25 +55,37 @@ def export_geometry_to_dxf(geometry: RoadNetworkGeometry, path: str | Path) -> i
         dxfattribs={"layer": "POLES"},
     )
     modelspace = document.modelspace()
-    main_corridors = [
-        road.centerline.buffer(road.road_width_metres / 2.0, cap_style="flat")
-        for road in geometry.roads
-        if road.is_main_route
-    ]
-    main_corridor = unary_union(main_corridors) if main_corridors else None
-
     export_roads = _deduplicate_context_roads(geometry)
-    labelled_roads: set[str] = set()
     object_count = 0
+    structural_roads = tuple(
+        road
+        for road in export_roads
+        if road.route_type
+        in {RouteType.MAIN_ROUTE, RouteType.CROSS_ROAD, RouteType.T_JUNCTION}
+    )
+    structural_surface = _joined_road_surface(structural_roads)
+    if structural_surface is not None:
+        network_boundary = _remove_road_end_caps(
+            structural_surface.boundary, structural_roads
+        )
+        for part in _line_parts(network_boundary):
+            _add_dxf_line(modelspace, "ROAD_NETWORK_EDGE", part)
+            object_count += 1
+
+    labelled_roads: set[str] = set()
     for road in export_roads:
         center_layer, edge_layer = _road_layers(road)
         _add_dxf_line(modelspace, center_layer, road.centerline)
         object_count += 1
-        for edge in (road.left_edge, road.right_edge):
+        if road in structural_roads:
+            edges = ()
+        else:
+            edges = (road.left_edge, road.right_edge)
+        for edge in edges:
             visible = (
                 edge
-                if road.is_main_route or main_corridor is None
-                else edge.difference(main_corridor.buffer(0.02))
+                if structural_surface is None
+                else edge.difference(structural_surface.buffer(0.02))
             )
             for part in _line_parts(visible):
                 _add_dxf_line(modelspace, edge_layer, part)
@@ -121,6 +134,48 @@ def export_geometry_to_dxf(geometry: RoadNetworkGeometry, path: str | Path) -> i
     except (OSError, ezdxf.DXFError) as error:
         raise DxfExportError(f"DXF could not be saved: {error}") from error
     return object_count
+
+
+def _joined_road_surface(roads):
+    """Return one road surface so large junction mouths have joined outlines."""
+    surfaces = [
+        road.centerline.buffer(
+            road.road_width_metres / 2.0,
+            cap_style="flat",
+            join_style="round",
+        )
+        for road in roads
+    ]
+    return unary_union(surfaces) if surfaces else None
+
+
+def _remove_road_end_caps(boundary, roads):
+    """Open only the true route ends while preserving joined intersection corners."""
+    cap_masks = []
+    for road in roads:
+        coordinates = tuple(road.centerline.coords)
+        if len(coordinates) < 2:
+            continue
+        half_width = road.road_width_metres / 2.0
+        for endpoint, neighbour in (
+            (coordinates[0], coordinates[1]),
+            (coordinates[-1], coordinates[-2]),
+        ):
+            dx = endpoint[0] - neighbour[0]
+            dy = endpoint[1] - neighbour[1]
+            length = hypot(dx, dy)
+            if length <= 0:
+                continue
+            nx = -dy / length * half_width
+            ny = dx / length * half_width
+            cap = LineString(
+                (
+                    (endpoint[0] - nx, endpoint[1] - ny),
+                    (endpoint[0] + nx, endpoint[1] + ny),
+                )
+            )
+            cap_masks.append(cap.buffer(0.03, cap_style="flat"))
+    return boundary.difference(unary_union(cap_masks)) if cap_masks else boundary
 
 
 def _add_dxf_line(modelspace, layer: str, line: LineString) -> None:
