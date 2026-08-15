@@ -3,7 +3,11 @@ import pytest
 
 from pole_route.domain.pole import Pole, PoleSide
 from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
-from pole_route.exporters.dxf_exporter import export_geometry_to_dxf
+from pole_route.exporters.dxf_exporter import (
+    export_edited_dxf_with_sheet_layouts,
+    export_geometry_to_dxf,
+)
+from pole_route.exporters.excel_exporter import ExcelExportSettings
 from pole_route.geometry.road_geometry import build_road_network_geometry
 from pole_route.importers.edited_dxf_importer import (
     EditedDxfImportError,
@@ -79,3 +83,30 @@ def test_inspect_edited_dxf_rejects_unrelated_cad_file(tmp_path) -> None:
 
     with pytest.raises(EditedDxfImportError, match="No PRS_POLE"):
         inspect_edited_dxf(path, ("P1",))
+
+
+def test_create_cad_sheets_from_edited_dxf_rebuilds_perpendicular_labels(tmp_path) -> None:
+    source = tmp_path / "edited.dxf"
+    destination = tmp_path / "sheets.dxf"
+    _export_test_master(source)
+    document = ezdxf.readfile(source)
+    first = next(
+        entity for entity in document.modelspace().query("INSERT")
+        if entity.dxf.name == "PRS_POLE" and entity.get_attrib_text("POLE_IDS") == "P1"
+    )
+    first.dxf.insert = (321.0, 654.0)
+    document.saveas(source)
+
+    count = export_edited_dxf_with_sheet_layouts(
+        source, destination, ExcelExportSettings(project_title="Edited CAD")
+    )
+
+    result = ezdxf.readfile(destination)
+    sheets = [name for name in result.layout_names() if name.startswith("Sheet ")]
+    assert count > 0
+    assert sheets
+    first_sheet = result.layouts.get(sheets[0])
+    labels = list(first_sheet.query('TEXT[layer=="SHEET_TABLE"]'))
+    assert any(entity.dxf.text.startswith("P1") and entity.dxf.rotation == 90.0 for entity in labels)
+    assert result.layers.get("POLE_LABELS").dxf.plot == 0
+    assert len([entity for entity in first_sheet.query("VIEWPORT") if entity.dxf.status == 2]) == 1

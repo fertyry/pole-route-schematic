@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added `Create CAD sheets` to rebuild A4 landscape Paper Space layouts from an
+  accepted edited DXF, including uniform viewport alignment, pole schedules, north
+  arrows, and route-perpendicular print labels linked by Pole ID.
 - Added an Import edited DXF workflow with a required review table, stable Pole-ID
   validation, moved/rotated block capture, sheet-break inspection, and persisted
   edited-CAD snapshots in project files.

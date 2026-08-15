@@ -28,7 +28,11 @@ from PySide6.QtWidgets import (
 from pole_route.domain.blocks import BLOCK_CATALOG
 from pole_route.domain.pole import Pole
 from pole_route.domain.route import ClassifiedRoute, Route, RouteType
-from pole_route.exporters.dxf_exporter import DxfExportError, export_geometry_to_dxf
+from pole_route.exporters.dxf_exporter import (
+    DxfExportError,
+    export_edited_dxf_with_sheet_layouts,
+    export_geometry_to_dxf,
+)
 from pole_route.exporters.excel_exporter import (
     ExcelExportError,
     ExcelExportSettings,
@@ -301,6 +305,14 @@ class MainWindow(QMainWindow):
         self.import_edited_dxf_action.setEnabled(False)
         self.import_edited_dxf_action.triggered.connect(self._import_edited_dxf)
         toolbar.addAction(self.import_edited_dxf_action)
+
+        self.create_cad_sheets_action = QAction("Create CAD sheets", self)
+        self.create_cad_sheets_action.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
+        )
+        self.create_cad_sheets_action.setEnabled(False)
+        self.create_cad_sheets_action.triggered.connect(self._create_cad_sheets)
+        toolbar.addAction(self.create_cad_sheets_action)
         self._organize_v2_commands(toolbar)
 
     def _organize_v2_commands(self, workflow_toolbar: QToolBar) -> None:
@@ -349,6 +361,7 @@ class MainWindow(QMainWindow):
         output_menu.addAction(self.export_action)
         output_menu.addAction(self.export_dxf_action)
         output_menu.addAction(self.import_edited_dxf_action)
+        output_menu.addAction(self.create_cad_sheets_action)
 
         # The first row shows only the normal end-to-end workflow.
         for action in (
@@ -775,10 +788,40 @@ class MainWindow(QMainWindow):
         if dialog.exec() != dialog.DialogCode.Accepted:
             return
         self.edited_dxf = inspection.to_data()
+        self.create_cad_sheets_action.setEnabled(True)
         self._mark_dirty()
         self.statusBar().showMessage(
             f"Accepted edited CAD Master: {len(inspection.pole_blocks)} pole block(s), "
             f"{len(inspection.sheet_breaks)} sheet break(s)"
+        )
+
+    def _create_cad_sheets(self) -> None:
+        """Build plot-ready Paper Space layouts from the accepted edited DXF."""
+        if not self.edited_dxf or not self.edited_dxf.get("source_path"):
+            QMessageBox.warning(
+                self, "CAD sheet creation failed", "Import and confirm an edited DXF first."
+            )
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save CAD drawing with A4 sheets",
+            "PoleRoute-Schematic-sheets.dxf",
+            "AutoCAD DXF (*.dxf)",
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".dxf"):
+            path += ".dxf"
+        try:
+            object_count = export_edited_dxf_with_sheet_layouts(
+                self.edited_dxf["source_path"], path, self.export_settings
+            )
+        except DxfExportError as error:
+            QMessageBox.warning(self, "CAD sheet creation failed", str(error))
+            self.statusBar().showMessage("CAD sheet creation failed")
+            return
+        self.statusBar().showMessage(
+            f"Created {object_count} Paper Space object(s) in {path}"
         )
 
     def _delete_selected(self) -> None:
@@ -841,6 +884,7 @@ class MainWindow(QMainWindow):
         self.export_action.setEnabled(False)
         self.export_dxf_action.setEnabled(False)
         self.import_edited_dxf_action.setEnabled(False)
+        self.create_cad_sheets_action.setEnabled(False)
         self.drawing_actions[DrawingMode.SELECT].setChecked(True)
         self.canvas.set_mode(DrawingMode.SELECT)
 
@@ -1109,6 +1153,7 @@ class MainWindow(QMainWindow):
             self.export_action.setEnabled(has_schematic)
             self.export_dxf_action.setEnabled(geometry is not None)
             self.import_edited_dxf_action.setEnabled(geometry is not None)
+            self.create_cad_sheets_action.setEnabled(bool(self.edited_dxf))
             for action in self.drawing_actions.values():
                 action.setEnabled(has_schematic)
             self.blocks_button.setEnabled(has_schematic)

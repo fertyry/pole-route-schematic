@@ -103,6 +103,7 @@ def test_fetch_surroundings_requires_a_main_route(qtbot) -> None:
     assert not window.fetch_surroundings_action.isEnabled()
     assert not window.export_dxf_action.isEnabled()
     assert not window.import_edited_dxf_action.isEnabled()
+    assert not window.create_cad_sheets_action.isEnabled()
 
 
 def test_osm_context_dialog_requires_confirmation_and_returns_checked_roads(qtbot) -> None:

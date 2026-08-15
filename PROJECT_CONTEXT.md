@@ -106,6 +106,10 @@ pytest
   editing. Records at one coordinate are vertically staggered. Their final
   orientation and frame collision handling belong to the edited-DXF sheet-cutting
   stage, after each sheet viewport has been aligned.
+- Import Edited DXF validates pole identities and sheet-break markers, then
+  `Create CAD sheets` rebuilds A4 landscape Paper Space layouts from that edited
+  Model Space. Print labels are regenerated from block metadata and placed
+  perpendicular to the displayed route without changing the CAD Master.
 - Road-name labels must stay associated with their junction, remain inside the
   sheet, and not distort page fitting.
 

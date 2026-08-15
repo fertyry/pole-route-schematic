@@ -13,6 +13,7 @@ from shapely.ops import nearest_points, substring, unary_union
 from pole_route.domain.route import RouteType
 from pole_route.exporters.excel_exporter import ExcelExportSettings
 from pole_route.geometry.road_geometry import RoadNetworkGeometry
+from pole_route.importers.edited_dxf_importer import inspect_edited_dxf
 
 
 class DxfExportError(RuntimeError):
@@ -40,6 +41,124 @@ LAYERS = (
 )
 
 DXF_TARGET_SPAN_METRES = 350.0
+
+
+def export_edited_dxf_with_sheet_layouts(
+    source_path: str | Path,
+    destination_path: str | Path,
+    settings: ExcelExportSettings | None = None,
+) -> int:
+    """Create plot-ready A4 layouts from a manually edited CAD Master."""
+    settings = settings or ExcelExportSettings()
+    inspection = inspect_edited_dxf(source_path)
+    try:
+        document = ezdxf.readfile(source_path)
+    except (OSError, ezdxf.DXFError) as error:
+        raise DxfExportError(f"Edited DXF could not be opened: {error}") from error
+
+    for name, color, line_type in LAYERS:
+        if name not in document.layers:
+            document.layers.add(name, color=color, linetype=line_type)
+    for layer_name in ("SHEET_VIEWPORT", "SHEET_BREAK", "POLE_OFFSET", "POLE_LABELS"):
+        document.layers.get(layer_name).dxf.plot = 0
+    old_layouts = [name for name in document.layout_names() if name != "Model"]
+    temporary_layout = "_PRS_OLD_LAYOUT"
+    if old_layouts:
+        document.layouts.rename(old_layouts[0], temporary_layout)
+        for name in old_layouts[1:]:
+            document.layouts.delete(name)
+
+    poles = tuple(sorted(inspection.pole_blocks, key=lambda item: item.station_metres))
+    if not poles:
+        raise DxfExportError("The edited DXF contains no PoleRoute pole blocks.")
+    breaks = tuple(sorted(inspection.sheet_breaks, key=lambda item: item.station_metres))
+    boundaries = [(poles[0].x, poles[0].y)]
+    boundaries.extend((item.x, item.y) for item in breaks)
+    boundaries.append((poles[-1].x, poles[-1].y))
+    spans = [hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(boundaries, boundaries[1:])]
+    scale = min(0.68, 250.0 / max(max(spans, default=1.0) + 20.0, 1.0))
+
+    count = 0
+    total = len(boundaries) - 1
+    for index, (start, end) in enumerate(zip(boundaries, boundaries[1:]), start=1):
+        layout = document.layouts.new(f"Sheet {index:02d}")
+        if index == 1 and temporary_layout in document.layout_names():
+            document.layouts.delete(temporary_layout)
+        layout.page_setup(size=(297, 210), margins=(5, 5, 5, 5), units="mm", device="DWG to PDF.pc3")
+        count += _draw_sheet_frame(layout, settings, index, total)
+        angle = atan2(end[1] - start[1], end[0] - start[0])
+        center = ((start[0] + end[0]) / 2.0, (start[1] + end[1]) / 2.0)
+        dcs_center = (
+            center[0] * cos(angle) + center[1] * sin(angle),
+            -center[0] * sin(angle) + center[1] * cos(angle),
+        )
+        paper_center = (148.5, 126.0)
+        layout.add_viewport(
+            center=paper_center,
+            size=(267.0, 104.0),
+            view_center_point=dcs_center,
+            view_height=104.0 / scale,
+            status=2,
+            dxfattribs={"layer": "SHEET_VIEWPORT", "view_twist_angle": -degrees(angle)},
+        )
+        count += 1
+        start_station = poles[0].station_metres if index == 1 else breaks[index - 2].station_metres
+        end_station = poles[-1].station_metres if index == total else breaks[index - 1].station_metres
+        page_poles = [pole for pole in poles if start_station - 0.01 <= pole.station_metres <= end_station + 0.01]
+        count += _draw_edited_pole_labels(layout, page_poles, center, angle, scale, paper_center)
+        count += _draw_edited_pole_table(layout, page_poles)
+        count += _draw_north_arrow(layout, angle)
+
+    try:
+        document.saveas(Path(destination_path))
+    except (OSError, ezdxf.DXFError) as error:
+        raise DxfExportError(f"Sheeted DXF could not be saved: {error}") from error
+    return count
+
+
+def _draw_edited_pole_labels(layout, poles, center, angle, scale, paper_center) -> int:
+    """Draw route-perpendicular Paper Space labels from stable pole metadata."""
+    count = 0
+    cos_a, sin_a = cos(angle), sin(angle)
+    for pole in poles:
+        dx, dy = pole.x - center[0], pole.y - center[1]
+        paper_x = paper_center[0] + (dx * cos_a + dy * sin_a) * scale
+        paper_y = paper_center[1] + (-dx * sin_a + dy * cos_a) * scale
+        details = list(pole.details) + [""] * max(0, len(pole.pole_ids) - len(pole.details))
+        for slot, (pole_id, detail) in enumerate(zip(pole.pole_ids, details)):
+            _add_dxf_text(layout, "SHEET_TABLE", paper_x + slot * 3.0, paper_y + 2.5,
+                          f"{pole_id}  {detail}".strip(), 1.8, rotation=90.0)
+            count += 1
+    return count
+
+
+def _draw_edited_pole_table(layout, poles) -> int:
+    """Build the Paper Space schedule from edited pole-block attributes."""
+    rows = []
+    for pole in poles:
+        details = list(pole.details) + [""] * max(0, len(pole.pole_ids) - len(pole.details))
+        quantities = list(pole.quantities) + [1] * max(0, len(pole.pole_ids) - len(pole.quantities))
+        rows.extend(zip(pole.pole_ids, details, quantities))
+    row_count = max(1, ceil(len(rows) / 2))
+    count = 0
+    for column, left in enumerate((14.0, 151.0)):
+        right, top = left + 132.0, 68.0
+        row_height = min(5.0, 48.0 / (row_count + 1))
+        layout.add_lwpolyline(
+            ((left, top), (right, top), (right, top - row_height * (row_count + 1)), (left, top - row_height * (row_count + 1))),
+            close=True, dxfattribs={"layer": "SHEET_TABLE"},
+        )
+        _add_dxf_text(layout, "SHEET_TABLE", left + 2, top - row_height + 1,
+                      "Pole No. / Detail                 Installed Qty.", 2.0)
+        count += 2
+        start = column * row_count
+        for row_index, (pole_id, detail, quantity) in enumerate(rows[start:start + row_count], start=1):
+            y = top - row_height * row_index
+            layout.add_line((left, y), (right, y), dxfattribs={"layer": "SHEET_TABLE"})
+            _add_dxf_text(layout, "SHEET_TABLE", left + 2, y - row_height + 1,
+                          f"{pole_id}  {detail}                 {quantity}".strip(), 1.8)
+            count += 2
+    return count
 
 
 def _add_solid_square(block, center_x: float) -> None:
