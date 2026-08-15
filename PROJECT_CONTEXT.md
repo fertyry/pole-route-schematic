@@ -118,13 +118,26 @@ The V2 interface groups actions under Project, Data, Geometry, Drawing, and Outp
 Primary and drawing toolbars use icons. Fetch surroundings is available after a
 main route has been imported.
 
+## Current duplicate-pole workflow
+
+- Pole import now opens a required review when records are within 0.5 m. The user
+  explicitly classifies each group as one physical pole with multiple work items,
+  a two-pole transformer rack, separate poles needing coordinate correction, or an
+  accessory record. Installed quantity never determines physical-pole count.
+- Confirmed one-pole and accessory groups reuse the existing one-marker/many-label
+  behavior. Transformer-rack groups render two editable square markers joined by a
+  rack line on the schematic. Both group types persist in `.prs` files.
+- CAD-specific transformer-rack blocks and the planned sheet-break block workflow
+  remain follow-up work; the first implementation is intentionally limited to the
+  application schematic.
+
 ## Known design work still open
 
-- Add a confirmation step for duplicate pole coordinates. Installed quantity is a
-  work-item quantity, not a physical-pole count: identical pole numbers may mean
-  multiple work items on one pole, while a base pole plus `/1` may represent a
-  two-pole transformer rack whose source coordinates need correcting or an explicit
-  structure type. Never infer or merge these cases from coordinates alone.
+- Add transformer-rack semantics to metric DXF export and decide how its nominal
+  three-metre physical separation is represented when the source coordinates are
+  identical.
+- Add Sheet Plan confirmation, persisted pole-based page breaks, and non-plotting
+  `PRS_SHEET_BREAK` blocks before implementing edited-DXF re-import and cutting.
 - Validate OSM junction recommendations on more real routes and tune the 4 m
   connection tolerance if mapped centerlines are visibly misaligned.
 - Extend context slightly beyond the first and last main-route poles.
