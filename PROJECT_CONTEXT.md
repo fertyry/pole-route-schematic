@@ -149,7 +149,11 @@ main route has been imported.
 
 - Add a Sheet Plan confirmation dialog and persist user-adjusted pole boundaries;
   automatic non-plotting `PRS_SHEET_BREAK` blocks are already exported.
-- Implement edited-DXF re-import, break validation, and final sheet cutting.
+- Edited-DXF re-import now reads moved/rotated `PRS_POLE`,
+  `PRS_TRANSFORMER_RACK`, and `PRS_SHEET_BREAK` inserts, validates their Pole IDs
+  against the open project, requires a review confirmation, and persists the
+  extracted CAD snapshot in `.prs`. Final sheet cutting from that confirmed CAD
+  Master remains the next implementation stage.
 - Validate OSM junction recommendations on more real routes and tune the 4 m
   connection tolerance if mapped centerlines are visibly misaligned.
 - Extend context slightly beyond the first and last main-route poles.

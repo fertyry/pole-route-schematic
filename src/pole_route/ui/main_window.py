@@ -38,6 +38,10 @@ from pole_route.exporters.excel_exporter import (
 from pole_route.geometry.road_geometry import RoadGeometryError, build_road_network_geometry
 from pole_route.geometry.schematic_layout import create_schematic_layout
 from pole_route.importers.kml_importer import RouteImportError, inspect_route_file
+from pole_route.importers.edited_dxf_importer import (
+    EditedDxfImportError,
+    inspect_edited_dxf,
+)
 from pole_route.importers.pole_importer import (
     OPTIONAL_FIELDS,
     PoleImportError,
@@ -65,6 +69,7 @@ from pole_route.ui.duplicate_pole_dialog import (
     DuplicatePoleDialog,
     find_close_pole_groups,
 )
+from pole_route.ui.edited_dxf_dialog import EditedDxfDialog
 from pole_route.ui.editor_commands import (
     DeleteItemsCommand,
     MoveItemCommand,
@@ -94,6 +99,7 @@ class MainWindow(QMainWindow):
         self.current_geometry = None
         self.same_pole_groups: list[frozenset[str]] = []
         self.transformer_rack_groups: list[frozenset[str]] = []
+        self.edited_dxf: dict | None = None
         self.export_settings = ExcelExportSettings()
         self.project_path: str | None = None
         self.project_dirty = False
@@ -287,6 +293,14 @@ class MainWindow(QMainWindow):
         self.export_dxf_action.setEnabled(False)
         self.export_dxf_action.triggered.connect(self._export_dxf)
         toolbar.addAction(self.export_dxf_action)
+
+        self.import_edited_dxf_action = QAction("Import edited DXF", self)
+        self.import_edited_dxf_action.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton)
+        )
+        self.import_edited_dxf_action.setEnabled(False)
+        self.import_edited_dxf_action.triggered.connect(self._import_edited_dxf)
+        toolbar.addAction(self.import_edited_dxf_action)
         self._organize_v2_commands(toolbar)
 
     def _organize_v2_commands(self, workflow_toolbar: QToolBar) -> None:
@@ -334,6 +348,7 @@ class MainWindow(QMainWindow):
         output_menu.setObjectName("outputMenu")
         output_menu.addAction(self.export_action)
         output_menu.addAction(self.export_dxf_action)
+        output_menu.addAction(self.import_edited_dxf_action)
 
         # The first row shows only the normal end-to-end workflow.
         for action in (
@@ -582,6 +597,7 @@ class MainWindow(QMainWindow):
         render_road_geometry(self.route_scene, geometry)
         self.current_geometry = geometry
         self.export_dxf_action.setEnabled(True)
+        self.import_edited_dxf_action.setEnabled(True)
         self.generate_schematic_action.setEnabled(bool(geometry.projected_poles))
         self.workspace_note.setText(
             "Metric preview: blue centerline, grey road edges, yellow pole lines, "
@@ -737,6 +753,34 @@ class MainWindow(QMainWindow):
             f"Exported {object_count} metric CAD object(s) ({workflow}) to {path}"
         )
 
+    def _import_edited_dxf(self) -> None:
+        """Validate and retain pole/break identities from an edited CAD Master."""
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import edited CAD Master",
+            "",
+            "AutoCAD DXF (*.dxf)",
+        )
+        if not path:
+            return
+        try:
+            inspection = inspect_edited_dxf(
+                path, tuple(pole.number for pole in self.current_poles)
+            )
+        except EditedDxfImportError as error:
+            QMessageBox.warning(self, "Edited DXF import failed", str(error))
+            self.statusBar().showMessage("Edited DXF import failed")
+            return
+        dialog = EditedDxfDialog(inspection, self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        self.edited_dxf = inspection.to_data()
+        self._mark_dirty()
+        self.statusBar().showMessage(
+            f"Accepted edited CAD Master: {len(inspection.pole_blocks)} pole block(s), "
+            f"{len(inspection.sheet_breaks)} sheet break(s)"
+        )
+
     def _delete_selected(self) -> None:
         selected = [item for item in self.route_scene.selectedItems() if item.parentItem() is None]
         if selected:
@@ -796,6 +840,7 @@ class MainWindow(QMainWindow):
         self.edit_canvas_action.setEnabled(False)
         self.export_action.setEnabled(False)
         self.export_dxf_action.setEnabled(False)
+        self.import_edited_dxf_action.setEnabled(False)
         self.drawing_actions[DrawingMode.SELECT].setChecked(True)
         self.canvas.set_mode(DrawingMode.SELECT)
 
@@ -955,6 +1000,7 @@ class MainWindow(QMainWindow):
             self.current_geometry = None
             self.same_pole_groups = []
             self.transformer_rack_groups = []
+            self.edited_dxf = None
             self.export_settings = ExcelExportSettings()
             self.project_path = None
             self.route_scene.clear()
@@ -1005,6 +1051,7 @@ class MainWindow(QMainWindow):
                     "workspace_note": self.workspace_note.text(),
                     "has_schematic": self.export_action.isEnabled(),
                     "export_settings": asdict(self.export_settings),
+                    "edited_dxf": self.edited_dxf,
                 },
             )
         except ProjectFileError as error:
@@ -1047,6 +1094,7 @@ class MainWindow(QMainWindow):
             self.export_settings = ExcelExportSettings(
                 **document.get("export_settings", {})
             )
+            self.edited_dxf = document.get("edited_dxf")
             self.show_poles(poles)
             self._show_same_pole_groups()
             self.undo_stack.clear()
@@ -1060,6 +1108,7 @@ class MainWindow(QMainWindow):
             self.edit_canvas_action.setEnabled(has_schematic)
             self.export_action.setEnabled(has_schematic)
             self.export_dxf_action.setEnabled(geometry is not None)
+            self.import_edited_dxf_action.setEnabled(geometry is not None)
             for action in self.drawing_actions.values():
                 action.setEnabled(has_schematic)
             self.blocks_button.setEnabled(has_schematic)

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added an Import edited DXF workflow with a required review table, stable Pole-ID
+  validation, moved/rotated block capture, sheet-break inspection, and persisted
+  edited-CAD snapshots in project files.
 - Replaced outline CAD pole markers with reusable solid `PRS_POLE` and
   `PRS_TRANSFORMER_RACK` blocks carrying invisible source-record identity, detail,
   installed-quantity, physical-group, station, and type attributes.
