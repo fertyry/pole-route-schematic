@@ -167,6 +167,27 @@ def test_dxf_export_creates_automatic_a4_sheet_layouts(tmp_path) -> None:
         Vec3(model_center.x, model_center.y)
     )
     assert paper_center.isclose(Vec3(148.5, 126.0), abs_tol=0.01)
+
+
+def test_dxf_export_can_create_modelspace_only_for_cad_editing(tmp_path) -> None:
+    route = Route(
+        "Main",
+        "main.kml",
+        (GeoPoint(100.0, 13.0), GeoPoint(100.002, 13.0)),
+    )
+    geometry = build_road_network_geometry(
+        [ClassifiedRoute(route, RouteType.MAIN_ROUTE, 12.0, 2.0)],
+        [],
+    )
+    destination = tmp_path / "model-only.dxf"
+
+    export_geometry_to_dxf(
+        geometry, destination, include_sheet_layouts=False
+    )
+
+    document = ezdxf.readfile(destination)
+    assert document.layout_names() == ["Model", "Layout1"]
+    assert len(document.modelspace().query('LWPOLYLINE[layer=="MAIN_CENTERLINE"]')) == 1
 import ezdxf
 from shapely.geometry import LineString, Point
 from shapely.ops import unary_union

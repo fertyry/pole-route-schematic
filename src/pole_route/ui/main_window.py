@@ -678,6 +678,20 @@ class MainWindow(QMainWindow):
                 "Build geometry before exporting a metric CAD drawing.",
             )
             return
+        sheet_choice = QMessageBox.question(
+            self,
+            "CAD export workflow",
+            "Create A4 sheet layouts now?\n\n"
+            "Yes: export Model Space and ready-to-print A4 sheets.\n"
+            "No: export Model Space only, for editing in CAD before sheet cutting.",
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.No,
+        )
+        if sheet_choice is QMessageBox.StandardButton.Cancel:
+            return
+        include_sheet_layouts = sheet_choice is QMessageBox.StandardButton.Yes
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Export metric AutoCAD drawing",
@@ -690,14 +704,18 @@ class MainWindow(QMainWindow):
             path += ".dxf"
         try:
             object_count = export_geometry_to_dxf(
-                self.current_geometry, path, self.export_settings
+                self.current_geometry,
+                path,
+                self.export_settings,
+                include_sheet_layouts=include_sheet_layouts,
             )
         except DxfExportError as error:
             QMessageBox.warning(self, "DXF export failed", str(error))
             self.statusBar().showMessage("DXF export failed")
             return
+        workflow = "with A4 sheets" if include_sheet_layouts else "Model Space only"
         self.statusBar().showMessage(
-            f"Exported {object_count} metric CAD object(s) to {path}"
+            f"Exported {object_count} metric CAD object(s) ({workflow}) to {path}"
         )
 
     def _delete_selected(self) -> None:

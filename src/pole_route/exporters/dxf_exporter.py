@@ -45,6 +45,8 @@ def export_geometry_to_dxf(
     geometry: RoadNetworkGeometry,
     path: str | Path,
     settings: ExcelExportSettings | None = None,
+    *,
+    include_sheet_layouts: bool = True,
 ) -> int:
     """Write real metric geometry, Unicode labels, CAD layers, and pole blocks."""
     if not geometry.roads:
@@ -115,18 +117,29 @@ def export_geometry_to_dxf(
         if normalized_name and normalized_name not in labelled_roads:
             labelled_roads.add(normalized_name)
             midpoint = road.centerline.interpolate(road.centerline.length / 2.0)
+            label_rotation = _line_angle(
+                road.centerline, road.centerline.length / 2.0
+            )
             _add_dxf_text(
-                modelspace, "ROAD_LABELS", midpoint.x, midpoint.y, road.route_name, 2.5
+                modelspace,
+                "ROAD_LABELS",
+                midpoint.x,
+                midpoint.y,
+                road.route_name,
+                2.5,
+                rotation=label_rotation,
             )
             object_count += 1
 
     rendered_poles: set[tuple[float, float]] = set()
     for projected in geometry.projected_poles:
         position = (round(projected.snapped.x, 3), round(projected.snapped.y, 3))
+        road = geometry.roads[projected.route_index]
+        rotation = _line_angle(
+            road.centerline, road.centerline.project(projected.snapped)
+        )
         if position not in rendered_poles:
             rendered_poles.add(position)
-            road = geometry.roads[projected.route_index]
-            rotation = _line_angle(road.centerline, road.centerline.project(projected.snapped))
             modelspace.add_blockref(
                 "POLE_1M",
                 (projected.snapped.x, projected.snapped.y),
@@ -136,23 +149,30 @@ def export_geometry_to_dxf(
         label = projected.pole.number
         if projected.pole.detail:
             label += f"  {projected.pole.detail}"
+        label_height = 1.8
+        label_angle = radians(rotation)
+        tangent_x, tangent_y = cos(label_angle), sin(label_angle)
+        normal_x, normal_y = -tangent_y, tangent_x
+        estimated_width = len(label) * label_height * 0.55
         _add_dxf_text(
             modelspace,
             "POLE_LABELS",
-            projected.snapped.x + 1.5,
-            projected.snapped.y + 1.5,
+            projected.snapped.x + normal_x * 1.5 - tangent_x * estimated_width / 2.0,
+            projected.snapped.y + normal_y * 1.5 - tangent_y * estimated_width / 2.0,
             label,
-            1.8,
+            label_height,
+            rotation=rotation,
         )
         object_count += 1
 
-    object_count += _add_sheet_layouts(
-        document,
-        geometry,
-        export_roads,
-        structural_surface,
-        settings or ExcelExportSettings(),
-    )
+    if include_sheet_layouts:
+        object_count += _add_sheet_layouts(
+            document,
+            geometry,
+            export_roads,
+            structural_surface,
+            settings or ExcelExportSettings(),
+        )
 
     try:
         document.saveas(Path(path))
@@ -438,12 +458,19 @@ def _add_dxf_line(modelspace, layer: str, line: LineString) -> None:
 
 
 def _add_dxf_text(
-    modelspace, layer: str, x: float, y: float, value: str, height: float
+    modelspace,
+    layer: str,
+    x: float,
+    y: float,
+    value: str,
+    height: float,
+    *,
+    rotation: float = 0.0,
 ) -> None:
     modelspace.add_text(
         value,
         height=height,
-        dxfattribs={"layer": layer, "style": "THAI"},
+        dxfattribs={"layer": layer, "style": "THAI", "rotation": rotation},
     ).set_placement((x, y))
 
 
