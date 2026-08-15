@@ -65,32 +65,54 @@ class DuplicatePoleDialog(QDialog):
         self._groups = groups
         self._choices: list[QComboBox] = []
         self.setWindowTitle("Review duplicate pole coordinates")
-        self.resize(900, 420)
+        self.resize(1180, 480)
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(
             "These records share the same or a very close coordinate. Choose what they "
             "represent physically; installed quantity alone does not determine pole count."
         ))
-        table = QTableWidget(len(groups), 4)
-        table.setHorizontalHeaderLabels(("Records", "Maximum separation", "Interpretation", "Result"))
-        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        table = QTableWidget(len(groups), 6)
+        table.setHorizontalHeaderLabels((
+            "Records",
+            "Pole No. / Detail",
+            "Installed Qty.",
+            "Maximum separation",
+            "Interpretation",
+            "Result",
+        ))
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
         for row, group in enumerate(groups):
             records = [poles[index] for index in group]
             table.setItem(row, 0, QTableWidgetItem(" / ".join(pole.number for pole in records)))
+            table.setItem(
+                row,
+                1,
+                QTableWidgetItem(
+                    " / ".join(pole.detail or pole.number for pole in records)
+                ),
+            )
+            table.setItem(
+                row,
+                2,
+                QTableWidgetItem(" / ".join(str(pole.installed_quantity) for pole in records)),
+            )
             maximum = max(
                 (_distance_metres(left, right) for left in records for right in records),
                 default=0.0,
             )
-            table.setItem(row, 1, QTableWidgetItem(f"{maximum:.2f} m"))
+            table.setItem(row, 3, QTableWidgetItem(f"{maximum:.2f} m"))
             combo = QComboBox()
             for label, value in CHOICES:
                 combo.addItem(label, value)
             if len(records) == 2 and any("/1" in pole.number for pole in records):
                 combo.setCurrentIndex(1)
             combo.currentIndexChanged.connect(lambda _index, r=row: self._update_result(table, r))
-            table.setCellWidget(row, 2, combo)
+            table.setCellWidget(row, 4, combo)
             self._choices.append(combo)
             self._update_result(table, row)
         layout.addWidget(table)
@@ -115,7 +137,7 @@ class DuplicatePoleDialog(QDialog):
         }[self._choices[row].currentData()]
         item = QTableWidgetItem(result)
         item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        table.setItem(row, 3, item)
+        table.setItem(row, 5, item)
 
 
 def _distance_metres(left: Pole, right: Pole) -> float:

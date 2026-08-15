@@ -7,6 +7,8 @@
   coordinate correction, and accessory records.
 - Added persisted transformer-rack groups and an editable two-pole rack symbol in the
   schematic while retaining every imported work-item label.
+- Expanded duplicate-coordinate review with pole number/detail and installed-quantity
+  columns so physical interpretations can be confirmed from the source work records.
 
 - Added optional installed-quantity import mapping, project persistence, UI display,
   and quantity columns in Excel/CAD pole schedules.
