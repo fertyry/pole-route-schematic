@@ -36,7 +36,8 @@ class RouteImportDialog(QDialog):
             "One or more used lines may be Main routes. Pole offset 0 m places the pole "
             "projection line on the road edge; it does not disable pole projection. "
             "Use Cross road for a large road drawn through the Main route, and T-junction "
-            "for a large branch whose endpoint touches the Main route. Use Road / Soi for "
+            "for a large branch that reaches or slightly crosses the Main route; the extra "
+            "shorter arm will be trimmed at the junction. Use Road / Soi for "
             "ordinary surroundings (normally fetched from OpenStreetMap)."
         )
         intro.setWordWrap(True)

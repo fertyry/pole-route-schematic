@@ -3,7 +3,7 @@
 from dataclasses import replace
 
 from shapely.geometry import LineString, Point
-from shapely.ops import nearest_points, unary_union
+from shapely.ops import nearest_points, substring, unary_union
 
 from pole_route.domain.route import ClassifiedRoute, Route, RouteType
 from pole_route.geometry.projection import MetricProjection
@@ -53,18 +53,23 @@ def prepare_manual_junctions(
         else:
             endpoints = (Point(line.coords[0]), Point(line.coords[-1]))
             endpoint = min(endpoints, key=lambda point: point.distance(main_axis))
-            gap = endpoint.distance(main_axis)
-            if gap > tolerance_metres:
+            endpoint_gap = endpoint.distance(main_axis)
+            gap = line.distance(main_axis)
+            if endpoint_gap <= tolerance_metres:
+                _unused, main_point = nearest_points(endpoint, main_axis)
+                coords = list(line.coords)
+                coords[0 if endpoint.equals(Point(coords[0])) else -1] = main_point.coords[0]
+                adjusted = LineString(coords)
+            elif gap <= tolerance_metres:
+                road_point, main_point = nearest_points(line, main_axis)
+                adjusted = _trim_t_branch(line, road_point, main_point)
+            else:
                 errors.append(
-                    f"T-junction '{item.route.name}' must end at a Main route "
-                    f"(nearest endpoint gap {gap:.1f} m)."
+                    f"T-junction '{item.route.name}' does not reach a Main route "
+                    f"(nearest gap {gap:.1f} m)."
                 )
                 prepared.append(item)
                 continue
-            _unused, main_point = nearest_points(endpoint, main_axis)
-            coords = list(line.coords)
-            coords[0 if endpoint.equals(Point(coords[0])) else -1] = main_point.coords[0]
-            adjusted = LineString(coords)
         route = Route(
             item.route.name,
             item.route.source_path,
@@ -73,6 +78,28 @@ def prepare_manual_junctions(
         prepared.append(replace(item, route=route))
         changes.append(f"{item.route.name}: snapped to Main route ({gap:.1f} m gap)")
     return prepared, tuple(changes), tuple(errors)
+
+
+def _trim_t_branch(line: LineString, road_point: Point, main_point: Point) -> LineString:
+    """Cut a T route at the Main axis and retain its longer approach arm."""
+    station = line.project(road_point)
+    before = substring(line, 0.0, station)
+    after = substring(line, station, line.length)
+    if before.length >= after.length:
+        coords = list(before.coords)
+        coords.extend((road_point.coords[0], main_point.coords[0]))
+    else:
+        coords = [main_point.coords[0], road_point.coords[0]]
+        coords.extend(after.coords)
+    return LineString(_without_adjacent_duplicates(coords))
+
+
+def _without_adjacent_duplicates(coords):
+    result = []
+    for coord in coords:
+        if not result or coord != result[-1]:
+            result.append(coord)
+    return result
 
 
 def _insert_connection(line: LineString, road_point: Point, main_point: Point) -> LineString:

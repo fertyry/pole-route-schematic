@@ -4,6 +4,8 @@
 
 - Added explicit `Cross road / Large intersection` and `T-junction branch` route types.
 - Added confirmation-based snapping for manual junction LineStrings with gaps up to 5 metres.
+- T-junction routes may cross the Main route; they are trimmed at the junction and retain
+  the longer approach arm.
 - Added dedicated editable CAD layers for large cross roads and T-junction branches.
 - Suppressed duplicate OpenStreetMap roads near manually classified large junctions in DXF export.
 
