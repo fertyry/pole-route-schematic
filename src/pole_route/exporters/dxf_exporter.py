@@ -35,6 +35,7 @@ LAYERS = (
     ("ROAD_LABELS", 7, "CONTINUOUS"),
     ("SHEET_FRAME", 7, "CONTINUOUS"),
     ("SHEET_TABLE", 7, "CONTINUOUS"),
+    ("SHEET_VIEWPORT", 7, "CONTINUOUS"),
 )
 
 DXF_TARGET_SPAN_METRES = 350.0
@@ -56,6 +57,9 @@ def export_geometry_to_dxf(
     for name, color, line_type in LAYERS:
         if name not in document.layers:
             document.layers.add(name, color=color, linetype=line_type)
+    # The viewport boundary is useful while editing a layout, but must not be
+    # printed as part of the drawing frame.
+    document.layers.get("SHEET_VIEWPORT").dxf.plot = 0
 
     pole_block = document.blocks.new("POLE_1M")
     pole_block.add_lwpolyline(
@@ -195,14 +199,6 @@ def _add_sheet_layouts(
     main = next((road for road in geometry.roads if road.is_main_route), None)
     if main is None:
         return 0
-    structural_roads = tuple(
-        road
-        for road in roads
-        if road.route_type
-        in {RouteType.MAIN_ROUTE, RouteType.CROSS_ROAD, RouteType.T_JUNCTION}
-    )
-    _, matched_osm_roads = _structural_surface_roads(roads, structural_roads)
-    integrated_road_ids = {id(road) for road in (*structural_roads, *matched_osm_roads)}
     requested = int(settings.page_count)
     page_count = requested if requested > 1 else recommended_dxf_sheet_count(geometry)
     ranges = _sheet_station_ranges(geometry, page_count)
@@ -228,57 +224,37 @@ def _add_sheet_layouts(
         origin = axis_part.coords[0]
         end = axis_part.coords[-1]
         angle = atan2(end[1] - origin[1], end[0] - origin[0])
-        window = axis_part.buffer(65.0, cap_style="flat")
+        view_center = axis_part.interpolate(axis_part.length / 2.0)
 
-        def paper_point(x: float, y: float) -> tuple[float, float]:
-            dx, dy = x - origin[0], y - origin[1]
-            along = dx * cos(angle) + dy * sin(angle)
-            across = -dx * sin(angle) + dy * cos(angle)
-            return 22.0 + along * scale, 126.0 + across * scale
-
-        if structural_surface is not None:
-            for part in _line_parts(structural_surface.boundary.intersection(window)):
-                _add_sheet_line(layout, "ROAD_NETWORK_EDGE", part, paper_point)
-                count += 1
-        for road in roads:
-            center_layer, edge_layer = _road_layers(road)
-            for part in _line_parts(road.centerline.intersection(window)):
-                _add_sheet_line(layout, center_layer, part, paper_point)
-                count += 1
-            if id(road) not in integrated_road_ids:
-                for edge in (road.left_edge, road.right_edge):
-                    visible = edge.intersection(window)
-                    for part in _line_parts(visible):
-                        _add_sheet_line(layout, edge_layer, part, paper_point)
-                        count += 1
+        # A sheet is a real Paper Space viewport into the complete Model Space
+        # drawing.  Do not reconstruct road geometry here: doing so loses road
+        # labels, layers, joined junction outlines, and later CAD edits.
+        layout.new_entity(
+            "VIEWPORT",
+            dxfattribs={
+                "layer": "SHEET_VIEWPORT",
+                "center": (148.5, 126.0, 0.0),
+                "width": 267.0,
+                "height": 104.0,
+                "status": 2,
+                "view_center_point": (view_center.x, view_center.y, 0.0),
+                "view_target_point": (0.0, 0.0, 0.0),
+                "view_direction_vector": (0.0, 0.0, 1.0),
+                "view_height": 104.0 / scale,
+                # VIEWPORT stores the twist in degrees.  The negative route
+                # angle makes the selected Main-route section horizontal.
+                "view_twist_angle": -degrees(angle),
+            },
+        )
+        count += 1
         page_poles = []
         for projected in geometry.projected_poles:
             station = main.centerline.project(projected.original)
             if start_station - 0.01 <= station <= end_station + 0.01:
-                x, y = paper_point(projected.snapped.x, projected.snapped.y)
-                size = max(settings.pole_size_mm, 1.0)
-                layout.add_lwpolyline(
-                    (
-                        (x - size / 2, y - size / 2),
-                        (x + size / 2, y - size / 2),
-                        (x + size / 2, y + size / 2),
-                        (x - size / 2, y + size / 2),
-                    ),
-                    close=True,
-                    dxfattribs={"layer": "POLES"},
-                )
-                _add_dxf_text(layout, "POLE_LABELS", x, y + 3.0, projected.pole.number, 2.2)
                 page_poles.append(projected.pole)
-                count += 2
         count += _draw_pole_table(layout, page_poles)
         count += _draw_north_arrow(layout, angle)
     return count
-
-
-def _add_sheet_line(layout, layer: str, line: LineString, transform) -> None:
-    points = tuple(transform(x, y) for x, y, *_ in line.coords)
-    if len(points) >= 2:
-        layout.add_lwpolyline(points, dxfattribs={"layer": layer})
 
 
 def _draw_sheet_frame(layout, settings, page: int, total: int) -> int:

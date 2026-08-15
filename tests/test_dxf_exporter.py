@@ -146,6 +146,16 @@ def test_dxf_export_creates_automatic_a4_sheet_layouts(tmp_path) -> None:
     first_sheet = document.layouts.get("Sheet 01")
     assert len(first_sheet.query('LWPOLYLINE[layer=="SHEET_FRAME"]')) >= 1
     assert any(entity.dxf.text == "Test Project" for entity in first_sheet.query("TEXT"))
+    # Every Paper Space layout also owns its internal status-1 viewport.
+    viewports = [
+        entity for entity in first_sheet.query("VIEWPORT") if entity.dxf.status == 2
+    ]
+    assert len(viewports) == 1
+    assert viewports[0].dxf.layer == "SHEET_VIEWPORT"
+    # Sheet geometry comes from the complete Model Space drawing through the
+    # viewport; roads are not copied and simplified in Paper Space.
+    assert len(first_sheet.query('LWPOLYLINE[layer=="MAIN_ROAD_EDGE"]')) == 0
+    assert document.layers.get("SHEET_VIEWPORT").dxf.plot == 0
 import ezdxf
 from shapely.geometry import LineString, Point
 from shapely.ops import unary_union
