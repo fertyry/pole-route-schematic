@@ -208,13 +208,13 @@ def _add_sheet_layouts(
     ranges = _sheet_station_ranges(geometry, page_count)
     if not ranges:
         return 0
-    if "Layout1" in document.layout_names():
-        document.layouts.delete("Layout1")
     longest_span = max(end - start for start, end in ranges)
     scale = min(0.68, 250.0 / max(longest_span, 1.0))
     count = 0
     for index, (start_station, end_station) in enumerate(ranges, start=1):
         layout = document.layouts.new(f"Sheet {index:02d}")
+        if index == 1 and "Layout1" in document.layout_names():
+            document.layouts.delete("Layout1")
         layout.page_setup(
             size=(297, 210),
             margins=(5, 5, 5, 5),
