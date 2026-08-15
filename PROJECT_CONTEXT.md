@@ -57,6 +57,8 @@ pytest
 9. Save the complete project as `.prs`.
 10. Review page layout and export editable Excel sheets.
 11. After building geometry, optionally export a metric DXF for AutoCAD Map 3D.
+    The DXF keeps the complete metric Model Space and adds automatic A4 landscape
+    Paper Space layouts cut at pole positions.
 
 ## Important product decisions
 
@@ -74,6 +76,9 @@ pytest
   and unions the result with the Main road before deriving a shared road outline.
 - Roads/sois accepted in the OpenStreetMap review are authoritative and must not be
   silently removed by a later exporter.
+- CAD sheet planning uses a target Main-route span of about 350 metres per A4
+  landscape sheet. A saved sheet count of 1 means automatic planning for DXF;
+  explicit values above 1 are respected.
 - Two records can describe one physical pole. The canvas shows one pole symbol and
   retains the separate equipment/detail text.
 - Pole symbols are square and aligned with their road.

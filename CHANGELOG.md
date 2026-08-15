@@ -14,6 +14,9 @@
   use matching nearby OpenStreetMap carriageways for the DXF junction outline when available.
 - Preserve every road/soi explicitly accepted in the surroundings review during DXF
   export instead of silently removing nearby or same-named roads.
+- Added automatic A4 landscape CAD sheet planning from true Main-route length, with
+  boundaries moved to nearby poles, a common display scale, project information,
+  continuation labels, north arrows, and per-sheet pole-detail tables.
 - Fixed valid sois disappearing when their OSM centerline ended at the edge of a wide
   divided road, 4–15 metres from the user-drawn Main centerline.
 

@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-from math import atan2, degrees, hypot
+from math import atan2, ceil, cos, degrees, hypot, radians, sin
 from pathlib import Path
 
 import ezdxf
 from ezdxf import units
-from shapely.geometry import GeometryCollection, LineString, MultiLineString
-from shapely.ops import nearest_points, unary_union
+from shapely.geometry import GeometryCollection, LineString, MultiLineString, Point
+from shapely.ops import nearest_points, substring, unary_union
 
 from pole_route.domain.route import RouteType
+from pole_route.exporters.excel_exporter import ExcelExportSettings
 from pole_route.geometry.road_geometry import RoadNetworkGeometry
 
 
@@ -32,10 +33,18 @@ LAYERS = (
     ("POLES", 1, "CONTINUOUS"),
     ("POLE_LABELS", 7, "CONTINUOUS"),
     ("ROAD_LABELS", 7, "CONTINUOUS"),
+    ("SHEET_FRAME", 7, "CONTINUOUS"),
+    ("SHEET_TABLE", 7, "CONTINUOUS"),
 )
 
+DXF_TARGET_SPAN_METRES = 350.0
 
-def export_geometry_to_dxf(geometry: RoadNetworkGeometry, path: str | Path) -> int:
+
+def export_geometry_to_dxf(
+    geometry: RoadNetworkGeometry,
+    path: str | Path,
+    settings: ExcelExportSettings | None = None,
+) -> int:
     """Write real metric geometry, Unicode labels, CAD layers, and pole blocks."""
     if not geometry.roads:
         raise DxfExportError("There is no road geometry to export.")
@@ -133,11 +142,212 @@ def export_geometry_to_dxf(geometry: RoadNetworkGeometry, path: str | Path) -> i
         )
         object_count += 1
 
+    object_count += _add_sheet_layouts(
+        document,
+        geometry,
+        export_roads,
+        structural_surface,
+        settings or ExcelExportSettings(),
+    )
+
     try:
         document.saveas(Path(path))
     except (OSError, ezdxf.DXFError) as error:
         raise DxfExportError(f"DXF could not be saved: {error}") from error
     return object_count
+
+
+def recommended_dxf_sheet_count(geometry: RoadNetworkGeometry) -> int:
+    """Recommend A4 landscape sheets from true Main-route length."""
+    main = next((road for road in geometry.roads if road.is_main_route), None)
+    if main is None:
+        return 1
+    return max(1, ceil(main.centerline.length / DXF_TARGET_SPAN_METRES))
+
+
+def _sheet_station_ranges(geometry: RoadNetworkGeometry, page_count: int):
+    main = next(road for road in geometry.roads if road.is_main_route)
+    axis = main.centerline
+    stations = sorted(
+        {
+            round(axis.project(projected.original), 3)
+            for projected in geometry.projected_poles
+        }
+    )
+    boundaries = [0.0]
+    for page in range(1, page_count):
+        target = axis.length * page / page_count
+        candidates = [value for value in stations if value > boundaries[-1] + 0.01]
+        if not candidates:
+            break
+        boundaries.append(min(candidates, key=lambda value: abs(value - target)))
+    boundaries.append(axis.length)
+    return tuple(zip(boundaries, boundaries[1:]))
+
+
+def _add_sheet_layouts(
+    document,
+    geometry: RoadNetworkGeometry,
+    roads,
+    structural_surface,
+    settings: ExcelExportSettings,
+) -> int:
+    main = next((road for road in geometry.roads if road.is_main_route), None)
+    if main is None:
+        return 0
+    structural_roads = tuple(
+        road
+        for road in roads
+        if road.route_type
+        in {RouteType.MAIN_ROUTE, RouteType.CROSS_ROAD, RouteType.T_JUNCTION}
+    )
+    _, matched_osm_roads = _structural_surface_roads(roads, structural_roads)
+    integrated_road_ids = {id(road) for road in (*structural_roads, *matched_osm_roads)}
+    requested = int(settings.page_count)
+    page_count = requested if requested > 1 else recommended_dxf_sheet_count(geometry)
+    ranges = _sheet_station_ranges(geometry, page_count)
+    if not ranges:
+        return 0
+    if "Layout1" in document.layout_names():
+        document.layouts.delete("Layout1")
+    longest_span = max(end - start for start, end in ranges)
+    scale = min(0.68, 250.0 / max(longest_span, 1.0))
+    count = 0
+    for index, (start_station, end_station) in enumerate(ranges, start=1):
+        layout = document.layouts.new(f"Sheet {index:02d}")
+        layout.page_setup(
+            size=(297, 210),
+            margins=(5, 5, 5, 5),
+            units="mm",
+            device="DWG to PDF.pc3",
+        )
+        count += _draw_sheet_frame(layout, settings, index, len(ranges))
+        axis_part = substring(main.centerline, start_station, end_station)
+        if not isinstance(axis_part, LineString) or axis_part.length <= 0:
+            continue
+        origin = axis_part.coords[0]
+        end = axis_part.coords[-1]
+        angle = atan2(end[1] - origin[1], end[0] - origin[0])
+        window = axis_part.buffer(65.0, cap_style="flat")
+
+        def paper_point(x: float, y: float) -> tuple[float, float]:
+            dx, dy = x - origin[0], y - origin[1]
+            along = dx * cos(angle) + dy * sin(angle)
+            across = -dx * sin(angle) + dy * cos(angle)
+            return 22.0 + along * scale, 126.0 + across * scale
+
+        if structural_surface is not None:
+            for part in _line_parts(structural_surface.boundary.intersection(window)):
+                _add_sheet_line(layout, "ROAD_NETWORK_EDGE", part, paper_point)
+                count += 1
+        for road in roads:
+            center_layer, edge_layer = _road_layers(road)
+            for part in _line_parts(road.centerline.intersection(window)):
+                _add_sheet_line(layout, center_layer, part, paper_point)
+                count += 1
+            if id(road) not in integrated_road_ids:
+                for edge in (road.left_edge, road.right_edge):
+                    visible = edge.intersection(window)
+                    for part in _line_parts(visible):
+                        _add_sheet_line(layout, edge_layer, part, paper_point)
+                        count += 1
+        page_poles = []
+        for projected in geometry.projected_poles:
+            station = main.centerline.project(projected.original)
+            if start_station - 0.01 <= station <= end_station + 0.01:
+                x, y = paper_point(projected.snapped.x, projected.snapped.y)
+                size = max(settings.pole_size_mm, 1.0)
+                layout.add_lwpolyline(
+                    (
+                        (x - size / 2, y - size / 2),
+                        (x + size / 2, y - size / 2),
+                        (x + size / 2, y + size / 2),
+                        (x - size / 2, y + size / 2),
+                    ),
+                    close=True,
+                    dxfattribs={"layer": "POLES"},
+                )
+                _add_dxf_text(layout, "POLE_LABELS", x, y + 3.0, projected.pole.number, 2.2)
+                page_poles.append(projected.pole)
+                count += 2
+        count += _draw_pole_table(layout, page_poles)
+        count += _draw_north_arrow(layout, angle)
+    return count
+
+
+def _add_sheet_line(layout, layer: str, line: LineString, transform) -> None:
+    points = tuple(transform(x, y) for x, y, *_ in line.coords)
+    if len(points) >= 2:
+        layout.add_lwpolyline(points, dxfattribs={"layer": layer})
+
+
+def _draw_sheet_frame(layout, settings, page: int, total: int) -> int:
+    layout.add_lwpolyline(
+        ((8, 8), (289, 8), (289, 202), (8, 202)),
+        close=True,
+        dxfattribs={"layer": "SHEET_FRAME"},
+    )
+    _add_dxf_text(layout, "SHEET_FRAME", 14, 194, settings.project_title, 4.0)
+    if settings.location:
+        _add_dxf_text(layout, "SHEET_FRAME", 14, 188, settings.location, 2.5)
+    if settings.work_description:
+        _add_dxf_text(layout, "SHEET_FRAME", 14, 183, settings.work_description, 2.5)
+    _add_dxf_text(layout, "SHEET_FRAME", 14, 12, f"NOT TO SCALE  |  Sheet {page} / {total}", 2.5)
+    if page > 1:
+        _add_dxf_text(layout, "SHEET_FRAME", 14, 18, f"<- Sheet {page - 1}", 2.2)
+    if page < total:
+        _add_dxf_text(layout, "SHEET_FRAME", 260, 18, f"Sheet {page + 1} ->", 2.2)
+    return 5 + int(bool(settings.location)) + int(bool(settings.work_description))
+
+
+def _draw_pole_table(layout, poles) -> int:
+    unique = []
+    seen = set()
+    for pole in poles:
+        key = pole.number
+        if key not in seen:
+            seen.add(key)
+            unique.append(pole)
+    columns = 2
+    rows = max(1, ceil(len(unique) / columns))
+    lefts = (14.0, 151.0)
+    table_top = 68.0
+    row_height = min(5.0, 48.0 / (rows + 1))
+    count = 0
+    for column, left in enumerate(lefts):
+        right = left + 132.0
+        layout.add_lwpolyline(
+            ((left, table_top), (right, table_top), (right, table_top - row_height * (rows + 1)), (left, table_top - row_height * (rows + 1))),
+            close=True,
+            dxfattribs={"layer": "SHEET_TABLE"},
+        )
+        _add_dxf_text(layout, "SHEET_TABLE", left + 2, table_top - row_height + 1, "No.   Pole No. / Detail", 2.0)
+        count += 2
+        start = column * rows
+        for row, pole in enumerate(unique[start : start + rows], start=1):
+            y = table_top - row_height * row
+            layout.add_line((left, y), (right, y), dxfattribs={"layer": "SHEET_TABLE"})
+            detail = f"{pole.number}  {pole.detail}".strip()
+            _add_dxf_text(layout, "SHEET_TABLE", left + 2, y - row_height + 1, detail, 1.8)
+            count += 2
+    return count
+
+
+def _draw_north_arrow(layout, content_angle: float) -> int:
+    north_x = -sin(content_angle)
+    north_y = cos(content_angle)
+    start = (278.0, 188.0)
+    end = (start[0] + north_x * 10.0, start[1] + north_y * 10.0)
+    layout.add_line(start, end, dxfattribs={"layer": "SHEET_FRAME"})
+    arrow_angle = atan2(end[1] - start[1], end[0] - start[0])
+    for delta in (-0.45, 0.45):
+        layout.add_line(
+            end,
+            (end[0] - cos(arrow_angle + delta) * 3.0, end[1] - sin(arrow_angle + delta) * 3.0),
+            dxfattribs={"layer": "SHEET_FRAME"},
+        )
+    _add_dxf_text(layout, "SHEET_FRAME", end[0] + 1, end[1] + 1, "N", 2.5)
+    return 4
 
 
 def _joined_road_surface(roads):

@@ -1,6 +1,10 @@
 from pole_route.domain.pole import Pole, PoleSide
 from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
-from pole_route.exporters.dxf_exporter import export_geometry_to_dxf
+from pole_route.exporters.dxf_exporter import (
+    export_geometry_to_dxf,
+    recommended_dxf_sheet_count,
+)
+from pole_route.exporters.excel_exporter import ExcelExportSettings
 from pole_route.geometry.road_geometry import build_road_network_geometry
 
 
@@ -115,6 +119,33 @@ def test_dxf_export_preserves_selected_nearby_sois(tmp_path) -> None:
 
     modelspace = ezdxf.readfile(destination).modelspace()
     assert len(modelspace.query('LWPOLYLINE[layer=="SOI_CENTERLINE"]')) == 2
+
+
+def test_dxf_export_creates_automatic_a4_sheet_layouts(tmp_path) -> None:
+    route = Route(
+        "Long Main",
+        "long.kml",
+        (GeoPoint(100.0, 13.0), GeoPoint(100.01, 13.0)),
+    )
+    geometry = build_road_network_geometry(
+        [ClassifiedRoute(route, RouteType.MAIN_ROUTE, 20.0, 2.0)],
+        [
+            Pole(f"P{index}", 13.00005, 100.0 + 0.001 * index, "", PoleSide.LEFT)
+            for index in range(1, 10)
+        ],
+    )
+    destination = tmp_path / "sheets.dxf"
+    settings = ExcelExportSettings(project_title="Test Project", page_count=1)
+
+    export_geometry_to_dxf(geometry, destination, settings)
+
+    document = ezdxf.readfile(destination)
+    expected = recommended_dxf_sheet_count(geometry)
+    assert expected > 1
+    assert len([name for name in document.layout_names() if name.startswith("Sheet ")]) == expected
+    first_sheet = document.layouts.get("Sheet 01")
+    assert len(first_sheet.query('LWPOLYLINE[layer=="SHEET_FRAME"]')) >= 1
+    assert any(entity.dxf.text == "Test Project" for entity in first_sheet.query("TEXT"))
 import ezdxf
 from shapely.geometry import LineString, Point
 from shapely.ops import unary_union

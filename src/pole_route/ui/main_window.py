@@ -689,7 +689,9 @@ class MainWindow(QMainWindow):
         if not path.lower().endswith(".dxf"):
             path += ".dxf"
         try:
-            object_count = export_geometry_to_dxf(self.current_geometry, path)
+            object_count = export_geometry_to_dxf(
+                self.current_geometry, path, self.export_settings
+            )
         except DxfExportError as error:
             QMessageBox.warning(self, "DXF export failed", str(error))
             self.statusBar().showMessage("DXF export failed")
