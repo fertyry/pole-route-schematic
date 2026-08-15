@@ -188,6 +188,61 @@ def test_dxf_export_can_create_modelspace_only_for_cad_editing(tmp_path) -> None
     document = ezdxf.readfile(destination)
     assert document.layout_names() == ["Model", "Layout1"]
     assert len(document.modelspace().query('LWPOLYLINE[layer=="MAIN_CENTERLINE"]')) == 1
+
+
+def test_modelspace_export_contains_non_plotting_sheet_break_blocks(tmp_path) -> None:
+    route = Route(
+        "Long Main",
+        "long.kml",
+        (GeoPoint(100.0, 13.0), GeoPoint(100.01, 13.0)),
+    )
+    geometry = build_road_network_geometry(
+        [ClassifiedRoute(route, RouteType.MAIN_ROUTE, 20.0, 2.0)],
+        [
+            Pole(f"P{index}", 13.00005, 100.0 + 0.001 * index, "", PoleSide.LEFT)
+            for index in range(1, 10)
+        ],
+    )
+    destination = tmp_path / "breaks.dxf"
+
+    export_geometry_to_dxf(geometry, destination, include_sheet_layouts=False)
+
+    document = ezdxf.readfile(destination)
+    breaks = document.modelspace().query('INSERT[name=="PRS_SHEET_BREAK"]')
+    assert len(breaks) == recommended_dxf_sheet_count(geometry) - 1
+    assert document.layers.get("SHEET_BREAK").dxf.plot == 0
+    assert breaks[0].get_attrib_text("BREAK_ID") == "SB01"
+    assert breaks[0].get_attrib_text("POLE_ID")
+
+
+def test_dxf_export_draws_one_transformer_rack_block_for_group(tmp_path) -> None:
+    route = Route(
+        "Main",
+        "main.kml",
+        (GeoPoint(100.0, 13.0), GeoPoint(100.002, 13.0)),
+    )
+    poles = [
+        Pole("P1", 13.00005, 100.001, "rack left", PoleSide.LEFT, 2),
+        Pole("P1/1", 13.00005, 100.001, "rack right", PoleSide.LEFT, 2),
+        Pole("A1", 13.00005, 100.001, "accessory", PoleSide.LEFT, 1),
+    ]
+    geometry = build_road_network_geometry(
+        [ClassifiedRoute(route, RouteType.MAIN_ROUTE, 12.0, 2.0)], poles
+    )
+    destination = tmp_path / "rack.dxf"
+
+    export_geometry_to_dxf(
+        geometry,
+        destination,
+        include_sheet_layouts=False,
+        transformer_rack_groups=(frozenset({"P1", "P1/1", "A1"}),),
+    )
+
+    modelspace = ezdxf.readfile(destination).modelspace()
+    assert len(modelspace.query('INSERT[name=="TRANSFORMER_RACK"]')) == 1
+    assert len(modelspace.query('INSERT[name=="POLE_1M"]')) == 0
+    labels = {entity.dxf.text for entity in modelspace.query('TEXT[layer=="POLE_LABELS"]')}
+    assert len(labels) == 3
 import ezdxf
 from shapely.geometry import LineString, Point
 from shapely.ops import unary_union

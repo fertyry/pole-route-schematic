@@ -78,7 +78,9 @@ pytest
   silently removed by a later exporter.
 - CAD sheet planning uses a target Main-route span of about 350 metres per A4
   landscape sheet. A saved sheet count of 1 means automatic planning for DXF;
-  explicit values above 1 are respected.
+  explicit values above 1 are respected. Model-Space-only and sheet-layout DXF
+  exports both carry non-plotting `PRS_SHEET_BREAK` block references at the
+  planned pole boundaries, with break ID, pole ID, station, and adjacent sheets.
 - Two records can describe one physical pole. The canvas shows one pole symbol and
   retains the separate equipment/detail text.
 - Pole symbols are square and aligned with their road.
@@ -127,17 +129,15 @@ main route has been imported.
 - Confirmed one-pole and accessory groups reuse the existing one-marker/many-label
   behavior. Transformer-rack groups render two editable square markers joined by a
   rack line on the schematic. Both group types persist in `.prs` files.
-- CAD-specific transformer-rack blocks and the planned sheet-break block workflow
-  remain follow-up work; the first implementation is intentionally limited to the
-  application schematic.
+- Transformer-rack groups also export as one reusable `TRANSFORMER_RACK` CAD block
+  with two nominally three-metre-separated legs, while retaining every work-item
+  label. This preserves the physical structure during downstream CAD editing.
 
 ## Known design work still open
 
-- Add transformer-rack semantics to metric DXF export and decide how its nominal
-  three-metre physical separation is represented when the source coordinates are
-  identical.
-- Add Sheet Plan confirmation, persisted pole-based page breaks, and non-plotting
-  `PRS_SHEET_BREAK` blocks before implementing edited-DXF re-import and cutting.
+- Add a Sheet Plan confirmation dialog and persist user-adjusted pole boundaries;
+  automatic non-plotting `PRS_SHEET_BREAK` blocks are already exported.
+- Implement edited-DXF re-import, break validation, and final sheet cutting.
 - Validate OSM junction recommendations on more real routes and tune the 4 m
   connection tolerance if mapped centerlines are visibly misaligned.
 - Extend context slightly beyond the first and last main-route poles.

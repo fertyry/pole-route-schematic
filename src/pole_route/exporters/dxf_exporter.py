@@ -36,6 +36,7 @@ LAYERS = (
     ("SHEET_FRAME", 7, "CONTINUOUS"),
     ("SHEET_TABLE", 7, "CONTINUOUS"),
     ("SHEET_VIEWPORT", 7, "CONTINUOUS"),
+    ("SHEET_BREAK", 6, "DASHED"),
 )
 
 DXF_TARGET_SPAN_METRES = 350.0
@@ -47,6 +48,7 @@ def export_geometry_to_dxf(
     settings: ExcelExportSettings | None = None,
     *,
     include_sheet_layouts: bool = True,
+    transformer_rack_groups: tuple[frozenset[str], ...] = (),
 ) -> int:
     """Write real metric geometry, Unicode labels, CAD layers, and pole blocks."""
     if not geometry.roads:
@@ -62,6 +64,7 @@ def export_geometry_to_dxf(
     # The viewport boundary is useful while editing a layout, but must not be
     # printed as part of the drawing frame.
     document.layers.get("SHEET_VIEWPORT").dxf.plot = 0
+    document.layers.get("SHEET_BREAK").dxf.plot = 0
 
     pole_block = document.blocks.new("POLE_1M")
     pole_block.add_lwpolyline(
@@ -69,6 +72,15 @@ def export_geometry_to_dxf(
         close=True,
         dxfattribs={"layer": "POLES"},
     )
+    rack_block = document.blocks.new("TRANSFORMER_RACK")
+    for x in (-1.5, 1.5):
+        rack_block.add_lwpolyline(
+            ((x - 0.5, -0.5), (x + 0.5, -0.5), (x + 0.5, 0.5), (x - 0.5, 0.5)),
+            close=True,
+            dxfattribs={"layer": "POLES"},
+        )
+    rack_block.add_line((-1.0, 0.0), (1.0, 0.0), dxfattribs={"layer": "POLES"})
+    _define_sheet_break_block(document)
     modelspace = document.modelspace()
     export_roads = _deduplicate_context_roads(geometry)
     object_count = 0
@@ -132,13 +144,26 @@ def export_geometry_to_dxf(
             object_count += 1
 
     rendered_poles: set[tuple[float, float]] = set()
+    rendered_racks: set[frozenset[str]] = set()
     for projected in geometry.projected_poles:
         position = (round(projected.snapped.x, 3), round(projected.snapped.y, 3))
         road = geometry.roads[projected.route_index]
         rotation = _line_angle(
             road.centerline, road.centerline.project(projected.snapped)
         )
-        if position not in rendered_poles:
+        rack_group = next(
+            (group for group in transformer_rack_groups if projected.pole.number in group),
+            None,
+        )
+        if rack_group is not None and rack_group not in rendered_racks:
+            rendered_racks.add(rack_group)
+            modelspace.add_blockref(
+                "TRANSFORMER_RACK",
+                (projected.snapped.x, projected.snapped.y),
+                dxfattribs={"layer": "POLES", "rotation": rotation},
+            )
+            object_count += 1
+        elif rack_group is None and position not in rendered_poles:
             rendered_poles.add(position)
             modelspace.add_blockref(
                 "POLE_1M",
@@ -165,6 +190,12 @@ def export_geometry_to_dxf(
         )
         object_count += 1
 
+    object_count += _add_sheet_break_markers(
+        modelspace,
+        geometry,
+        settings or ExcelExportSettings(),
+    )
+
     if include_sheet_layouts:
         object_count += _add_sheet_layouts(
             document,
@@ -179,6 +210,56 @@ def export_geometry_to_dxf(
     except (OSError, ezdxf.DXFError) as error:
         raise DxfExportError(f"DXF could not be saved: {error}") from error
     return object_count
+
+
+def _define_sheet_break_block(document) -> None:
+    """Create a visible, non-plotting CAD marker that survives manual editing."""
+    block = document.blocks.new("PRS_SHEET_BREAK")
+    block.add_line((0.0, -12.0), (0.0, 12.0), dxfattribs={"layer": "SHEET_BREAK"})
+    block.add_line((-1.5, 10.5), (0.0, 12.0), dxfattribs={"layer": "SHEET_BREAK"})
+    block.add_line((1.5, 10.5), (0.0, 12.0), dxfattribs={"layer": "SHEET_BREAK"})
+    for index, tag in enumerate(("BREAK_ID", "POLE_ID", "STATION_M", "SHEETS")):
+        block.add_attdef(
+            tag,
+            insert=(2.0, 8.0 - index * 2.5),
+            height=1.8,
+            dxfattribs={"layer": "SHEET_BREAK", "style": "THAI"},
+        )
+
+
+def _add_sheet_break_markers(modelspace, geometry, settings: ExcelExportSettings) -> int:
+    """Add one reusable marker at every planned internal pole boundary."""
+    main = next((road for road in geometry.roads if road.is_main_route), None)
+    if main is None:
+        return 0
+    requested = int(settings.page_count)
+    page_count = requested if requested > 1 else recommended_dxf_sheet_count(geometry)
+    ranges = _sheet_station_ranges(geometry, page_count)
+    internal_stations = [end for _, end in ranges[:-1]]
+    if not internal_stations:
+        return 0
+    pole_stations = [
+        (main.centerline.project(projected.original), projected.pole.number)
+        for projected in geometry.projected_poles
+    ]
+    for index, station in enumerate(internal_stations, start=1):
+        point = main.centerline.interpolate(station)
+        rotation = _line_angle(main.centerline, station)
+        pole_id = min(pole_stations, key=lambda item: abs(item[0] - station))[1]
+        reference = modelspace.add_blockref(
+            "PRS_SHEET_BREAK",
+            (point.x, point.y),
+            dxfattribs={"layer": "SHEET_BREAK", "rotation": rotation},
+        )
+        reference.add_auto_attribs(
+            {
+                "BREAK_ID": f"SB{index:02d}",
+                "POLE_ID": pole_id,
+                "STATION_M": f"{station:.2f}",
+                "SHEETS": f"{index}/{index + 1}",
+            }
+        )
+    return len(internal_stations)
 
 
 def recommended_dxf_sheet_count(geometry: RoadNetworkGeometry) -> int:
