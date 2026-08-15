@@ -99,6 +99,26 @@ def test_osm_context_keeps_only_true_connections_and_deduplicates_split_ways() -
     assert context.roads[0].recommended is True
 
 
+def test_osm_context_keeps_soi_ending_at_wide_road_edge() -> None:
+    document = {
+        "elements": [
+            {
+                "type": "way",
+                "id": 40,
+                "geometry": [
+                    {"lat": 13.005, "lon": 100.00009},
+                    {"lat": 13.005, "lon": 100.001},
+                ],
+                "tags": {"highway": "residential", "name": "Edge Soi"},
+            }
+        ]
+    }
+
+    context = parse_osm_context(document, _main_route(), 15.0)
+
+    assert [road.route.name for road in context.roads] == ["Edge Soi"]
+
+
 def test_osm_context_worker_reports_success_and_finishes(qtbot, monkeypatch) -> None:
     import pole_route.ui.osm_context_worker as worker_module
 

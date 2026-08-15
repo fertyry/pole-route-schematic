@@ -21,7 +21,6 @@ OVERPASS_URLS = (
 )
 DEFAULT_CORRIDOR_METRES = 15.0
 CONTEXT_ROAD_EXTENSION_METRES = 35.0
-JUNCTION_TOLERANCE_METRES = 4.0
 MINIMUM_CONTEXT_ROAD_METRES = 8.0
 EXCLUDED_HIGHWAYS = {
     "footway",
@@ -101,8 +100,12 @@ def parse_osm_context(
                 continue
             candidate = LineString([projection.to_metric(point) for point in points])
             distance_to_main = candidate.distance(main_metric)
+            # OSM side-road centerlines often terminate at a divided road's near
+            # carriageway instead of the user-drawn Main centerline.  Apply the
+            # requested corridor here; limiting this to a tiny snap tolerance
+            # silently discarded valid sois beside wide roads.
             if (
-                distance_to_main > min(corridor_metres, JUNCTION_TOLERANCE_METRES)
+                distance_to_main > corridor_metres
                 or candidate.length < MINIMUM_CONTEXT_ROAD_METRES
             ):
                 continue
