@@ -12,6 +12,8 @@ class ContextRoad:
     route: Route
     highway: str
     suggested_width_metres: float
+    recommended: bool = True
+    recommendation: str = "Connects to the Main route"
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,4 +29,3 @@ class ContextPlace:
 class OSMContext:
     roads: tuple[ContextRoad, ...]
     places: tuple[ContextPlace, ...]
-

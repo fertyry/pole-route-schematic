@@ -198,11 +198,17 @@ def test_page_lines_are_clipped_at_match_poles(qapp) -> None:
 
     pages = prepare_excel_pages(objects, ExcelExportSettings(page_count=2))
 
-    for page in pages:
-        pole_xs = [x for item in page if item.role == "pole" for x, _ in item.points]
-        line_xs = [x for item in page if item.role == "main_centerline" for x, _ in item.points]
-        assert min(line_xs) >= min(pole_xs) - 5
-        assert max(line_xs) <= max(pole_xs) + 5
+    first_poles = [x for item in pages[0] if item.role == "pole" for x, _ in item.points]
+    first_line = [x for item in pages[0] if item.role == "main_centerline" for x, _ in item.points]
+    last_poles = [x for item in pages[-1] if item.role == "pole" for x, _ in item.points]
+    last_line = [x for item in pages[-1] if item.role == "main_centerline" for x, _ in item.points]
+
+    # Internal match edges still meet at the boundary pole, while the complete
+    # drawing receives context before its first pole and after its final pole.
+    assert max(first_line) <= max(first_poles) + 5
+    assert min(last_line) >= min(last_poles) - 5
+    assert min(first_line) < min(first_poles) - 5
+    assert max(last_line) > max(last_poles) + 5
 
 
 def test_context_roads_are_clipped_to_export_corridor(qapp) -> None:

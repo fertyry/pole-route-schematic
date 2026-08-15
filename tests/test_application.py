@@ -14,8 +14,8 @@ from pole_route.main import create_application
 from pole_route.ui.column_mapping_dialog import ColumnMappingDialog
 from pole_route.ui.geometry_settings_dialog import GeometrySettingsDialog
 from pole_route.ui.main_window import MainWindow
-from pole_route.ui.route_import_dialog import RouteImportDialog
 from pole_route.ui.osm_context_dialog import OSMContextDialog
+from pole_route.ui.route_import_dialog import RouteImportDialog
 from pole_route.ui.schematic_settings_dialog import SchematicSettingsDialog
 
 
@@ -100,6 +100,7 @@ def test_fetch_surroundings_requires_a_main_route(qtbot) -> None:
     qtbot.addWidget(window)
 
     assert not window.fetch_surroundings_action.isEnabled()
+    assert not window.export_dxf_action.isEnabled()
 
 
 def test_osm_context_dialog_requires_confirmation_and_returns_checked_roads(qtbot) -> None:

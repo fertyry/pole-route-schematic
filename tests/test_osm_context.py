@@ -60,6 +60,45 @@ def test_fetch_osm_context_uses_injected_transport() -> None:
     assert "(around:15," in captured[0]
 
 
+def test_osm_context_keeps_only_true_connections_and_deduplicates_split_ways() -> None:
+    document = {
+        "elements": [
+            {
+                "type": "way",
+                "id": 1,
+                "geometry": [
+                    {"lat": 13.005, "lon": 99.9995},
+                    {"lat": 13.005, "lon": 100.0},
+                ],
+                "tags": {"highway": "residential", "name": "Soi One"},
+            },
+            {
+                "type": "way",
+                "id": 2,
+                "geometry": [
+                    {"lat": 13.005, "lon": 100.0},
+                    {"lat": 13.005, "lon": 100.0005},
+                ],
+                "tags": {"highway": "residential", "name": "Soi One"},
+            },
+            {
+                "type": "way",
+                "id": 3,
+                "geometry": [
+                    {"lat": 13.0, "lon": 100.00003},
+                    {"lat": 13.01, "lon": 100.00003},
+                ],
+                "tags": {"highway": "residential", "name": "Parallel Road"},
+            },
+        ]
+    }
+
+    context = parse_osm_context(document, _main_route(), 15.0)
+
+    assert [road.route.name for road in context.roads] == ["Soi One"]
+    assert context.roads[0].recommended is True
+
+
 def test_osm_context_worker_reports_success_and_finishes(qtbot, monkeypatch) -> None:
     import pole_route.ui.osm_context_worker as worker_module
 

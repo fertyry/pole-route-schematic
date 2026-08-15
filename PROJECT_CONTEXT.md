@@ -56,6 +56,7 @@ pytest
 8. Mark records that represent equipment on the same physical pole.
 9. Save the complete project as `.prs`.
 10. Review page layout and export editable Excel sheets.
+11. After building geometry, optionally export a metric DXF for AutoCAD Map 3D.
 
 ## Important product decisions
 
@@ -80,6 +81,13 @@ pytest
 - OpenStreetMap surroundings are supporting context, not a full background map.
   Context roads are clipped to a short configurable length. Current presets are
   Short 15 m, Medium 20 m, Long 25 m, plus Custom.
+- OSM candidates must connect to the Main route within a small junction tolerance.
+  Named roads are recommended automatically; unnamed and service access roads stay
+  available for explicit manual review. Split OSM ways at the same junction are
+  de-duplicated.
+- DXF is the CAD interchange format. It retains UTM metre coordinates and separates
+  Main centerlines, road edges, context roads, pole-offset lines, poles, and labels
+  into CAD layers. Pole symbols use the reusable `POLE_1M` block.
 - Road-name labels must stay associated with their junction, remain inside the
   sheet, and not distort page fitting.
 
@@ -101,13 +109,12 @@ main route has been imported.
 
 ## Known design work still open
 
-- Reduce excessive OpenStreetMap side-road context without losing meaningful
-  junctions.
+- Validate OSM junction recommendations on more real routes and tune the 4 m
+  connection tolerance if mapped centerlines are visibly misaligned.
 - Extend context slightly beyond the first and last main-route poles.
 - Improve road-name side/orientation placement in difficult intersections.
-- Evaluate AutoCAD Map 3D as an optional downstream drafting/export workflow for
-  routes around 3–5 km and for reusable CAD blocks. It should complement, not
-  replace, the geographic and schematic core unless testing proves otherwise.
+- Continue evaluating the metric DXF workflow in AutoCAD Map 3D for routes around
+  3–5 km and grow the reusable CAD block library only from proven drafting needs.
 - Analyse the supplied AutoLISP files before deciding whether their page-numbering
   logic belongs in the CAD workflow.
 

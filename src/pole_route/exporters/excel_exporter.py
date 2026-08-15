@@ -60,6 +60,9 @@ class ExcelExportSettings:
     context_road_length: float = 25.0
 
 
+TERMINAL_ROUTE_PADDING = 45.0
+
+
 def collect_excel_objects(
     scene: QGraphicsScene, settings: ExcelExportSettings | None = None
 ) -> list[ExcelObject]:
@@ -409,6 +412,12 @@ def prepare_excel_pages(
             if item.role == "pole" and item.group_id in page_groups
         ]
         clip_left, clip_right = min(rotated_pole_centers), max(rotated_pole_centers)
+        # Internal sheets still meet exactly at a match pole. Only the complete
+        # route ends receive breathing room beyond the first and last pole.
+        if page_index == 0:
+            clip_left -= TERMINAL_ROUTE_PADDING
+        if page_index == page_count - 1:
+            clip_right += TERMINAL_ROUTE_PADDING
         clipped = _clip_objects_to_x(rotated, clip_left, clip_right)
         page_specs.append((clipped, -angle, records))
     shared_scale = _shared_page_scale(

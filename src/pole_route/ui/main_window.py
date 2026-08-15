@@ -1,12 +1,12 @@
 """Main application window."""
 
 from dataclasses import asdict, replace
-
 from pathlib import Path
 
 from PySide6.QtCore import QLocale, QSize, Qt, QThread
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QGraphicsScene,
     QHeaderView,
@@ -14,14 +14,13 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
+    QProgressDialog,
     QSplitter,
     QStyle,
     QTableWidget,
     QTableWidgetItem,
     QToolBar,
     QToolButton,
-    QProgressDialog,
-    QApplication,
     QVBoxLayout,
     QWidget,
 )
@@ -29,6 +28,7 @@ from PySide6.QtWidgets import (
 from pole_route.domain.blocks import BLOCK_CATALOG
 from pole_route.domain.pole import Pole
 from pole_route.domain.route import ClassifiedRoute, Route, RouteType
+from pole_route.exporters.dxf_exporter import DxfExportError, export_geometry_to_dxf
 from pole_route.exporters.excel_exporter import (
     ExcelExportError,
     ExcelExportSettings,
@@ -66,10 +66,10 @@ from pole_route.ui.editor_commands import (
 )
 from pole_route.ui.excel_export_dialog import ExcelExportDialog
 from pole_route.ui.geometry_renderer import render_road_geometry
-from pole_route.ui.project_info_dialog import ProjectInfoDialog
-from pole_route.ui.route_import_dialog import RouteImportDialog, draw_classified_routes_preview
 from pole_route.ui.osm_context_dialog import OSMContextDialog
 from pole_route.ui.osm_context_worker import OSMContextWorker
+from pole_route.ui.project_info_dialog import ProjectInfoDialog
+from pole_route.ui.route_import_dialog import RouteImportDialog, draw_classified_routes_preview
 from pole_route.ui.schematic_renderer import render_schematic
 from pole_route.ui.schematic_settings_dialog import SchematicSettingsDialog
 
@@ -271,6 +271,14 @@ class MainWindow(QMainWindow):
         self.export_action.setEnabled(False)
         self.export_action.triggered.connect(self._export_excel)
         toolbar.addAction(self.export_action)
+
+        self.export_dxf_action = QAction("Export DXF", self)
+        self.export_dxf_action.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DriveHDIcon)
+        )
+        self.export_dxf_action.setEnabled(False)
+        self.export_dxf_action.triggered.connect(self._export_dxf)
+        toolbar.addAction(self.export_dxf_action)
         self._organize_v2_commands(toolbar)
 
     def _organize_v2_commands(self, workflow_toolbar: QToolBar) -> None:
@@ -317,6 +325,7 @@ class MainWindow(QMainWindow):
         output_menu = self.menuBar().addMenu("Output")
         output_menu.setObjectName("outputMenu")
         output_menu.addAction(self.export_action)
+        output_menu.addAction(self.export_dxf_action)
 
         # The first row shows only the normal end-to-end workflow.
         for action in (
@@ -556,6 +565,7 @@ class MainWindow(QMainWindow):
 
         render_road_geometry(self.route_scene, geometry)
         self.current_geometry = geometry
+        self.export_dxf_action.setEnabled(True)
         self.generate_schematic_action.setEnabled(bool(geometry.projected_poles))
         self.workspace_note.setText(
             "Metric preview: blue centerline, grey road edges, yellow pole lines, "
@@ -659,6 +669,35 @@ class MainWindow(QMainWindow):
             f"Exported {object_count} editable object(s) to {path}"
         )
 
+    def _export_dxf(self) -> None:
+        """Export the built UTM geometry for downstream AutoCAD drafting."""
+        if self.current_geometry is None:
+            QMessageBox.warning(
+                self,
+                "DXF export failed",
+                "Build geometry before exporting a metric CAD drawing.",
+            )
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export metric AutoCAD drawing",
+            "PoleRoute-Schematic.dxf",
+            "AutoCAD DXF (*.dxf)",
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".dxf"):
+            path += ".dxf"
+        try:
+            object_count = export_geometry_to_dxf(self.current_geometry, path)
+        except DxfExportError as error:
+            QMessageBox.warning(self, "DXF export failed", str(error))
+            self.statusBar().showMessage("DXF export failed")
+            return
+        self.statusBar().showMessage(
+            f"Exported {object_count} metric CAD object(s) to {path}"
+        )
+
     def _delete_selected(self) -> None:
         selected = [item for item in self.route_scene.selectedItems() if item.parentItem() is None]
         if selected:
@@ -717,6 +756,7 @@ class MainWindow(QMainWindow):
         self.edit_canvas_action.setChecked(False)
         self.edit_canvas_action.setEnabled(False)
         self.export_action.setEnabled(False)
+        self.export_dxf_action.setEnabled(False)
         self.drawing_actions[DrawingMode.SELECT].setChecked(True)
         self.canvas.set_mode(DrawingMode.SELECT)
 
@@ -956,6 +996,7 @@ class MainWindow(QMainWindow):
             self.reset_layout_action.setEnabled(has_schematic)
             self.edit_canvas_action.setEnabled(has_schematic)
             self.export_action.setEnabled(has_schematic)
+            self.export_dxf_action.setEnabled(geometry is not None)
             for action in self.drawing_actions.values():
                 action.setEnabled(has_schematic)
             self.blocks_button.setEnabled(has_schematic)

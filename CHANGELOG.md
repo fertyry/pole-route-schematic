@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add metric DXF export for AutoCAD Map 3D with dedicated road, offset, pole,
+  and label layers plus a reusable 1 m square pole block.
+- Filter OpenStreetMap surroundings to roads that genuinely connect to the Main
+  route, remove low-value path types, de-duplicate split junction candidates,
+  and explain automatic recommendations in the review table.
+- Extend only the overall first and last Excel sheet beyond their terminal poles;
+  internal sheet boundaries continue to meet exactly at a shared pole.
 - Add an explicit OpenStreetMap surroundings review after importing a Main route.
 - Discover nearby connecting roads/sois and named landmarks along a metric route corridor.
 - Preselect only named local roads; major and unnamed roads remain available for manual review.

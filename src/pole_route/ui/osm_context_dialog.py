@@ -1,7 +1,7 @@
 """Review OpenStreetMap roads and landmarks before adding them to a project."""
 
 from PySide6.QtCore import QLocale, Qt
-from PySide6.QtGui import QColor, QBrush, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -43,18 +43,15 @@ class OSMContextDialog(QDialog):
         tabs = QTabWidget()
         roads_page = QWidget()
         roads_layout = QVBoxLayout(roads_page)
-        self.roads_table = QTableWidget(len(context.roads), 4)
-        self.roads_table.setHorizontalHeaderLabels(["Use", "Road / Soi", "OSM type", "Width"])
+        self.roads_table = QTableWidget(len(context.roads), 5)
+        self.roads_table.setHorizontalHeaderLabels(
+            ["Use", "Road / Soi", "OSM type", "Width", "Recommendation"]
+        )
         for row, road in enumerate(context.roads):
             use = QTableWidgetItem()
             use.setFlags(use.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            recommended = (
-                not road.route.name.startswith("Unnamed connecting road")
-                and road.highway
-                in {"residential", "tertiary", "unclassified", "living_street"}
-            )
             use.setCheckState(
-                Qt.CheckState.Checked if recommended else Qt.CheckState.Unchecked
+                Qt.CheckState.Checked if road.recommended else Qt.CheckState.Unchecked
             )
             self.roads_table.setItem(row, 0, use)
             self.roads_table.setItem(row, 1, QTableWidgetItem(road.route.name))
@@ -66,6 +63,7 @@ class OSMContextDialog(QDialog):
             width.setSuffix(" m")
             width.setValue(road.suggested_width_metres)
             self.roads_table.setCellWidget(row, 3, width)
+            self.roads_table.setItem(row, 4, QTableWidgetItem(road.recommendation))
         self.roads_table.resizeColumnsToContents()
         selection_buttons = QHBoxLayout()
         self.select_all_button = QPushButton("Select all")

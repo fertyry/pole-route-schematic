@@ -21,6 +21,30 @@ OVERPASS_URLS = (
 )
 DEFAULT_CORRIDOR_METRES = 15.0
 CONTEXT_ROAD_EXTENSION_METRES = 35.0
+JUNCTION_TOLERANCE_METRES = 4.0
+MINIMUM_CONTEXT_ROAD_METRES = 8.0
+EXCLUDED_HIGHWAYS = {
+    "footway",
+    "path",
+    "cycleway",
+    "steps",
+    "bridleway",
+    "corridor",
+    "construction",
+    "proposed",
+    "track",
+    "pedestrian",
+}
+RECOMMENDED_HIGHWAYS = {
+    "motorway",
+    "trunk",
+    "primary",
+    "secondary",
+    "tertiary",
+    "residential",
+    "unclassified",
+    "living_street",
+}
 
 
 class OSMContextError(RuntimeError):
@@ -70,23 +94,17 @@ def parse_osm_context(
     for element in elements:
         tags = element.get("tags") or {}
         if element.get("type") == "way" and tags.get("highway"):
-            if tags.get("highway") in {
-                "footway",
-                "path",
-                "cycleway",
-                "steps",
-                "bridleway",
-                "corridor",
-                "construction",
-                "proposed",
-            }:
+            if tags.get("highway") in EXCLUDED_HIGHWAYS:
                 continue
             points = _way_points(element, nodes)
             if len(points) < 2:
                 continue
             candidate = LineString([projection.to_metric(point) for point in points])
             distance_to_main = candidate.distance(main_metric)
-            if distance_to_main > corridor_metres or candidate.length < 8.0:
+            if (
+                distance_to_main > min(corridor_metres, JUNCTION_TOLERANCE_METRES)
+                or candidate.length < MINIMUM_CONTEXT_ROAD_METRES
+            ):
                 continue
             highway = str(tags["highway"])
             source_name = tags.get("name") or tags.get("name:th")
@@ -94,8 +112,6 @@ def parse_osm_context(
                 not source_name
                 or tags.get("service") in {"driveway", "parking_aisle", "drive-through"}
             ):
-                continue
-            if not source_name and distance_to_main > 18.0:
                 continue
             main_buffer_overlap = candidate.intersection(main_metric.buffer(8.0)).length
             if main_buffer_overlap / candidate.length > 0.70:
@@ -122,6 +138,12 @@ def parse_osm_context(
                     ),
                     highway,
                     _suggested_width(highway, tags),
+                    bool(source_name) and highway in RECOMMENDED_HIGHWAYS,
+                    (
+                        "Named road connected to the Main route"
+                        if source_name and highway in RECOMMENDED_HIGHWAYS
+                        else "Review manually: unnamed or low-priority access road"
+                    ),
                 )
             )
         place = _place_from_element(element, nodes)
@@ -130,9 +152,31 @@ def parse_osm_context(
             if main_metric.distance(LineString([point_metric, point_metric])) <= corridor_metres:
                 places.append(place)
 
-    roads.sort(key=lambda item: item.route.name.casefold())
+    roads = _deduplicate_junction_roads(roads, projection, main_metric)
+    roads.sort(key=lambda item: (not item.recommended, item.route.name.casefold()))
     places.sort(key=lambda item: item.name.casefold())
     return OSMContext(tuple(roads), tuple(places))
+
+
+def _deduplicate_junction_roads(
+    roads: list[ContextRoad], projection: MetricProjection, main_metric: LineString
+) -> list[ContextRoad]:
+    """Keep one OSM candidate when split ways describe the same nearby junction."""
+    accepted: list[ContextRoad] = []
+    keys: set[tuple[str, str, int]] = set()
+    for road in roads:
+        metric = LineString(projection.to_metric(point) for point in road.route.points)
+        _road_point, main_point = nearest_points(metric, main_metric)
+        station_bucket = round(main_metric.project(main_point) / 8.0)
+        normalized_name = road.route.name.casefold()
+        if normalized_name.startswith("unnamed connecting road"):
+            normalized_name = "unnamed"
+        key = (normalized_name, road.highway, station_bucket)
+        if key in keys:
+            continue
+        keys.add(key)
+        accepted.append(road)
+    return accepted
 
 
 def _build_query(route: Route, corridor_metres: float) -> str:
