@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added optional installed-quantity import mapping, project persistence, UI display,
+  and quantity columns in Excel/CAD pole schedules.
+- Fixed Thai header alias matching so combining vowel and tone marks do not prevent
+  automatic mapping of fields such as `จำนวนที่ติดตั้ง`.
 - Added explicit `Cross road / Large intersection` and `T-junction branch` route types.
 - Added confirmation-based snapping for manual junction LineStrings with gaps up to 5 metres.
 - T-junction routes may cross the Main route; they are trimmed at the junction and retain

@@ -14,10 +14,11 @@ FIELD_LABELS = {
     "latitude": "Latitude",
     "longitude": "Longitude",
     "detail": "Detail",
+    "installed_quantity": "Installed quantity",
     "side": "Side",
 }
 REQUIRED_FIELDS = ("number", "latitude", "longitude")
-OPTIONAL_FIELDS = ("detail", "side")
+OPTIONAL_FIELDS = ("detail", "installed_quantity", "side")
 SUPPORTED_SUFFIXES = {".csv", ".xlsx"}
 HEADER_SCAN_LIMIT = 20
 THAI_DIGITS = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
@@ -42,6 +43,14 @@ HEADER_ALIASES = {
     "latitude": {"latitude", "lat", "ละติจูด"},
     "longitude": {"longitude", "long", "lon", "lng", "ลองจิจูด"},
     "detail": {"detail", "details", "description", "remark", "remarks", "รายละเอียด"},
+    "installed_quantity": {
+        "installedquantity",
+        "installationquantity",
+        "quantity",
+        "qty",
+        "\u0e08\u0e33\u0e19\u0e27\u0e19\u0e17\u0e35\u0e48\u0e15\u0e34\u0e14\u0e15\u0e31\u0e49\u0e07",
+        "\u0e08\u0e33\u0e19\u0e27\u0e19\u0e15\u0e34\u0e14\u0e15\u0e31\u0e49\u0e07",
+    },
     "side": {"side", "roadside", "ฝั่ง", "ด้าน"},
 }
 
@@ -85,7 +94,8 @@ def suggest_column_mapping(headers: tuple[str, ...]) -> dict[str, str | None]:
     """Match common English and Thai header variants to application fields."""
     mapping: dict[str, str | None] = {}
     for field in (*REQUIRED_FIELDS, *OPTIONAL_FIELDS):
-        matches = [header for header in headers if _normalize_header(header) in HEADER_ALIASES[field]]
+        normalized_aliases = {_normalize_header(alias) for alias in HEADER_ALIASES[field]}
+        matches = [header for header in headers if _normalize_header(header) in normalized_aliases]
         mapping[field] = matches[0] if len(matches) == 1 else None
     return mapping
 
@@ -153,7 +163,14 @@ def _detect_header_index(rows: list[tuple[object, ...]]) -> int:
 
 def _recognized_field(value: object) -> str | None:
     normalized = _normalize_header(value)
-    return next((field for field, aliases in HEADER_ALIASES.items() if normalized in aliases), None)
+    return next(
+        (
+            field
+            for field, aliases in HEADER_ALIASES.items()
+            if normalized in {_normalize_header(alias) for alias in aliases}
+        ),
+        None,
+    )
 
 
 def _normalize_header(value: object) -> str:
@@ -190,6 +207,7 @@ def _row_to_pole(
             longitude=_parse_coordinate(value("longitude"), "Longitude"),
             detail=str(value("detail") or "").strip(),
             side=PoleSide.from_text(value("side")),
+            installed_quantity=_parse_installed_quantity(value("installed_quantity")),
         )
     except (TypeError, ValueError) as error:
         raise PoleImportError(f"Row {row_number}: {error}") from error
@@ -224,3 +242,20 @@ def _parse_coordinate(value: object, label: str) -> float:
     elif direction in {"N", "E"}:
         coordinate = abs(coordinate)
     return coordinate
+
+
+def _parse_installed_quantity(value: object) -> int:
+    """Parse an optional positive whole-number installation quantity."""
+    if value in (None, ""):
+        return 1
+    if isinstance(value, bool):
+        raise ValueError("Installed quantity must be a positive whole number")
+    text = str(value).strip().translate(THAI_DIGITS)
+    try:
+        numeric = float(text)
+    except ValueError as error:
+        raise ValueError("Installed quantity must be a positive whole number") from error
+    quantity = int(numeric)
+    if numeric != quantity or quantity < 1:
+        raise ValueError("Installed quantity must be a positive whole number")
+    return quantity

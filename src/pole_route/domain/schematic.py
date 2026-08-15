@@ -15,6 +15,7 @@ class SchematicPole:
     source_station_metres: float
     marker_id: str = ""
     road_angle_degrees: float = 0.0
+    installed_quantity: int = 1
 
 
 @dataclass(frozen=True, slots=True)

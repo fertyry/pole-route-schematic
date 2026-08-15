@@ -120,6 +120,11 @@ main route has been imported.
 
 ## Known design work still open
 
+- Add a confirmation step for duplicate pole coordinates. Installed quantity is a
+  work-item quantity, not a physical-pole count: identical pole numbers may mean
+  multiple work items on one pole, while a base pole plus `/1` may represent a
+  two-pole transformer rack whose source coordinates need correcting or an explicit
+  structure type. Never infer or merge these cases from coordinates alone.
 - Validate OSM junction recommendations on more real routes and tune the 4 m
   connection tolerance if mapped centerlines are visibly misaligned.
 - Extend context slightly beyond the first and last main-route poles.
@@ -137,6 +142,7 @@ External test files currently used by the project owner:
 - `D:\TestFile\A002\A0021.prs`
 - `D:\TestFile\A003\A003.kml`
 - `D:\TestFile\A003\A0031.prs`
+- `D:\TestFile\A004\A004latlong.xlsx`
 - `C:\Users\ferty\Downloads\Master A3\editpageno.lsp`
 - `C:\Users\ferty\Downloads\Master A3\editpageno2.lsp`
 

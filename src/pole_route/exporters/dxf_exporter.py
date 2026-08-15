@@ -320,13 +320,23 @@ def _draw_pole_table(layout, poles) -> int:
             close=True,
             dxfattribs={"layer": "SHEET_TABLE"},
         )
-        _add_dxf_text(layout, "SHEET_TABLE", left + 2, table_top - row_height + 1, "No.   Pole No. / Detail", 2.0)
+        _add_dxf_text(
+            layout,
+            "SHEET_TABLE",
+            left + 2,
+            table_top - row_height + 1,
+            "No.   Pole No. / Detail                 Installed Qty.",
+            2.0,
+        )
         count += 2
         start = column * rows
         for row, pole in enumerate(unique[start : start + rows], start=1):
             y = table_top - row_height * row
             layout.add_line((left, y), (right, y), dxfattribs={"layer": "SHEET_TABLE"})
-            detail = f"{pole.number}  {pole.detail}".strip()
+            detail = (
+                f"{pole.number}  {pole.detail}"
+                f"                 {pole.installed_quantity}"
+            ).strip()
             _add_dxf_text(layout, "SHEET_TABLE", left + 2, y - row_height + 1, detail, 1.8)
             count += 2
     return count

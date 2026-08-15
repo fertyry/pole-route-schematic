@@ -38,6 +38,7 @@ class Pole:
     longitude: float
     detail: str = ""
     side: PoleSide = PoleSide.UNKNOWN
+    installed_quantity: int = 1
 
     def __post_init__(self) -> None:
         if not self.number.strip():
@@ -46,4 +47,5 @@ class Pole:
             raise ValueError("Latitude must be between -90 and 90")
         if not -180 <= self.longitude <= 180:
             raise ValueError("Longitude must be between -180 and 180")
-
+        if isinstance(self.installed_quantity, bool) or self.installed_quantity < 1:
+            raise ValueError("Installed quantity must be a positive whole number")

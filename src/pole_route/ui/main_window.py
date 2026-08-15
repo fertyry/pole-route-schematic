@@ -378,10 +378,18 @@ class MainWindow(QMainWindow):
         self.workspace_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.workspace_note.setWordWrap(True)
 
-        self.pole_table = QTableWidget(0, 6)
+        self.pole_table = QTableWidget(0, 7)
         self.pole_table.setObjectName("poleTable")
         self.pole_table.setHorizontalHeaderLabels(
-            ["Pole No.", "Latitude", "Longitude", "Detail", "Side", "Physical pole"]
+            [
+                "Pole No.",
+                "Latitude",
+                "Longitude",
+                "Detail",
+                "Installed Qty.",
+                "Side",
+                "Physical pole",
+            ]
         )
         self.pole_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.pole_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -834,6 +842,7 @@ class MainWindow(QMainWindow):
                 f"{pole.latitude:.7f}",
                 f"{pole.longitude:.7f}",
                 pole.detail,
+                str(pole.installed_quantity),
                 pole.side.value,
                 "",
             )
@@ -861,7 +870,7 @@ class MainWindow(QMainWindow):
         label = " / ".join(sorted(group))
         for row, pole in enumerate(self.current_poles):
             if pole.number in group:
-                self.pole_table.setItem(row, 5, QTableWidgetItem(label))
+                self.pole_table.setItem(row, 6, QTableWidgetItem(label))
         self.statusBar().showMessage(
             f"Marked {len(group)} records as one physical pole; regenerate the schematic"
         )
@@ -1035,7 +1044,7 @@ class MainWindow(QMainWindow):
             label = " / ".join(sorted(group))
             for row, pole in enumerate(self.current_poles):
                 if pole.number in group:
-                    self.pole_table.setItem(row, 5, QTableWidgetItem(label))
+                    self.pole_table.setItem(row, 6, QTableWidgetItem(label))
 
     def _confirm_discard_changes(self) -> bool:
         if not self.project_dirty:

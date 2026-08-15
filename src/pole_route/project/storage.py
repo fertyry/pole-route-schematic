@@ -105,6 +105,7 @@ def poles_to_data(poles: list[Pole]) -> list[dict[str, Any]]:
             "longitude": pole.longitude,
             "detail": pole.detail,
             "side": pole.side.value,
+            "installed_quantity": pole.installed_quantity,
         }
         for pole in poles
     ]
@@ -118,6 +119,7 @@ def poles_from_data(data: list[dict[str, Any]]) -> list[Pole]:
             float(item["longitude"]),
             item.get("detail", ""),
             PoleSide(item.get("side", PoleSide.UNKNOWN.value)),
+            int(item.get("installed_quantity", 1)),
         )
         for item in data
     ]

@@ -34,7 +34,7 @@ def _project_inputs():
             2.0,
         )
     ]
-    poles = [Pole("P-1", 13.005, 100.005, "Transformer", PoleSide.RIGHT)]
+    poles = [Pole("P-1", 13.005, 100.005, "Transformer", PoleSide.RIGHT, 2)]
     return routes, poles
 
 

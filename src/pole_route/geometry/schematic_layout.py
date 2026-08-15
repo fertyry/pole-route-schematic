@@ -129,6 +129,7 @@ def create_schematic_layout(
                 y,
                 stations[index],
                 _marker_id(projected.pole.number, same_pole_groups),
+                installed_quantity=projected.pole.installed_quantity,
             )
         )
 
@@ -234,6 +235,7 @@ def _create_network_layout(
                 geometry.roads[projected.route_index].centerline,
                 geometry.roads[projected.route_index].centerline.project(projected.snapped),
             ),
+            projected.pole.installed_quantity,
         )
         for projected in geometry.projected_poles
     ]
@@ -251,6 +253,7 @@ def _create_network_layout(
                 pole.source_station_metres,
                 pole.marker_id,
                 pole.road_angle_degrees,
+                pole.installed_quantity,
             )
         )
     return SchematicLayout(

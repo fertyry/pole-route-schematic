@@ -39,6 +39,7 @@ class ExcelObject:
     line_style: str = "solid"
     role: str = "drawing"
     group_id: str = ""
+    installed_quantity: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -239,6 +240,7 @@ def _collect_item(item: QGraphicsItem, objects: list[ExcelObject]) -> None:
                 font_size=max(item.font().pointSizeF(), 8.0),
                 role=item.data(0) or "label",
                 group_id=str(item.data(1) or ""),
+                installed_quantity=int(item.data(7) or 1),
             )
         )
         return
@@ -373,6 +375,11 @@ def prepare_excel_pages(
         for item in content
         if item.role == "label" and item.group_id
     }
+    quantity_by_group = {
+        item.group_id: item.installed_quantity
+        for item in content
+        if item.role == "label" and item.group_id
+    }
     page_specs = []
     for page_index in range(page_count):
         first_index = boundary_indices[page_index]
@@ -403,7 +410,12 @@ def prepare_excel_pages(
             if item.role != "label"
         ]
         records = [
-            (sequence_by_group[group_id], group_id, label_by_group.get(group_id, group_id))
+            (
+                sequence_by_group[group_id],
+                group_id,
+                label_by_group.get(group_id, group_id),
+                quantity_by_group.get(group_id, 1),
+            )
             for group_id in ordered_poles[first_index : last_index + 1]
         ]
         rotated_pole_centers = [
@@ -745,7 +757,7 @@ def _prepare_page(
     page_number: int,
     page_count: int,
     content_rotation: float = 0.0,
-    pole_records: list[tuple[int, str, str]] | None = None,
+    pole_records: list[tuple[int, str, str, int]] | None = None,
     scale_override: float | None = None,
 ) -> list[ExcelObject]:
     scale_objects = [item for item in objects if item.role != "road_name"]
@@ -794,7 +806,7 @@ def _prepare_page(
         if item.role == "pole" and item.group_id
     }
     sequences_by_center: dict[tuple[float, float], list[int]] = {}
-    for sequence, group_id, _detail in pole_records or []:
+    for sequence, group_id, _detail, _quantity in pole_records or []:
         if group_id not in pole_centers:
             continue
         x, y = pole_centers[group_id]
@@ -828,7 +840,7 @@ def _prepare_page(
 
 
 def _pole_schedule_objects(
-    records: list[tuple[int, str, str]],
+    records: list[tuple[int, str, str, int]],
     paper_w: float,
     paper_h: float,
     margin: float,
@@ -857,10 +869,11 @@ def _pole_schedule_objects(
                 ExcelObject("line", ((left, top), (right, top)), line_color=0, line_width=0.6, role="schedule"),
                 ExcelObject("line", ((left, top + row_h), (right, top + row_h)), line_color=0, line_width=0.6, role="schedule"),
                 ExcelObject("text", ((left + 3, top + 1), (left + 35, top + row_h)), "No.", fill_color=0, font_size=7.0, role="schedule"),
-                ExcelObject("text", ((left + 38, top + 1), (right, top + row_h)), "Pole No. / Detail", fill_color=0, font_size=7.0, role="schedule"),
+                ExcelObject("text", ((left + 38, top + 1), (right - 72, top + row_h)), "Pole No. / Detail", fill_color=0, font_size=7.0, role="schedule"),
+                ExcelObject("text", ((right - 69, top + 1), (right, top + row_h)), "จำนวนติดตั้ง", fill_color=0, font_size=7.0, role="schedule"),
             ]
         )
-        for row, (sequence, group_id, detail) in enumerate(chunk, start=1):
+        for row, (sequence, group_id, detail, quantity) in enumerate(chunk, start=1):
             y = top + row_h * row
             display_detail = detail
             prefix = f"{group_id} "
@@ -869,16 +882,19 @@ def _pole_schedule_objects(
             objects.extend(
                 [
                     ExcelObject("text", ((left + 3, y + 1), (left + 35, y + row_h)), str(sequence), fill_color=0, font_size=7.0, role="schedule", group_id=group_id),
-                    ExcelObject("text", ((left + 38, y + 1), (right, y + row_h)), f"{group_id}  {display_detail}".strip(), fill_color=0, font_size=7.0, role="schedule", group_id=group_id),
+                    ExcelObject("text", ((left + 38, y + 1), (right - 72, y + row_h)), f"{group_id}  {display_detail}".strip(), fill_color=0, font_size=7.0, role="schedule", group_id=group_id),
+                    ExcelObject("text", ((right - 69, y + 1), (right, y + row_h)), str(quantity), fill_color=0, font_size=7.0, role="schedule", group_id=group_id),
                     ExcelObject("line", ((left, y + row_h), (right, y + row_h)), line_color=0, line_width=0.35, role="schedule"),
                 ]
             )
         divider_x = left + 35
+        quantity_x = right - 72
         table_bottom = top + row_h * (len(chunk) + 1)
         objects.extend(
             [
                 ExcelObject("line", ((left, top), (left, table_bottom)), line_color=0, line_width=0.6, role="schedule"),
                 ExcelObject("line", ((divider_x, top), (divider_x, table_bottom)), line_color=0, line_width=0.35, role="schedule"),
+                ExcelObject("line", ((quantity_x, top), (quantity_x, table_bottom)), line_color=0, line_width=0.35, role="schedule"),
                 ExcelObject("line", ((right, top), (right, table_bottom)), line_color=0, line_width=0.6, role="schedule"),
             ]
         )

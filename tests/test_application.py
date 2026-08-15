@@ -68,7 +68,8 @@ def test_main_window_can_show_poles(qtbot) -> None:
 
     assert window.pole_table.rowCount() == 1
     assert window.pole_table.item(0, 0).text() == "P-001"
-    assert window.pole_table.item(0, 4).text() == "Left"
+    assert window.pole_table.item(0, 4).text() == "1"
+    assert window.pole_table.item(0, 5).text() == "Left"
 
 
 def test_geometry_action_requires_route_and_poles(qtbot) -> None:
@@ -274,13 +275,13 @@ def test_main_window_marks_selected_rows_as_one_physical_pole(qtbot) -> None:
     poles = [Pole("6", 13.0, 100.0), Pole("7", 13.1, 100.1)]
     window.current_poles = poles
     window.show_poles(poles)
-    window.pole_table.setRangeSelected(QTableWidgetSelectionRange(0, 0, 1, 5), True)
+    window.pole_table.setRangeSelected(QTableWidgetSelectionRange(0, 0, 1, 6), True)
 
     window._mark_selected_rows_as_same_pole()
 
     assert window.same_pole_groups == [frozenset({"6", "7"})]
-    assert window.pole_table.item(0, 5).text() == "6 / 7"
-    assert window.pole_table.item(1, 5).text() == "6 / 7"
+    assert window.pole_table.item(0, 6).text() == "6 / 7"
+    assert window.pole_table.item(1, 6).text() == "6 / 7"
 
 
 def test_canvas_editor_hides_table_and_restores_workspace(qtbot) -> None:

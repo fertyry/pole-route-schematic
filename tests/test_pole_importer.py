@@ -28,6 +28,7 @@ def test_imports_csv_poles(tmp_path) -> None:
     assert [pole.number for pole in poles] == ["P-001", "P-002"]
     assert poles[0].side is PoleSide.LEFT
     assert poles[1].side is PoleSide.RIGHT
+    assert poles[0].installed_quantity == 1
 
 
 def test_imports_active_excel_worksheet(tmp_path) -> None:
@@ -43,6 +44,30 @@ def test_imports_active_excel_worksheet(tmp_path) -> None:
     assert len(poles) == 1
     assert poles[0].number == "P-101"
     assert poles[0].side is PoleSide.RIGHT
+    assert poles[0].installed_quantity == 1
+
+
+def test_imports_thai_installed_quantity_header(tmp_path) -> None:
+    source = tmp_path / "thai-quantity.xlsx"
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.append(
+        [
+            "\u0e25\u0e33\u0e14\u0e31\u0e1a\u0e17\u0e35\u0e48",
+            "\u0e2b\u0e21\u0e32\u0e22\u0e40\u0e25\u0e02\u0e40\u0e2a\u0e32",
+            "LATITUDE",
+            "LONGITUDE",
+            "\u0e08\u0e33\u0e19\u0e27\u0e19\u0e17\u0e35\u0e48\u0e15\u0e34\u0e14\u0e15\u0e31\u0e49\u0e07",
+            "Side",
+        ]
+    )
+    worksheet.append([1, "12MC/ม 201", "13.811239°", "100.650823°", 2, "R"])
+    workbook.save(source)
+
+    pole = import_poles(source)[0]
+
+    assert pole.number == "12MC/ม 201"
+    assert pole.installed_quantity == 2
 
 
 def test_rejects_missing_columns(tmp_path) -> None:
@@ -84,6 +109,7 @@ def test_imports_with_explicit_mapping_and_optional_fields_omitted(tmp_path) -> 
             "latitude": "Y Coordinate",
             "longitude": "X Coordinate",
             "detail": None,
+            "installed_quantity": None,
             "side": None,
         },
     )
@@ -91,6 +117,7 @@ def test_imports_with_explicit_mapping_and_optional_fields_omitted(tmp_path) -> 
     assert poles[0].number == "P-9"
     assert poles[0].detail == ""
     assert poles[0].side is PoleSide.UNKNOWN
+    assert poles[0].installed_quantity == 1
 
 
 @pytest.mark.parametrize(

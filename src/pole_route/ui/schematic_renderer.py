@@ -115,6 +115,7 @@ def render_schematic(scene: QGraphicsScene, layout: SchematicLayout, undo_stack:
         label = EditableTextItem(label_text, undo_stack)
         label.setData(0, "label")
         label.setData(1, pole.number)
+        label.setData(7, pole.installed_quantity)
         label.setBrush(QBrush(color))
         label.setFlags(EDITABLE_FLAGS)
         label_offset_y = -34 if pole.side is PoleSide.LEFT else 16
