@@ -34,6 +34,8 @@ class Route:
 
 class RouteType(StrEnum):
     MAIN_ROUTE = "Main route"
+    CROSS_ROAD = "Cross road / Large intersection"
+    T_JUNCTION = "T-junction branch"
     ROAD = "Road / Soi"
     BRIDGE = "Vehicle bridge"
     FOOTBRIDGE = "Footbridge"
@@ -52,12 +54,20 @@ class ClassifiedRoute:
     create_pole_line: bool = True
 
     def __post_init__(self) -> None:
-        if self.type in {RouteType.MAIN_ROUTE, RouteType.ROAD, RouteType.BRIDGE} and (
+        if self.type in {
+            RouteType.MAIN_ROUTE,
+            RouteType.CROSS_ROAD,
+            RouteType.T_JUNCTION,
+            RouteType.ROAD,
+            RouteType.BRIDGE,
+        } and (
             self.width_metres is None or self.width_metres <= 0
         ):
             raise ValueError(f"{self.type.value} requires a width greater than zero")
         if self.create_pole_line and self.type in {
             RouteType.MAIN_ROUTE,
+            RouteType.CROSS_ROAD,
+            RouteType.T_JUNCTION,
             RouteType.ROAD,
             RouteType.BRIDGE,
         } and (

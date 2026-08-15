@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from pole_route.domain.route import ClassifiedRoute, Route, RouteType
+from pole_route.geometry.junctions import prepare_manual_junctions
 
 
 class RouteImportDialog(QDialog):
@@ -28,11 +29,15 @@ class RouteImportDialog(QDialog):
         self.setWindowTitle("Classify KML LineStrings")
         self.resize(980, 700)
         self._routes = routes
+        self._confirmed_routes: list[ClassifiedRoute] | None = None
 
         intro = QLabel(
             "Choose every LineString to import, assign its meaning, and set road widths. "
             "One or more used lines may be Main routes. Pole offset 0 m places the pole "
-            "projection line on the road edge; it does not disable pole projection."
+            "projection line on the road edge; it does not disable pole projection. "
+            "Use Cross road for a large road drawn through the Main route, and T-junction "
+            "for a large branch whose endpoint touches the Main route. Use Road / Soi for "
+            "ordinary surroundings (normally fetched from OpenStreetMap)."
         )
         intro.setWordWrap(True)
 
@@ -135,6 +140,8 @@ class RouteImportDialog(QDialog):
         self._update_preview()
 
     def classified_routes(self) -> list[ClassifiedRoute]:
+        if self._confirmed_routes is not None:
+            return list(self._confirmed_routes)
         selections = []
         for row, _source_route in enumerate(self._routes):
             if self.table.item(row, 0).checkState() != Qt.CheckState.Checked:
@@ -178,11 +185,37 @@ class RouteImportDialog(QDialog):
                 "Select and use at least one Main route.",
             )
             return
+        prepared, changes, errors = prepare_manual_junctions(selections)
+        if errors:
+            QMessageBox.warning(
+                self,
+                "Large junction routes need correction",
+                "\n".join(errors)
+                + "\n\nEdit the source LineString or choose Road / Soi for an ordinary road.",
+            )
+            return
+        if changes:
+            answer = QMessageBox.question(
+                self,
+                "Connect junction routes",
+                "The following small drawing gaps can be connected automatically:\n\n"
+                + "\n".join(changes)
+                + "\n\nApply these corrections and import?",
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        self._confirmed_routes = prepared
         self.accept()
 
     def _update_width_state(self, row: int) -> None:
         route_type = RouteType(self.table.cellWidget(row, 2).currentData())
-        enabled = route_type in {RouteType.MAIN_ROUTE, RouteType.ROAD, RouteType.BRIDGE}
+        enabled = route_type in {
+            RouteType.MAIN_ROUTE,
+            RouteType.CROSS_ROAD,
+            RouteType.T_JUNCTION,
+            RouteType.ROAD,
+            RouteType.BRIDGE,
+        }
         self.table.cellWidget(row, 3).setEnabled(enabled)
         self.table.cellWidget(row, 5).setEnabled(
             enabled and self.table.item(row, 4).checkState() == Qt.CheckState.Checked
@@ -272,6 +305,8 @@ def draw_route_preview(
 
 ROUTE_TYPE_COLORS = {
     RouteType.MAIN_ROUTE: QColor("#2f80ed"),
+    RouteType.CROSS_ROAD: QColor("#eb5757"),
+    RouteType.T_JUNCTION: QColor("#f2994a"),
     RouteType.ROAD: QColor("#bdbdbd"),
     RouteType.BRIDGE: QColor("#f2c94c"),
     RouteType.FOOTBRIDGE: QColor("#f2994a"),

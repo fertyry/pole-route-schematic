@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added explicit `Cross road / Large intersection` and `T-junction branch` route types.
+- Added confirmation-based snapping for manual junction LineStrings with gaps up to 5 metres.
+- Added dedicated editable CAD layers for large cross roads and T-junction branches.
+- Suppressed duplicate OpenStreetMap roads near manually classified large junctions in DXF export.
+
+## Unreleased
+
 - Add metric DXF export for AutoCAD Map 3D with dedicated road, offset, pole,
   and label layers plus a reusable 1 m square pole block.
 - Filter OpenStreetMap surroundings to roads that genuinely connect to the Main

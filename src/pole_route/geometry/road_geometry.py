@@ -40,6 +40,7 @@ class RoadGeometry:
     pole_line_enabled: bool = True
     is_main_route: bool = False
     route_name: str = ""
+    route_type: RouteType = RouteType.ROAD
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +108,7 @@ def build_road_geometry(
         True,
         True,
         route.name,
+        RouteType.MAIN_ROUTE,
     )
 
 
@@ -118,7 +120,13 @@ def build_road_network_geometry(
     road_routes = [
         item
         for item in routes
-        if item.type in {RouteType.MAIN_ROUTE, RouteType.ROAD, RouteType.BRIDGE}
+        if item.type in {
+            RouteType.MAIN_ROUTE,
+            RouteType.CROSS_ROAD,
+            RouteType.T_JUNCTION,
+            RouteType.ROAD,
+            RouteType.BRIDGE,
+        }
     ]
     if not road_routes:
         raise RoadGeometryError("At least one road route is required")
@@ -197,6 +205,7 @@ def _build_road_with_projection(
         item.create_pole_line,
         item.type is RouteType.MAIN_ROUTE,
         item.route.name,
+        item.type,
     )
 
 

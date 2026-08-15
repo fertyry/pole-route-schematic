@@ -21,9 +21,12 @@ def test_dxf_export_contains_metric_layers_and_reusable_pole_block(tmp_path) -> 
 
     assert count >= 8
     assert "MAIN_CENTERLINE" in document
-    assert "ROAD_EDGE" in document
+    assert "MAIN_ROAD_EDGE" in document
+    assert "SOI_EDGE" in document
     assert "POLE_OFFSET" in document
     assert "POLE_1M" in document
+    assert "POLE_LABELS" in document
+    assert "ROAD_LABELS" in document
     assert "INSERT" in document
     assert "P1  Transformer" in document
     assert "\\U+" not in document
@@ -43,4 +46,6 @@ def test_dxf_export_escapes_thai_text_for_autocad(tmp_path) -> None:
 
     export_geometry_to_dxf(geometry, destination)
 
-    assert "\\U+0E16" in destination.read_text(encoding="ascii")
+    document = destination.read_text(encoding="utf-8")
+    assert route.name in document
+    assert "\\U+" not in document

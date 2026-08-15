@@ -5,8 +5,12 @@ from __future__ import annotations
 from math import atan2, degrees
 from pathlib import Path
 
-from shapely.geometry import LineString
+import ezdxf
+from ezdxf import units
+from shapely.geometry import GeometryCollection, LineString, MultiLineString
+from shapely.ops import nearest_points, unary_union
 
+from pole_route.domain.route import RouteType
 from pole_route.geometry.road_geometry import RoadNetworkGeometry
 
 
@@ -16,82 +20,74 @@ class DxfExportError(RuntimeError):
 
 LAYERS = (
     ("MAIN_CENTERLINE", 8, "DASHED"),
-    ("ROAD_EDGE", 7, "CONTINUOUS"),
-    ("CONTEXT_ROAD", 9, "CONTINUOUS"),
+    ("MAIN_ROAD_EDGE", 7, "CONTINUOUS"),
+    ("CROSS_CENTERLINE", 1, "DASHED"),
+    ("CROSS_ROAD_EDGE", 1, "CONTINUOUS"),
+    ("T_CENTERLINE", 30, "DASHED"),
+    ("T_ROAD_EDGE", 30, "CONTINUOUS"),
+    ("SOI_CENTERLINE", 8, "DASHED"),
+    ("SOI_EDGE", 9, "CONTINUOUS"),
     ("POLE_OFFSET", 3, "DASHED"),
     ("POLES", 1, "CONTINUOUS"),
-    ("LABELS", 7, "CONTINUOUS"),
+    ("POLE_LABELS", 7, "CONTINUOUS"),
+    ("ROAD_LABELS", 7, "CONTINUOUS"),
 )
 
 
 def export_geometry_to_dxf(geometry: RoadNetworkGeometry, path: str | Path) -> int:
-    """Write real metric geometry, CAD layers, and reusable pole blocks."""
+    """Write real metric geometry, Unicode labels, CAD layers, and pole blocks."""
     if not geometry.roads:
         raise DxfExportError("There is no road geometry to export.")
 
-    pairs: list[tuple[int, object]] = []
-
-    def add(code: int, value: object) -> None:
-        pairs.append((code, value))
-
-    add(0, "SECTION")
-    add(2, "HEADER")
-    add(9, "$ACADVER")
-    add(1, "AC1021")
-    add(9, "$INSUNITS")
-    add(70, 6)  # metres
-    add(0, "ENDSEC")
-
-    add(0, "SECTION")
-    add(2, "TABLES")
-    add(0, "TABLE")
-    add(2, "LTYPE")
-    add(70, 2)
-    _add_linetype(add, "CONTINUOUS", ())
-    _add_linetype(add, "DASHED", (0.6, -0.3))
-    add(0, "ENDTAB")
-    add(0, "TABLE")
-    add(2, "LAYER")
-    add(70, len(LAYERS))
+    document = ezdxf.new("R2010", setup=True)
+    document.units = units.M
+    if "THAI" not in document.styles:
+        document.styles.add("THAI", font="tahoma.ttf")
     for name, color, line_type in LAYERS:
-        add(0, "LAYER")
-        add(2, name)
-        add(70, 0)
-        add(62, color)
-        add(6, line_type)
-    add(0, "ENDTAB")
-    add(0, "ENDSEC")
+        if name not in document.layers:
+            document.layers.add(name, color=color, linetype=line_type)
 
-    add(0, "SECTION")
-    add(2, "BLOCKS")
-    add(0, "BLOCK")
-    add(8, "POLES")
-    add(2, "POLE_1M")
-    add(70, 0)
-    add(10, 0.0)
-    add(20, 0.0)
-    add(30, 0.0)
-    _add_polyline(add, "POLES", ((-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)), True)
-    add(0, "ENDBLK")
-    add(8, "POLES")
-    add(0, "ENDSEC")
+    pole_block = document.blocks.new("POLE_1M")
+    pole_block.add_lwpolyline(
+        ((-0.5, -0.5), (0.5, -0.5), (0.5, 0.5), (-0.5, 0.5)),
+        close=True,
+        dxfattribs={"layer": "POLES"},
+    )
+    modelspace = document.modelspace()
+    main_corridors = [
+        road.centerline.buffer(road.road_width_metres / 2.0, cap_style="flat")
+        for road in geometry.roads
+        if road.is_main_route
+    ]
+    main_corridor = unary_union(main_corridors) if main_corridors else None
 
-    add(0, "SECTION")
-    add(2, "ENTITIES")
+    export_roads = _deduplicate_context_roads(geometry)
+    labelled_roads: set[str] = set()
     object_count = 0
-    for road in geometry.roads:
-        center_layer = "MAIN_CENTERLINE" if road.is_main_route else "CONTEXT_ROAD"
-        _add_polyline(add, center_layer, tuple(road.centerline.coords))
-        _add_polyline(add, "ROAD_EDGE", tuple(road.left_edge.coords))
-        _add_polyline(add, "ROAD_EDGE", tuple(road.right_edge.coords))
-        object_count += 3
+    for road in export_roads:
+        center_layer, edge_layer = _road_layers(road)
+        _add_dxf_line(modelspace, center_layer, road.centerline)
+        object_count += 1
+        for edge in (road.left_edge, road.right_edge):
+            visible = (
+                edge
+                if road.is_main_route or main_corridor is None
+                else edge.difference(main_corridor.buffer(0.02))
+            )
+            for part in _line_parts(visible):
+                _add_dxf_line(modelspace, edge_layer, part)
+                object_count += 1
         if road.pole_line_enabled:
-            _add_polyline(add, "POLE_OFFSET", tuple(road.left_pole_line.coords))
-            _add_polyline(add, "POLE_OFFSET", tuple(road.right_pole_line.coords))
+            _add_dxf_line(modelspace, "POLE_OFFSET", road.left_pole_line)
+            _add_dxf_line(modelspace, "POLE_OFFSET", road.right_pole_line)
             object_count += 2
-        if road.route_name:
+        normalized_name = _normalized_road_name(road.route_name)
+        if normalized_name and normalized_name not in labelled_roads:
+            labelled_roads.add(normalized_name)
             midpoint = road.centerline.interpolate(road.centerline.length / 2.0)
-            _add_text(add, "LABELS", midpoint.x, midpoint.y, road.route_name, 2.5)
+            _add_dxf_text(
+                modelspace, "ROAD_LABELS", midpoint.x, midpoint.y, road.route_name, 2.5
+            )
             object_count += 1
 
     rendered_poles: set[tuple[float, float]] = set()
@@ -101,14 +97,18 @@ def export_geometry_to_dxf(geometry: RoadNetworkGeometry, path: str | Path) -> i
             rendered_poles.add(position)
             road = geometry.roads[projected.route_index]
             rotation = _line_angle(road.centerline, road.centerline.project(projected.snapped))
-            _add_insert(add, "POLES", "POLE_1M", projected.snapped.x, projected.snapped.y, rotation)
+            modelspace.add_blockref(
+                "POLE_1M",
+                (projected.snapped.x, projected.snapped.y),
+                dxfattribs={"layer": "POLES", "rotation": rotation},
+            )
             object_count += 1
         label = projected.pole.number
         if projected.pole.detail:
             label += f"  {projected.pole.detail}"
-        _add_text(
-            add,
-            "LABELS",
+        _add_dxf_text(
+            modelspace,
+            "POLE_LABELS",
             projected.snapped.x + 1.5,
             projected.snapped.y + 1.5,
             label,
@@ -116,14 +116,92 @@ def export_geometry_to_dxf(geometry: RoadNetworkGeometry, path: str | Path) -> i
         )
         object_count += 1
 
-    add(0, "ENDSEC")
-    add(0, "EOF")
-    document = "\n".join(f"{code}\n{_format(value)}" for code, value in pairs) + "\n"
     try:
-        Path(path).write_text(document, encoding="ascii")
-    except OSError as error:
+        document.saveas(Path(path))
+    except (OSError, ezdxf.DXFError) as error:
         raise DxfExportError(f"DXF could not be saved: {error}") from error
     return object_count
+
+
+def _add_dxf_line(modelspace, layer: str, line: LineString) -> None:
+    if len(line.coords) >= 2:
+        modelspace.add_lwpolyline(line.coords, dxfattribs={"layer": layer})
+
+
+def _add_dxf_text(
+    modelspace, layer: str, x: float, y: float, value: str, height: float
+) -> None:
+    modelspace.add_text(
+        value,
+        height=height,
+        dxfattribs={"layer": layer, "style": "THAI"},
+    ).set_placement((x, y))
+
+
+def _deduplicate_context_roads(geometry: RoadNetworkGeometry):
+    """Collapse split OSM carriageways at the same named junction for CAD."""
+    main_roads = [road for road in geometry.roads if road.is_main_route]
+    manual_roads = [
+        road
+        for road in geometry.roads
+        if road.route_type in {RouteType.CROSS_ROAD, RouteType.T_JUNCTION}
+    ]
+    context_roads = [
+        road
+        for road in geometry.roads
+        if not road.is_main_route and road not in manual_roads
+    ]
+    if not main_roads:
+        return tuple(geometry.roads)
+    main_axis = unary_union([road.centerline for road in main_roads])
+    accepted = []
+    junctions: list[tuple[str, object]] = []
+    for road in context_roads:
+        anchor, _ = nearest_points(main_axis, road.centerline)
+        if any(
+            anchor.distance(nearest_points(main_axis, manual.centerline)[0])
+            <= max(12.0, manual.road_width_metres / 2.0 + 5.0)
+            for manual in manual_roads
+        ):
+            continue
+        name = _normalized_road_name(road.route_name)
+        duplicate_distance = 12.0 if name else 6.0
+        if any(
+            existing_name == name and anchor.distance(existing_anchor) <= duplicate_distance
+            for existing_name, existing_anchor in junctions
+        ):
+            continue
+        junctions.append((name, anchor))
+        accepted.append(road)
+    return tuple(main_roads + manual_roads + accepted)
+
+
+def _road_layers(road) -> tuple[str, str]:
+    if road.route_type is RouteType.MAIN_ROUTE:
+        return "MAIN_CENTERLINE", "MAIN_ROAD_EDGE"
+    if road.route_type is RouteType.CROSS_ROAD:
+        return "CROSS_CENTERLINE", "CROSS_ROAD_EDGE"
+    if road.route_type is RouteType.T_JUNCTION:
+        return "T_CENTERLINE", "T_ROAD_EDGE"
+    return "SOI_CENTERLINE", "SOI_EDGE"
+
+
+def _normalized_road_name(value: str) -> str:
+    name = value.strip()
+    return "" if not name or name.startswith("Unnamed") else name.casefold()
+
+
+def _line_parts(geometry) -> tuple[LineString, ...]:
+    if isinstance(geometry, LineString):
+        return (geometry,) if geometry.length > 0 else ()
+    if isinstance(geometry, (MultiLineString, GeometryCollection)):
+        return tuple(
+            part
+            for child in geometry.geoms
+            for part in _line_parts(child)
+            if part.length > 0
+        )
+    return ()
 
 
 def _add_linetype(add, name: str, segments: tuple[float, ...]) -> None:
@@ -136,20 +214,27 @@ def _add_linetype(add, name: str, segments: tuple[float, ...]) -> None:
     add(40, sum(abs(value) for value in segments))
     for value in segments:
         add(49, value)
-        add(74, 0)
 
 
 def _add_polyline(add, layer: str, points, closed: bool = False) -> None:
     points = tuple(points)
     if len(points) < 2:
         return
-    add(0, "LWPOLYLINE")
+    add(0, "POLYLINE")
     add(8, layer)
-    add(90, len(points))
+    add(66, 1)
+    add(10, 0.0)
+    add(20, 0.0)
+    add(30, 0.0)
     add(70, 1 if closed else 0)
     for x, y in points:
+        add(0, "VERTEX")
+        add(8, layer)
         add(10, float(x))
         add(20, float(y))
+        add(30, 0.0)
+    add(0, "SEQEND")
+    add(8, layer)
 
 
 def _add_insert(add, layer: str, name: str, x: float, y: float, rotation: float) -> None:
