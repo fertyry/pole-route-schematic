@@ -110,3 +110,46 @@ def test_create_cad_sheets_from_edited_dxf_rebuilds_perpendicular_labels(tmp_pat
     assert any(entity.dxf.text.startswith("P1") and entity.dxf.rotation == 90.0 for entity in labels)
     assert result.layers.get("POLE_LABELS").dxf.plot == 0
     assert len([entity for entity in first_sheet.query("VIEWPORT") if entity.dxf.status == 2]) == 1
+
+
+def test_cad_sheet_alignment_uses_edited_poles_not_moved_break_marker(tmp_path) -> None:
+    source = tmp_path / "edited.dxf"
+    baseline = tmp_path / "baseline.dxf"
+    destination = tmp_path / "sheets.dxf"
+    _export_test_master(source)
+    export_edited_dxf_with_sheet_layouts(source, baseline)
+    document = ezdxf.readfile(source)
+    sheet_break = next(iter(document.modelspace().query('INSERT[name=="PRS_SHEET_BREAK"]')))
+    sheet_break.dxf.insert = (999999.0, -999999.0)
+    document.saveas(source)
+
+    export_edited_dxf_with_sheet_layouts(source, destination)
+
+    result = ezdxf.readfile(destination)
+    expected = ezdxf.readfile(baseline)
+    for name in (item for item in result.layout_names() if item.startswith("Sheet ")):
+        viewport = next(entity for entity in result.layouts.get(name).query("VIEWPORT") if entity.dxf.status == 2)
+        baseline_viewport = next(entity for entity in expected.layouts.get(name).query("VIEWPORT") if entity.dxf.status == 2)
+        assert float(viewport.dxf.view_twist_angle) == pytest.approx(
+            float(baseline_viewport.dxf.view_twist_angle)
+        )
+        assert tuple(viewport.dxf.view_center_point) == pytest.approx(
+            tuple(baseline_viewport.dxf.view_center_point)
+        )
+
+
+def test_cad_sheets_repeat_main_road_name_horizontally_in_paper_space(tmp_path) -> None:
+    source = tmp_path / "edited.dxf"
+    destination = tmp_path / "sheets.dxf"
+    _export_test_master(source)
+
+    export_edited_dxf_with_sheet_layouts(source, destination)
+
+    result = ezdxf.readfile(destination)
+    first_sheet = result.layouts.get("Sheet 01")
+    names = [
+        entity for entity in first_sheet.query('TEXT[layer=="SHEET_TABLE"]')
+        if entity.dxf.text == "Main"
+    ]
+    assert len(names) == 1
+    assert names[0].dxf.rotation == 0.0

@@ -72,22 +72,33 @@ def export_edited_dxf_with_sheet_layouts(
     if not poles:
         raise DxfExportError("The edited DXF contains no PoleRoute pole blocks.")
     breaks = tuple(sorted(inspection.sheet_breaks, key=lambda item: item.station_metres))
-    boundaries = [(poles[0].x, poles[0].y)]
-    boundaries.extend((item.x, item.y) for item in breaks)
-    boundaries.append((poles[-1].x, poles[-1].y))
-    spans = [hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(boundaries, boundaries[1:])]
-    scale = min(0.68, 250.0 / max(max(spans, default=1.0) + 20.0, 1.0))
+    station_boundaries = [poles[0].station_metres]
+    station_boundaries.extend(item.station_metres for item in breaks)
+    station_boundaries.append(poles[-1].station_metres)
+    page_pole_groups = [
+        [
+            pole for pole in poles
+            if start_station - 0.01 <= pole.station_metres <= end_station + 0.01
+        ]
+        for start_station, end_station in zip(station_boundaries, station_boundaries[1:])
+    ]
+    # A sheet-break block is only a stable station marker.  Its XY may be left
+    # behind when a CAD user moves the road or poles, so never use that XY to
+    # orient a sheet.  The edited pole positions are the authoritative axis.
+    page_axes = [_page_axis_from_edited_poles(group) for group in page_pole_groups]
+    spans = [axis[2] for axis in page_axes]
+    scale = min(0.68, 250.0 / max(max(spans, default=1.0), 1.0))
+    main_road_name = _prepare_main_road_label_for_sheets(document, poles)
 
     count = 0
-    total = len(boundaries) - 1
-    for index, (start, end) in enumerate(zip(boundaries, boundaries[1:]), start=1):
+    total = len(page_pole_groups)
+    for index, (page_poles, axis) in enumerate(zip(page_pole_groups, page_axes), start=1):
         layout = document.layouts.new(f"Sheet {index:02d}")
         if index == 1 and temporary_layout in document.layout_names():
             document.layouts.delete(temporary_layout)
         layout.page_setup(size=(297, 210), margins=(5, 5, 5, 5), units="mm", device="DWG to PDF.pc3")
         count += _draw_sheet_frame(layout, settings, index, total)
-        angle = atan2(end[1] - start[1], end[0] - start[0])
-        center = ((start[0] + end[0]) / 2.0, (start[1] + end[1]) / 2.0)
+        center, angle, _span = axis
         dcs_center = (
             center[0] * cos(angle) + center[1] * sin(angle),
             -center[0] * sin(angle) + center[1] * cos(angle),
@@ -102,10 +113,9 @@ def export_edited_dxf_with_sheet_layouts(
             dxfattribs={"layer": "SHEET_VIEWPORT", "view_twist_angle": -degrees(angle)},
         )
         count += 1
-        start_station = poles[0].station_metres if index == 1 else breaks[index - 2].station_metres
-        end_station = poles[-1].station_metres if index == total else breaks[index - 1].station_metres
-        page_poles = [pole for pole in poles if start_station - 0.01 <= pole.station_metres <= end_station + 0.01]
         count += _draw_edited_pole_labels(layout, page_poles, center, angle, scale, paper_center)
+        if main_road_name:
+            count += _draw_sheet_main_road_name(layout, main_road_name)
         count += _draw_edited_pole_table(layout, page_poles)
         count += _draw_north_arrow(layout, angle)
 
@@ -114,6 +124,51 @@ def export_edited_dxf_with_sheet_layouts(
     except (OSError, ezdxf.DXFError) as error:
         raise DxfExportError(f"Sheeted DXF could not be saved: {error}") from error
     return count
+
+
+def _page_axis_from_edited_poles(poles):
+    """Return viewport center, angle, and span from edited physical poles."""
+    if not poles:
+        return (0.0, 0.0), 0.0, 1.0
+    start, end = poles[0], poles[-1]
+    span = hypot(end.x - start.x, end.y - start.y)
+    if span > 0.01:
+        angle = atan2(end.y - start.y, end.x - start.x)
+    else:
+        angle = start.rotation * 3.141592653589793 / 180.0
+        span = 1.0
+    return ((start.x + end.x) / 2.0, (start.y + end.y) / 2.0), angle, span
+
+
+def _prepare_main_road_label_for_sheets(document, poles) -> str:
+    """Find the route-parallel road name and hide only its model-space text."""
+    labels = list(document.modelspace().query('TEXT[layer=="ROAD_LABELS"]'))
+    if not labels or len(poles) < 2:
+        return ""
+    route_angle = degrees(atan2(poles[-1].y - poles[0].y, poles[-1].x - poles[0].x))
+
+    def score(entity):
+        angle_delta = abs(((float(entity.dxf.rotation) - route_angle + 90.0) % 180.0) - 90.0)
+        point = Point(float(entity.dxf.insert.x), float(entity.dxf.insert.y))
+        pole_axis = LineString([(pole.x, pole.y) for pole in poles])
+        return angle_delta * 10.0 + point.distance(pole_axis)
+
+    label = min(labels, key=score)
+    text = str(label.dxf.text).strip()
+    # Keep soi/cross-road labels in the viewport, but suppress this duplicate;
+    # a clean horizontal copy is placed in Paper Space on every sheet.
+    label.dxf.layer = "POLE_LABELS"
+    return text
+
+
+def _draw_sheet_main_road_name(layout, text: str) -> int:
+    """Place the main-road name horizontally below the road viewport center."""
+    entity = layout.add_text(
+        text,
+        dxfattribs={"layer": "SHEET_TABLE", "height": 2.2, "rotation": 0.0},
+    )
+    entity.set_placement((148.5, 92.0))
+    return 1
 
 
 def _draw_edited_pole_labels(layout, poles, center, angle, scale, paper_center) -> int:
