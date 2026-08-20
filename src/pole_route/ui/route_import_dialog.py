@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from pole_route.domain.route import ClassifiedRoute, Route, RouteType
 from pole_route.geometry.junctions import prepare_manual_junctions
+from pole_route.ui.scene_lifecycle import clear_scene
 
 
 class RouteImportDialog(QDialog):
@@ -280,7 +281,7 @@ def draw_route_preview(
     *,
     show_direction: bool = False,
 ) -> None:
-    scene.clear()
+    clear_scene(scene)
     margin = 24.0
     longitudes = [point.longitude for point in route.points]
     latitudes = [point.latitude for point in route.points]
@@ -324,7 +325,7 @@ def draw_classified_routes_preview(
     height: float,
 ) -> None:
     """Fit and draw all selected routes in one shared geographic preview."""
-    scene.clear()
+    clear_scene(scene)
     margin = 24.0
     points = [point for route, _route_type in routes_with_types for point in route.points]
     min_longitude = min(point.longitude for point in points)

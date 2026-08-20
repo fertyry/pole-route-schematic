@@ -27,6 +27,7 @@ from pole_route.exporters.excel_exporter import (
     prepare_excel_objects,
     prepare_excel_pages,
 )
+from pole_route.ui.scene_lifecycle import clear_scene
 
 
 class ExcelExportDialog(QDialog):
@@ -234,7 +235,7 @@ class ExcelExportDialog(QDialog):
             pages = prepare_excel_pages(self.source_objects, self.settings())
             self.current_page = min(self.current_page, len(pages) - 1)
             self.preview.setUpdatesEnabled(False)
-            self.preview_scene.clear()
+            clear_scene(self.preview_scene)
             for item in pages[self.current_page]:
                 _draw_preview_object(self.preview_scene, item)
             if self.preview_scene.items():

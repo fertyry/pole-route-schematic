@@ -64,6 +64,7 @@ from pole_route.project.storage import (
     save_project_file,
     scene_to_data,
 )
+from pole_route.project.working_directory import WorkingDirectory
 from pole_route.ui.column_mapping_dialog import ColumnMappingDialog
 from pole_route.ui.drawing_view import DrawingMode, DrawingView
 from pole_route.ui.duplicate_pole_dialog import (
@@ -86,6 +87,7 @@ from pole_route.ui.osm_context_dialog import OSMContextDialog
 from pole_route.ui.osm_context_worker import OSMContextWorker
 from pole_route.ui.project_info_dialog import ProjectInfoDialog
 from pole_route.ui.route_import_dialog import RouteImportDialog, draw_classified_routes_preview
+from pole_route.ui.scene_lifecycle import clear_scene
 from pole_route.ui.schematic_renderer import render_schematic
 from pole_route.ui.schematic_settings_dialog import SchematicSettingsDialog
 
@@ -108,10 +110,13 @@ class MainWindow(QMainWindow):
         self.project_path: str | None = None
         self.project_dirty = False
         self._changing_project = False
+        self.working_directory = WorkingDirectory()
         self.undo_stack = QUndoStack(self)
         self._osm_thread: QThread | None = None
         self._osm_worker: OSMContextWorker | None = None
         self._osm_progress: QProgressDialog | None = None
+        self._pending_osm_context = None
+        self._pending_osm_error: str | None = None
         self.undo_stack.cleanChanged.connect(self._undo_clean_changed)
         self.setWindowTitle("PoleRoute Schematic - V2 Preview")
         self.resize(1100, 720)
@@ -463,10 +468,11 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Import road centerline",
-            "",
+            self.working_directory.initial_path(),
             "Google Earth route (*.kml *.kmz)",
         )
         if path:
+            self.working_directory.remember_file(path)
             self.load_route_file(path)
 
     def load_route_file(self, path: str) -> None:
@@ -520,6 +526,8 @@ class MainWindow(QMainWindow):
         progress.setAutoClose(False)
         progress.setAutoReset(False)
         self._osm_progress = progress
+        self._pending_osm_context = None
+        self._pending_osm_error = None
 
         thread = QThread(self)
         worker = OSMContextWorker(self.current_route)
@@ -529,21 +537,20 @@ class MainWindow(QMainWindow):
         worker.failed.connect(self._surroundings_failed)
         worker.finished.connect(thread.quit)
         worker.finished.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
         thread.finished.connect(self._surroundings_fetch_finished)
+        thread.finished.connect(thread.deleteLater)
         self._osm_thread = thread
         self._osm_worker = worker
         progress.show()
         thread.start()
 
     def _surroundings_failed(self, message: str) -> None:
-        self._close_osm_progress()
-        QMessageBox.warning(self, "OpenStreetMap fetch failed", message)
-        self.statusBar().showMessage("Could not fetch OpenStreetMap surroundings")
+        self._pending_osm_error = message
 
     def _surroundings_ready(self, context) -> None:
-        self._close_osm_progress()
+        self._pending_osm_context = context
 
+    def _review_surroundings(self, context) -> None:
         if not context.roads and not context.places:
             QMessageBox.information(
                 self,
@@ -583,6 +590,15 @@ class MainWindow(QMainWindow):
         self._osm_worker = None
         self._close_osm_progress()
         self.fetch_surroundings_action.setEnabled(self.current_route is not None)
+        error = self._pending_osm_error
+        context = self._pending_osm_context
+        self._pending_osm_error = None
+        self._pending_osm_context = None
+        if error is not None:
+            QMessageBox.warning(self, "OpenStreetMap fetch failed", error)
+            self.statusBar().showMessage("Could not fetch OpenStreetMap surroundings")
+        elif context is not None:
+            self._review_surroundings(context)
 
     def _close_osm_progress(self) -> None:
         if self._osm_progress is not None:
@@ -676,13 +692,14 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Export editable Excel drawing",
-            "PoleRoute-Schematic.xlsx",
+            self.working_directory.initial_path("PoleRoute-Schematic.xlsx"),
             "Excel workbook (*.xlsx)",
         )
         if not path:
             return
         if not path.lower().endswith(".xlsx"):
             path += ".xlsx"
+        self.working_directory.remember_file(path)
         pages = dialog.export_pages()
         progress = QProgressDialog(
             "Starting Microsoft Excel...", "", 0, len(pages) + 1, self
@@ -741,13 +758,14 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Export metric AutoCAD drawing",
-            "PoleRoute-Schematic.dxf",
+            self.working_directory.initial_path("PoleRoute-Schematic.dxf"),
             "AutoCAD DXF (*.dxf)",
         )
         if not path:
             return
         if not path.lower().endswith(".dxf"):
             path += ".dxf"
+        self.working_directory.remember_file(path)
         try:
             object_count = export_geometry_to_dxf(
                 self.current_geometry,
@@ -771,11 +789,12 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Import edited CAD Master",
-            "",
+            self.working_directory.initial_path(),
             "AutoCAD DXF (*.dxf)",
         )
         if not path:
             return
+        self.working_directory.remember_file(path)
         try:
             inspection = inspect_edited_dxf(
                 path, tuple(pole.number for pole in self.current_poles)
@@ -805,13 +824,14 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Save CAD drawing with A4 sheets",
-            "PoleRoute-Schematic-sheets.dxf",
+            self.working_directory.initial_path("PoleRoute-Schematic-sheets.dxf"),
             "AutoCAD DXF (*.dxf)",
         )
         if not path:
             return
         if not path.lower().endswith(".dxf"):
             path += ".dxf"
+        self.working_directory.remember_file(path)
         try:
             object_count = export_edited_dxf_with_sheet_layouts(
                 self.edited_dxf["source_path"], path, self.export_settings
@@ -902,10 +922,11 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Import pole data",
-            "",
+            self.working_directory.initial_path(),
             "Pole data (*.xlsx *.csv)",
         )
         if path:
+            self.working_directory.remember_file(path)
             self.load_pole_file(path)
 
     def load_pole_file(self, path: str) -> None:
@@ -1026,9 +1047,13 @@ class MainWindow(QMainWindow):
         if not self._confirm_discard_changes():
             return
         path, _ = QFileDialog.getOpenFileName(
-            self, "Open PoleRoute project", "", "PoleRoute project (*.prs)"
+            self,
+            "Open PoleRoute project",
+            self.working_directory.initial_path(),
+            "PoleRoute project (*.prs)",
         )
         if path:
+            self.working_directory.remember_file(path)
             self.open_project(path)
 
     def _new_project(self) -> None:
@@ -1047,7 +1072,7 @@ class MainWindow(QMainWindow):
             self.edited_dxf = None
             self.export_settings = ExcelExportSettings()
             self.project_path = None
-            self.route_scene.clear()
+            clear_scene(self.route_scene)
             self.route_scene.setSceneRect(0, 0, 1000, 600)
             self.pole_table.setRowCount(0)
             self.undo_stack.clear()
@@ -1069,13 +1094,15 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Save PoleRoute project",
-            self.project_path or "PoleRoute-Schematic.prs",
+            self.project_path
+            or self.working_directory.initial_path("PoleRoute-Schematic.prs"),
             "PoleRoute project (*.prs)",
         )
         if not path:
             return False
         if not path.lower().endswith(".prs"):
             path += ".prs"
+        self.working_directory.remember_file(path)
         return self._write_project(path)
 
     def _write_project(self, path: str | None) -> bool:
@@ -1098,10 +1125,12 @@ class MainWindow(QMainWindow):
                     "edited_dxf": self.edited_dxf,
                 },
             )
-        except ProjectFileError as error:
+        except (ProjectFileError, RuntimeError, TypeError, ValueError) as error:
             QMessageBox.warning(self, "Project save failed", str(error))
+            self.statusBar().showMessage("Project save failed")
             return False
         self.project_path = path
+        self.working_directory.remember_file(path)
         self._mark_clean()
         self.statusBar().showMessage(f"Saved project to {path}")
         return True
@@ -1144,6 +1173,7 @@ class MainWindow(QMainWindow):
             self.undo_stack.clear()
             restore_scene(self.route_scene, document.get("canvas", {}), self.undo_stack)
             self.project_path = path
+            self.working_directory.remember_file(path)
             has_schematic = bool(document.get("has_schematic"))
             self.build_geometry_action.setEnabled(bool(routes) and bool(poles))
             self.fetch_surroundings_action.setEnabled(bool(main_routes))

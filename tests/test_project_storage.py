@@ -1,3 +1,6 @@
+import gc
+
+import pytest
 from PySide6.QtCore import QPointF
 from PySide6.QtGui import QUndoStack
 from PySide6.QtWidgets import QGraphicsScene
@@ -12,12 +15,14 @@ from pole_route.project.storage import (
     poles_to_data,
     restore_scene,
     routes_from_data,
+    ProjectFileError,
     routes_to_data,
     save_project_file,
     scene_to_data,
 )
 from pole_route.ui.editor_commands import EditableTextItem
 from pole_route.ui.geometry_renderer import render_road_geometry
+from pole_route.ui.route_import_dialog import draw_classified_routes_preview
 from pole_route.ui.schematic_renderer import EDITABLE_FLAGS, render_schematic
 
 
@@ -96,3 +101,78 @@ def test_metric_preview_text_can_be_saved_and_restored(qapp) -> None:
         if hasattr(item, "toPlainText")
     ]
     assert labels == ["P-1"]
+
+
+def test_route_preview_can_be_serialized_repeatedly_without_losing_items(qapp) -> None:
+    routes, _poles = _project_inputs()
+    source = QGraphicsScene()
+    draw_classified_routes_preview(
+        source, [(routes[0].route, routes[0].type)], 960, 540
+    )
+
+    expected_count = len(source.items())
+    expected_rect = source.sceneRect()
+
+    for _ in range(3):
+        assert scene_to_data(source)["items"]
+        gc.collect()
+        qapp.processEvents()
+        assert len(source.items()) == expected_count
+        assert source.sceneRect() == expected_rect
+
+
+def test_repeated_project_save_is_read_only_to_live_canvas_and_reopens(qapp, tmp_path) -> None:
+    routes, poles = _project_inputs()
+    source = QGraphicsScene()
+    render_schematic(
+        source,
+        create_schematic_layout(build_road_network_geometry(routes, poles)),
+        QUndoStack(),
+    )
+    expected_count = len(source.items())
+    expected_rect = source.sceneRect()
+    expected_visible = sum(item.isVisible() for item in source.items())
+    path = tmp_path / "repeat-save.prs"
+
+    for _ in range(3):
+        save_project_file(path, {"canvas": scene_to_data(source)})
+        gc.collect()
+        qapp.processEvents()
+        assert len(source.items()) == expected_count
+        assert source.sceneRect() == expected_rect
+        assert sum(item.isVisible() for item in source.items()) == expected_visible
+
+    restored = QGraphicsScene()
+    restore_scene(restored, load_project_file(path)["canvas"], QUndoStack())
+    assert len(restored.items()) == expected_count
+    assert restored.sceneRect() == expected_rect
+    assert sum(item.isVisible() for item in restored.items()) == expected_visible
+
+
+def test_schematic_round_trip_preserves_installed_quantity_and_physical_kind(qapp) -> None:
+    routes, poles = _project_inputs()
+    source = QGraphicsScene()
+    render_schematic(
+        source,
+        create_schematic_layout(build_road_network_geometry(routes, poles)),
+        QUndoStack(),
+    )
+
+    saved = scene_to_data(source)
+    restored = QGraphicsScene()
+    restore_scene(restored, saved, QUndoStack())
+
+    label = next(item for item in restored.items() if item.data(0) == "label")
+    pole = next(item for item in restored.items() if item.data(0) == "pole")
+    assert label.data(7) == 2
+    assert pole.data(8) == "single"
+
+
+def test_failed_serialization_does_not_replace_existing_project(tmp_path) -> None:
+    path = tmp_path / "existing.prs"
+    save_project_file(path, {"value": "original"})
+
+    with pytest.raises(ProjectFileError):
+        save_project_file(path, {"value": object()})
+
+    assert load_project_file(path)["value"] == "original"

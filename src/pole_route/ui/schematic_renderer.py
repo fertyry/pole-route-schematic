@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 from pole_route.domain.pole import PoleSide
 from pole_route.domain.schematic import SchematicLayout
 from pole_route.ui.editor_commands import EditableItemGroup, EditableRectItem, EditableTextItem
+from pole_route.ui.scene_lifecycle import clear_scene
 
 EDITABLE_FLAGS = (
     QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
@@ -23,7 +24,7 @@ EDITABLE_FLAGS = (
 
 def render_schematic(scene: QGraphicsScene, layout: SchematicLayout, undo_stack: QUndoStack) -> None:
     """Replace the scene with individually editable schematic objects."""
-    scene.clear()
+    clear_scene(scene)
     road_group = EditableItemGroup(undo_stack)
     road_group.setData(0, "road")
     road_group.setFlags(EDITABLE_FLAGS)

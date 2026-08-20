@@ -106,6 +106,91 @@ def test_fetch_surroundings_requires_a_main_route(qtbot) -> None:
     assert not window.create_cad_sheets_action.isEnabled()
 
 
+def test_osm_review_waits_until_worker_thread_cleanup(qtbot, monkeypatch) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    reviewed = []
+    context = object()
+    monkeypatch.setattr(window, "_review_surroundings", reviewed.append)
+
+    window._surroundings_ready(context)
+    assert reviewed == []
+
+    window._surroundings_fetch_finished()
+    assert reviewed == [context]
+
+
+def test_save_after_accepted_osm_context_round_trips_routes(qtbot, tmp_path) -> None:
+    from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
+
+    main_route = ClassifiedRoute(
+        Route("Main", "route.kml", (GeoPoint(100, 13), GeoPoint(100.01, 13.01))),
+        RouteType.MAIN_ROUTE,
+        6.0,
+        2.0,
+    )
+    context_route = ClassifiedRoute(
+        Route(
+            "Soi Test",
+            "OpenStreetMap:way/1",
+            (GeoPoint(100.004, 13.004), GeoPoint(100.006, 13.006)),
+        ),
+        RouteType.ROAD,
+        4.0,
+        None,
+        False,
+    )
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.current_route = main_route.route
+    window.current_routes = [main_route, context_route]
+    window.current_context_routes = [context_route]
+    window.show_routes(window.current_routes)
+    path = tmp_path / "after-fetch.prs"
+
+    assert window._write_project(str(path))
+
+    reopened = MainWindow()
+    qtbot.addWidget(reopened)
+    assert reopened.open_project(str(path))
+    assert reopened.current_routes == [main_route, context_route]
+    assert reopened.current_context_routes == [context_route]
+    assert reopened.route_scene.items()
+
+
+def test_save_after_build_geometry_round_trips_project_state(qtbot, tmp_path) -> None:
+    from pole_route.domain.pole import Pole, PoleSide
+    from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
+
+    route = ClassifiedRoute(
+        Route("Main", "route.kml", (GeoPoint(100, 13), GeoPoint(100.01, 13.01))),
+        RouteType.MAIN_ROUTE,
+        6.0,
+        2.0,
+    )
+    poles = [Pole("P-1", 13.005, 100.005, "Transformer", PoleSide.RIGHT, 2)]
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.current_route = route.route
+    window.current_routes = [route]
+    window.current_poles = poles
+    window.show_poles(poles)
+    window.show_routes([route])
+    window._build_geometry()
+    path = tmp_path / "after-build.prs"
+
+    assert window.current_geometry is not None
+    assert window._write_project(str(path))
+
+    reopened = MainWindow()
+    qtbot.addWidget(reopened)
+    assert reopened.open_project(str(path))
+    assert reopened.current_routes == [route]
+    assert reopened.current_poles == poles
+    assert reopened.current_geometry is not None
+    assert reopened.route_scene.items()
+
+
 def test_osm_context_dialog_requires_confirmation_and_returns_checked_roads(qtbot) -> None:
     from pole_route.domain.context import ContextRoad, OSMContext
     from pole_route.domain.route import GeoPoint, Route

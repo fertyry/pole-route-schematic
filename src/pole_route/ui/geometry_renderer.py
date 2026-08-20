@@ -9,6 +9,7 @@ from shapely.geometry import LineString, Point
 
 from pole_route.domain.pole import PoleSide
 from pole_route.geometry.road_geometry import RoadGeometry, RoadNetworkGeometry
+from pole_route.ui.scene_lifecycle import clear_scene
 
 
 def render_road_geometry(
@@ -18,7 +19,7 @@ def render_road_geometry(
     height: float = 540,
 ) -> None:
     """Draw scaled metric geometry while preserving its aspect ratio."""
-    scene.clear()
+    clear_scene(scene)
     roads = geometry.roads if isinstance(geometry, RoadNetworkGeometry) else (geometry,)
     lines = tuple(
         line

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import tempfile
 from typing import Any
 
 from PySide6.QtCore import QLineF, QPointF, QRectF, Qt
@@ -29,6 +31,7 @@ from pole_route.ui.editor_commands import (
     EditableRectItem,
     EditableTextItem,
 )
+from pole_route.ui.scene_lifecycle import clear_scene, retain_scene_items
 from pole_route.ui.schematic_renderer import EDITABLE_FLAGS
 
 PROJECT_VERSION = 1
@@ -40,12 +43,30 @@ class ProjectFileError(RuntimeError):
 
 def save_project_file(path: str | Path, payload: dict[str, Any]) -> None:
     document = {"format": "PoleRoute Schematic", "version": PROJECT_VERSION, **payload}
+    destination = Path(path)
+    temporary_path: Path | None = None
     try:
-        Path(path).write_text(
-            json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8"
+        serialized = json.dumps(document, ensure_ascii=False, indent=2)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
         )
+        temporary_path = Path(temporary_name)
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as handle:
+            handle.write(serialized)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, destination)
     except (OSError, TypeError, ValueError) as error:
         raise ProjectFileError(f"Project could not be saved: {error}") from error
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                # The destination has already been replaced successfully, or
+                # the original save error is more useful than cleanup failure.
+                pass
 
 
 def load_project_file(path: str | Path) -> dict[str, Any]:
@@ -127,27 +148,33 @@ def poles_from_data(data: list[dict[str, Any]]) -> list[Pole]:
 
 def scene_to_data(scene: QGraphicsScene) -> dict[str, Any]:
     """Serialize the exact editable scene hierarchy without rasterizing it."""
-    scene._pole_route_item_refs = scene.items()
-    top_level = [item for item in scene._pole_route_item_refs if item.parentItem() is None]
-    rect = scene.sceneRect()
-    return {
-        "rect": [rect.x(), rect.y(), rect.width(), rect.height()],
-        "items": [_item_to_data(item) for item in reversed(top_level)],
-    }
+    # scene.items() may create the only live Python wrappers for C++ items. If
+    # those temporary wrappers are collected when Save returns, PySide can also
+    # remove their graphics objects from the live scene. Retain the same wrappers
+    # after this read-only traversal; clear_scene() releases them before any later
+    # intentional scene replacement.
+    items = scene.items()
+    try:
+        top_level = [item for item in items if item.parentItem() is None]
+        rect = scene.sceneRect()
+        return {
+            "rect": [rect.x(), rect.y(), rect.width(), rect.height()],
+            "items": [_item_to_data(item) for item in reversed(top_level)],
+        }
+    finally:
+        retain_scene_items(scene, items)
 
 
 def restore_scene(
     scene: QGraphicsScene, data: dict[str, Any], undo_stack: QUndoStack
 ) -> None:
-    scene.clear()
-    retained: list[QGraphicsItem] = []
+    clear_scene(scene)
     for item_data in data.get("items", []):
         item = _item_from_data(item_data, undo_stack, top_level=True)
         scene.addItem(item)
-        retained.extend([item, *item.childItems()])
     rect = data.get("rect", [0, 0, 1000, 600])
     scene.setSceneRect(QRectF(*rect))
-    scene._pole_route_item_refs = retained
+    retain_scene_items(scene)
 
 
 def _item_to_data(item: QGraphicsItem) -> dict[str, Any]:
@@ -156,7 +183,11 @@ def _item_to_data(item: QGraphicsItem) -> dict[str, Any]:
         "rotation": item.rotation(),
         "z": item.zValue(),
         "visible": item.isVisible(),
-        "data": {str(index): _json_value(item.data(index)) for index in range(7)},
+        "data": {
+            str(index): _json_value(item.data(index))
+            for index in range(9)
+            if item.data(index) is not None
+        },
     }
     if isinstance(item, QGraphicsItemGroup):
         return {"kind": "group", **common, "children": [_item_to_data(x) for x in item.childItems()]}

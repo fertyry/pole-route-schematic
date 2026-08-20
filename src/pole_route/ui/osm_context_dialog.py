@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from pole_route.domain.context import OSMContext
 from pole_route.domain.route import ClassifiedRoute, Route, RouteType
+from pole_route.ui.scene_lifecycle import clear_scene
 
 
 class OSMContextDialog(QDialog):
@@ -137,7 +138,7 @@ def _draw_context_preview(
     width: float,
     height: float,
 ) -> None:
-    scene.clear()
+    clear_scene(scene)
     margin = 24.0
     points = list(main_route.points)
     points.extend(point for road in context.roads for point in road.route.points)
