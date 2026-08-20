@@ -9,8 +9,8 @@
 
 - Repository: `https://github.com/fertyry/pole-route-schematic`
 - Primary branch: `main`
-- Last source-code baseline verified on 2026-08-20: `af62cef`
-- Baseline subject: `Align edited CAD sheets from pole positions`
+- Last source-code baseline verified on 2026-08-20: `014e18a`
+- Baseline subject: `Fix project save stability and working directory handling`
 - Python package version: `0.1.0.dev0`
 - Project file schema: `.prs` version `1`
 - Primary environment: Windows and Python 3.13
@@ -96,9 +96,70 @@ src/pole_route/
 11. Import edited DXF, validate stable IDs and sheet markers, confirm review, then use
     `Create CAD sheets` to rebuild A4 landscape Paper Space layouts.
 
-This describes the code at commit `af62cef`, not the final target workflow. The approved
+This describes the implemented workflow through commit `014e18a`, not the final target workflow. The approved
 AutoCAD execution architecture below supersedes the old assumption that sheet breaks and
 Paper Space layouts should be finalized before the user finishes editing the CAD Master.
+
+## Phase 1 stability status
+
+### Phase 1A — Save stability, live canvas, and working directory: COMPLETE
+
+- Project saving after Fetch Surroundings and after Build Geometry/Structure is stable.
+- Saving is read-only with respect to the live Qt scene; it does not clear, remove, or
+  re-render the canvas.
+- Open, Save As, route/pole import, edited-DXF import, Excel export, and DXF export use
+  a shared remembered working directory without embedding local paths in portable `.prs`
+  project files.
+
+### Phase 1B — DXF Read-only investigation: RESOLVED / NO EXPORTER FIX REQUIRED
+
+The investigation established the following:
+
+- DXF files produced by PoleRoute open normally with `ezdxf`.
+- DXF audit passes with no structural error found.
+- The Windows file attribute is not Read-only.
+- Moving the file from OneDrive to a local drive did not by itself eliminate the symptom.
+- Opening the file from inside AutoCAD with `OPEN` works normally.
+- Starting AutoCAD from the command line with the DXF path works with both `/product ACAD`
+  and `/product MAP`.
+- The failure occurred when double-clicking a DXF in Windows Explorer.
+
+The confirmed root cause was the Windows/Autodesk `.dxf` file association, not the
+PoleRoute DXF exporter. The confirmed fix is to associate `.dxf` files with Autodesk
+AutoCAD DWG Launcher:
+
+```text
+C:\Program Files\Common Files\Autodesk Shared\AcShellEx\AcLauncher.exe
+```
+
+After changing the association to `AcLauncher.exe`, double-clicking a DXF in Explorer
+opens normally and no longer reports that the file is currently in use or read-only.
+
+Do not change `dxf_exporter.py` to address this resolved symptom unless new evidence shows
+an exporter defect. If the symptom returns, check the `.dxf` file association and
+`AcLauncher.exe` first. Phase 1B is closed.
+
+## CAD Master workflow clarification
+
+The approved handoff into AutoCAD is:
+
+```text
+PoleRoute
+→ Export DXF
+→ Open the DXF in AutoCAD
+→ Save As DWG
+→ Use that DWG as the CAD Master
+```
+
+DXF remains PoleRoute's interchange/export format into AutoCAD. AutoCAD offers Save As
+DWG when saving an opened DXF, and the resulting DWG is the native working CAD Master for:
+
+- continued saves and manual CAD editing
+- Connect AutoCAD
+- Read Pole Positions
+- Execute
+- Sheet Copies
+- Layouts
 
 ## Approved AutoCAD execution architecture (planned)
 
@@ -363,7 +424,7 @@ PRS_OSM_POI
 16. Do not destroy or rewrite the CAD Master when Execute refreshes generated sheets.
 17. Do not invent OSM names or silently delete surroundings accepted by the user.
 
-## Current status at `af62cef`
+## Current status after Phase 1
 
 ### Working and tested
 
@@ -379,7 +440,7 @@ PRS_OSM_POI
 - A4 CAD Paper Space generation from edited poles with common scale and schedules
 - Automated suite: 126 tests passed at the last verified coding session
 
-### Active visual defects reported after `af62cef`
+### Active visual defects reported after the CAD-sheet baseline
 
 These remain unresolved until a later commit fixes and visually verifies them:
 
@@ -395,13 +456,18 @@ These remain unresolved until a later commit fixes and visually verifies them:
 
 ## Planned implementation order
 
-Stability work has priority before large features:
+Completed stability work:
 
-1. Reproduce and fix application crashes when saving after Fetch Surround and after
-   Structure generation.
-2. Make Open/Save dialogs remember the same working directory.
-3. Investigate the real cause of DXF opening Read-only in AutoCAD for both normal export
-   and split/layout export; do not guess the cause.
+1. Phase 1A: save stability, live-canvas preservation, and shared working-directory handling.
+2. Phase 1B: DXF read-only investigation, resolved as a Windows/Autodesk file-association issue.
+
+Next implementation phase:
+
+3. Expand reviewed **Online OSM Surround V2** categories and workflow. Offline Thailand
+   OSM is explicitly not part of the current phase.
+
+Later AutoCAD integration work:
+
 4. Implement explicit Connect AutoCAD with drawing selection, target locking, project
    validation, and disconnected-state handling.
 5. Implement Read Pole Positions, Pole Report preview/export, and Same_Station review.
@@ -410,9 +476,8 @@ Stability work has priority before large features:
 7. Execute Model Space Sheet Copies with strict pole-boundary clipping, generated-object
    ownership, final labels, frames, and refreshed layouts.
 8. Apply CAD block/layer specification changes and add `PRSPOLESPACE` as a utility.
-9. Expand reviewed Online OSM Surround V2 categories after the CAD workflow is stable.
 
-No item in this planned section is considered implemented merely because it is documented.
+No later-phase item is considered implemented merely because it is documented here.
 
 ## External regression files
 
