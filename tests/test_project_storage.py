@@ -5,12 +5,21 @@ from PySide6.QtCore import QPointF
 from PySide6.QtGui import QUndoStack
 from PySide6.QtWidgets import QGraphicsScene
 
+from pole_route.domain.context import (
+    ContextFeature,
+    ContextGeometryPart,
+    OSMFeatureCategory,
+    OSMGeometryKind,
+    osm_feature_name,
+)
 from pole_route.domain.pole import Pole, PoleSide
 from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
 from pole_route.geometry.road_geometry import build_road_network_geometry
 from pole_route.geometry.schematic_layout import create_schematic_layout
 from pole_route.project.storage import (
     load_project_file,
+    osm_features_from_data,
+    osm_features_to_data,
     poles_from_data,
     poles_to_data,
     restore_scene,
@@ -55,6 +64,159 @@ def test_project_inputs_round_trip_without_source_files(tmp_path) -> None:
 
     assert routes_from_data(document["routes"]) == routes
     assert poles_from_data(document["poles"]) == poles
+
+
+def _feature(
+    osm_id: int,
+    category: OSMFeatureCategory,
+    geometry_kind: OSMGeometryKind,
+    parts: tuple[ContextGeometryPart, ...],
+    *,
+    name: str | None = None,
+) -> ContextFeature:
+    return ContextFeature(
+        "way",
+        osm_id,
+        category,
+        geometry_kind,
+        parts,
+        name,
+        (("bridge", "yes"), ("source", "survey")),
+        False,
+        "Review manually",
+    )
+
+
+def test_osm_feature_geometry_kinds_round_trip() -> None:
+    point = _feature(
+        1,
+        OSMFeatureCategory.FUEL,
+        OSMGeometryKind.POINT,
+        (ContextGeometryPart((GeoPoint(100.1, 13.1),)),),
+    )
+    line = _feature(
+        2,
+        OSMFeatureCategory.ROAD_BRIDGE,
+        OSMGeometryKind.LINESTRING,
+        (ContextGeometryPart((GeoPoint(100.1, 13.1), GeoPoint(100.2, 13.2))),),
+        name="สะพานทดสอบ",
+    )
+    polygon = _feature(
+        3,
+        OSMFeatureCategory.BUILDING,
+        OSMGeometryKind.POLYGON,
+        (
+            ContextGeometryPart(
+                (
+                    GeoPoint(100.0, 13.0),
+                    GeoPoint(100.1, 13.0),
+                    GeoPoint(100.1, 13.1),
+                    GeoPoint(100.0, 13.0),
+                ),
+                (
+                    (
+                        GeoPoint(100.02, 13.02),
+                        GeoPoint(100.03, 13.02),
+                        GeoPoint(100.02, 13.02),
+                    ),
+                ),
+            ),
+        ),
+    )
+    multiline = _feature(
+        4,
+        OSMFeatureCategory.RIVER,
+        OSMGeometryKind.MULTILINESTRING,
+        (
+            ContextGeometryPart((GeoPoint(100.0, 13.0), GeoPoint(100.1, 13.1))),
+            ContextGeometryPart((GeoPoint(100.2, 13.2), GeoPoint(100.3, 13.3))),
+        ),
+    )
+
+    restored = osm_features_from_data(
+        osm_features_to_data([point, line, polygon, multiline])
+    )
+
+    assert restored == [point, line, polygon, multiline]
+    assert restored[0].identity == ("way", 1)
+    assert restored[0].name is None
+    assert restored[1].name == "สะพานทดสอบ"
+    assert restored[2].parts[0].holes == polygon.parts[0].holes
+    assert restored[3].geometry_kind is OSMGeometryKind.MULTILINESTRING
+    assert restored[1].tags == (("bridge", "yes"), ("source", "survey"))
+    assert restored[1].source_path == "OpenStreetMap:way/2"
+
+
+def test_osm_multipolygon_round_trip_preserves_parts_and_holes() -> None:
+    feature = ContextFeature(
+        "relation",
+        99,
+        OSMFeatureCategory.CANAL,
+        OSMGeometryKind.MULTIPOLYGON,
+        (
+            ContextGeometryPart(
+                (GeoPoint(100.0, 13.0), GeoPoint(100.1, 13.0), GeoPoint(100.0, 13.0)),
+                ((GeoPoint(100.02, 13.0), GeoPoint(100.03, 13.0), GeoPoint(100.02, 13.0)),),
+            ),
+            ContextGeometryPart(
+                (GeoPoint(100.2, 13.0), GeoPoint(100.3, 13.0), GeoPoint(100.2, 13.0)),
+            ),
+        ),
+        tags=(("waterway", "canal"),),
+        source_path="OpenStreetMap:relation/99",
+    )
+
+    assert osm_features_from_data(osm_features_to_data((feature,))) == [feature]
+
+
+def test_osm_feature_name_prefers_real_thai_name_and_never_invents_one() -> None:
+    assert (
+        osm_feature_name({"name": "Canal", "name:th": "คลองทดสอบ"})
+        == "คลองทดสอบ"
+    )
+    assert osm_feature_name({"name": "Canal"}) == "Canal"
+    assert osm_feature_name({"waterway": "canal"}) is None
+
+
+def test_old_project_without_osm_features_loads_empty_collection(tmp_path) -> None:
+    routes, poles = _project_inputs()
+    path = tmp_path / "old-project.prs"
+    save_project_file(
+        path,
+        {"routes": routes_to_data(routes), "poles": poles_to_data(poles)},
+    )
+
+    document = load_project_file(path)
+
+    assert document["osm_features"] == []
+    assert osm_features_from_data(document["osm_features"]) == []
+    assert routes_from_data(document["routes"]) == routes
+
+
+def test_project_round_trip_preserves_osm_features_and_legacy_roads(tmp_path) -> None:
+    routes, poles = _project_inputs()
+    feature = _feature(
+        123,
+        OSMFeatureCategory.FOOTBRIDGE,
+        OSMGeometryKind.LINESTRING,
+        (ContextGeometryPart((GeoPoint(100.0, 13.0), GeoPoint(100.01, 13.01))),),
+        name="สะพานลอย",
+    )
+    path = tmp_path / "osm-v2.prs"
+
+    save_project_file(
+        path,
+        {
+            "routes": routes_to_data(routes),
+            "poles": poles_to_data(poles),
+            "osm_features": osm_features_to_data([feature]),
+        },
+    )
+    document = load_project_file(path)
+
+    assert routes_from_data(document["routes"]) == routes
+    assert poles_from_data(document["poles"]) == poles
+    assert osm_features_from_data(document["osm_features"]) == [feature]
 
 
 def test_editable_canvas_round_trip_preserves_objects_and_positions(qapp) -> None:

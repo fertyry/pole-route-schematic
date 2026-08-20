@@ -22,6 +22,12 @@ from PySide6.QtWidgets import (
     QGraphicsTextItem,
 )
 
+from pole_route.domain.context import (
+    ContextFeature,
+    ContextGeometryPart,
+    OSMFeatureCategory,
+    OSMGeometryKind,
+)
 from pole_route.domain.pole import Pole, PoleSide
 from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
 from pole_route.ui.editor_commands import (
@@ -80,6 +86,9 @@ def load_project_file(path: str | Path) -> dict[str, Any]:
         raise ProjectFileError(
             f"Project version {document.get('version')} is not supported by this app."
         )
+    # OSM Surround V2 is an additive field. Projects written before Phase 2.1
+    # remain valid and expose an empty feature collection to callers.
+    document.setdefault("osm_features", [])
     return document
 
 
@@ -116,6 +125,79 @@ def routes_from_data(data: list[dict[str, Any]]) -> list[ClassifiedRoute]:
         )
         for item in data
     ]
+
+
+def osm_features_to_data(
+    features: list[ContextFeature] | tuple[ContextFeature, ...],
+) -> list[dict[str, Any]]:
+    """Convert portable OSM features to their JSON-compatible project shape."""
+
+    return [
+        {
+            "osm_type": feature.osm_type,
+            "osm_id": feature.osm_id,
+            "category": feature.category.value,
+            "geometry_kind": feature.geometry_kind.value,
+            "parts": [
+                {
+                    "coordinates": [_geopoint_to_data(point) for point in part.coordinates],
+                    "holes": [
+                        [_geopoint_to_data(point) for point in ring]
+                        for ring in part.holes
+                    ],
+                }
+                for part in feature.parts
+            ],
+            "name": feature.name,
+            "tags": {key: value for key, value in feature.tags},
+            "recommended": feature.recommended,
+            "recommendation": feature.recommendation,
+            "source_path": feature.source_path,
+        }
+        for feature in features
+    ]
+
+
+def osm_features_from_data(data: list[dict[str, Any]]) -> list[ContextFeature]:
+    """Restore portable OSM features from project JSON data."""
+
+    return [
+        ContextFeature(
+            osm_type=str(item["osm_type"]),
+            osm_id=int(item["osm_id"]),
+            category=OSMFeatureCategory(item["category"]),
+            geometry_kind=OSMGeometryKind(item["geometry_kind"]),
+            parts=tuple(
+                ContextGeometryPart(
+                    coordinates=tuple(
+                        _geopoint_from_data(point) for point in part["coordinates"]
+                    ),
+                    holes=tuple(
+                        tuple(_geopoint_from_data(point) for point in ring)
+                        for ring in part.get("holes", [])
+                    ),
+                )
+                for part in item["parts"]
+            ),
+            name=item.get("name"),
+            tags=tuple(
+                (str(key), str(value))
+                for key, value in (item.get("tags") or {}).items()
+            ),
+            recommended=bool(item.get("recommended", True)),
+            recommendation=str(item.get("recommendation", "")),
+            source_path=str(item.get("source_path", "")),
+        )
+        for item in data
+    ]
+
+
+def _geopoint_to_data(point: GeoPoint) -> list[float | None]:
+    return [point.longitude, point.latitude, point.altitude]
+
+
+def _geopoint_from_data(data: list[float | None]) -> GeoPoint:
+    return GeoPoint(*data)
 
 
 def poles_to_data(poles: list[Pole]) -> list[dict[str, Any]]:
