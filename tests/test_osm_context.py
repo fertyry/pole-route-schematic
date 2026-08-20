@@ -377,3 +377,178 @@ def test_feature_corridor_filters_far_water_without_changing_road_corridor() -> 
 
     assert [road.route.name for road in context.roads] == ["Near road"]
     assert context.features == ()
+
+
+def _closed_feature_way(osm_id: int, tags: dict, west=99.9998, east=100.0002) -> dict:
+    return {
+        "type": "way",
+        "id": osm_id,
+        "geometry": [
+            {"lat": 13.004, "lon": west},
+            {"lat": 13.004, "lon": east},
+            {"lat": 13.006, "lon": east},
+            {"lat": 13.006, "lon": west},
+            {"lat": 13.004, "lon": west},
+        ],
+        "tags": tags,
+    }
+
+
+def test_building_way_keeps_unnamed_footprint_and_limited_tags() -> None:
+    building = _closed_feature_way(
+        700, {"building": "commercial", "levels": "3", "operator": "Private"}
+    )
+
+    feature = parse_osm_context({"elements": [building]}, _main_route()).features[0]
+
+    assert feature.category is OSMFeatureCategory.BUILDING
+    assert feature.geometry_kind is OSMGeometryKind.POLYGON
+    assert feature.name is None
+    assert feature.tags == (("building", "commercial"),)
+    assert feature.osm_type == "way"
+
+
+def test_building_prefers_thai_name_and_uses_footprint_corridor_intersection() -> None:
+    intersecting = _closed_feature_way(
+        701,
+        {"building": "yes", "name": "English", "name:th": "อาคารทดสอบ"},
+        west=100.0008,
+        east=100.002,
+    )
+    outside = _closed_feature_way(
+        702, {"building": "yes"}, west=100.002, east=100.003
+    )
+
+    context = parse_osm_context({"elements": [intersecting, outside]}, _main_route())
+
+    assert [(item.osm_id, item.name) for item in context.features] == [
+        (701, "อาคารทดสอบ")
+    ]
+    assert context.features[0].parts[0].coordinates[-1] == GeoPoint(100.0008, 13.004)
+
+
+def test_split_building_multipolygon_is_stitched_and_preserves_hole() -> None:
+    relation = {
+        "type": "relation",
+        "id": 703,
+        "tags": {"type": "multipolygon", "building": "yes"},
+        "members": [
+            {"role": "outer", "geometry": [
+                {"lat": 13.004, "lon": 99.9995}, {"lat": 13.004, "lon": 100.0005}
+            ]},
+            {"role": "outer", "geometry": [
+                {"lat": 13.006, "lon": 100.0005}, {"lat": 13.004, "lon": 100.0005}
+            ]},
+            {"role": "outer", "geometry": [
+                {"lat": 13.006, "lon": 99.9995}, {"lat": 13.006, "lon": 100.0005}
+            ]},
+            {"role": "outer", "geometry": [
+                {"lat": 13.004, "lon": 99.9995}, {"lat": 13.006, "lon": 99.9995}
+            ]},
+            {"role": "inner", "geometry": [
+                {"lat": 13.0045, "lon": 99.9998},
+                {"lat": 13.0045, "lon": 100.0002},
+                {"lat": 13.0055, "lon": 100.0002},
+                {"lat": 13.0055, "lon": 99.9998},
+                {"lat": 13.0045, "lon": 99.9998},
+            ]},
+        ],
+    }
+
+    feature = parse_osm_context({"elements": [relation]}, _main_route()).features[0]
+
+    assert feature.osm_type == "relation"
+    assert feature.geometry_kind is OSMGeometryKind.POLYGON
+    assert len(feature.parts[0].holes) == 1
+
+
+def test_malformed_split_building_relation_warns_and_does_not_crash() -> None:
+    relation = {
+        "type": "relation",
+        "id": 704,
+        "tags": {"type": "multipolygon", "building": "yes"},
+        "members": [{"role": "outer", "geometry": [
+            {"lat": 13.004, "lon": 100.0}, {"lat": 13.005, "lon": 100.0001}
+        ]}],
+    }
+
+    with pytest.warns(OSMFeatureParseWarning, match="building relation/704"):
+        context = parse_osm_context({"elements": [relation]}, _main_route())
+
+    assert context.features == ()
+
+
+@pytest.mark.parametrize(
+    ("osm_id", "tags", "category"),
+    [
+        (710, {"amenity": "fuel"}, OSMFeatureCategory.FUEL),
+        (711, {"shop": "mall"}, OSMFeatureCategory.SHOP),
+        (712, {"shop": "department_store"}, OSMFeatureCategory.SHOP),
+        (713, {"shop": "supermarket"}, OSMFeatureCategory.SHOP),
+        (714, {"amenity": "hospital"}, OSMFeatureCategory.POI),
+        (715, {"amenity": "school"}, OSMFeatureCategory.POI),
+        (716, {"amenity": "university"}, OSMFeatureCategory.POI),
+        (717, {"amenity": "marketplace"}, OSMFeatureCategory.POI),
+        (718, {"amenity": "place_of_worship"}, OSMFeatureCategory.POI),
+        (719, {"tourism": "museum"}, OSMFeatureCategory.POI),
+        (720, {"tourism": "attraction"}, OSMFeatureCategory.POI),
+        (721, {"leisure": "stadium"}, OSMFeatureCategory.POI),
+        (722, {"leisure": "sports_centre"}, OSMFeatureCategory.POI),
+    ],
+)
+def test_selected_fuel_shop_and_poi_nodes_are_point_features(
+    osm_id: int, tags: dict, category: OSMFeatureCategory
+) -> None:
+    node = {"type": "node", "id": osm_id, "lat": 13.005, "lon": 100.0001, "tags": tags}
+
+    feature = parse_osm_context({"elements": [node]}, _main_route()).features[0]
+
+    assert feature.category is category
+    assert feature.geometry_kind is OSMGeometryKind.POINT
+    assert feature.name is None
+    assert feature.identity == ("node", osm_id)
+
+
+def test_fuel_way_is_polygon_and_uses_real_thai_name() -> None:
+    fuel = _closed_feature_way(
+        730, {"amenity": "fuel", "name": "Station", "name:th": "ปั๊มทดสอบ"}
+    )
+
+    feature = parse_osm_context({"elements": [fuel]}, _main_route()).features[0]
+
+    assert feature.category is OSMFeatureCategory.FUEL
+    assert feature.geometry_kind is OSMGeometryKind.POLYGON
+    assert feature.name == "ปั๊มทดสอบ"
+
+
+@pytest.mark.parametrize("tags", [{"shop": "convenience"}, {"amenity": "restaurant"}, {"amenity": "cafe"}])
+def test_ordinary_shop_and_food_poi_are_not_features(tags: dict) -> None:
+    node = {"type": "node", "id": 740, "lat": 13.005, "lon": 100.0, "tags": tags}
+
+    assert parse_osm_context({"elements": [node]}, _main_route()).features == ()
+
+
+def test_duplicate_new_feature_is_emitted_once_per_identity_and_category() -> None:
+    fuel = {"type": "node", "id": 750, "lat": 13.005, "lon": 100.0, "tags": {"amenity": "fuel"}}
+
+    context = parse_osm_context({"elements": [fuel, fuel]}, _main_route())
+
+    assert [(item.osm_type, item.osm_id, item.category) for item in context.features] == [
+        ("node", 750, OSMFeatureCategory.FUEL)
+    ]
+
+
+def test_new_feature_query_is_restricted_to_intended_categories() -> None:
+    captured: list[str] = []
+    fetch_osm_context(
+        _main_route(),
+        fetcher=lambda query: captured.append(query) or b'{"elements": []}',
+    )
+
+    query = captured[0]
+    assert 'way["building"](around:100,' in query
+    assert 'relation["building"](around:100,' in query
+    assert 'nwr["amenity"="fuel"](around:100,' in query
+    assert 'nwr["shop"~"^(mall|department_store|supermarket)$"]' in query
+    assert 'nwr["amenity"="restaurant"]' not in query
+    assert 'nwr["amenity"="cafe"]' not in query

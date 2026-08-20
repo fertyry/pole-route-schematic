@@ -9,7 +9,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from shapely.geometry import LineString, MultiLineString, MultiPolygon, Polygon
+from shapely.geometry import LineString, MultiLineString, MultiPolygon, Point, Polygon
 from shapely.ops import nearest_points, substring
 
 from pole_route.domain.context import (
@@ -30,7 +30,8 @@ OVERPASS_URLS = (
     "https://overpass.kumi.systems/api/interpreter",
 )
 DEFAULT_CORRIDOR_METRES = 15.0
-FEATURE_CORRIDOR_METRES = 100.0
+BUILDING_POI_CORRIDOR_METRES = 100.0
+FEATURE_CORRIDOR_METRES = BUILDING_POI_CORRIDOR_METRES
 CONTEXT_ROAD_EXTENSION_METRES = 35.0
 MINIMUM_CONTEXT_ROAD_METRES = 8.0
 EXCLUDED_HIGHWAYS = {
@@ -124,7 +125,7 @@ def parse_osm_context(
         # (including excluded pedestrian highway classes) which must not
         # suppress an otherwise valid bridge or water feature.
         category = _feature_category(tags)
-        if category is not None and element.get("type") in {"way", "relation"}:
+        if category is not None and element.get("type") in {"node", "way", "relation"}:
             try:
                 key = (str(element["type"]), int(element["id"]), category)
             except (KeyError, TypeError, ValueError) as error:
@@ -267,6 +268,13 @@ def _build_query(
         f'relation["waterway"="canal"]{feature_area};'
         f'way["natural"="water"]["water"="canal"]{feature_area};'
         f'relation["natural"="water"]["water"="canal"]{feature_area};'
+        f'way["building"]{feature_area};'
+        f'relation["building"]{feature_area};'
+        f'nwr["amenity"="fuel"]{feature_area};'
+        f'nwr["shop"~"^(mall|department_store|supermarket)$"]{feature_area};'
+        f'nwr["amenity"~"^(hospital|school|university|college|marketplace|place_of_worship)$"]{feature_area};'
+        f'nwr["tourism"~"^(museum|attraction)$"]{feature_area};'
+        f'nwr["leisure"~"^(stadium|sports_centre)$"]{feature_area};'
         ");out tags center geom;"
     )
 
@@ -290,6 +298,24 @@ def _feature_category(tags: dict) -> OSMFeatureCategory | None:
         return OSMFeatureCategory.RIVER
     if waterway == "canal" or (natural_water and water == "canal"):
         return OSMFeatureCategory.CANAL
+    if tags.get("amenity") == "fuel":
+        return OSMFeatureCategory.FUEL
+    if tags.get("shop") in {"mall", "department_store", "supermarket"}:
+        return OSMFeatureCategory.SHOP
+    if tags.get("amenity") in {
+        "hospital",
+        "school",
+        "university",
+        "college",
+        "marketplace",
+        "place_of_worship",
+    } or tags.get("tourism") in {"museum", "attraction"} or tags.get("leisure") in {
+        "stadium",
+        "sports_centre",
+    }:
+        return OSMFeatureCategory.POI
+    if tags.get("building"):
+        return OSMFeatureCategory.BUILDING
     return None
 
 
@@ -314,7 +340,7 @@ def _feature_from_element(
     corridor_metres: float,
 ) -> ContextFeature | None:
     tags = element.get("tags") or {}
-    polygonal = _is_polygonal_water(category, tags)
+    polygonal = _is_polygonal_feature(category, tags, str(element.get("type", "")))
     try:
         geometry_kind, parts = geometry_parts_from_element(
             element, nodes, polygonal=polygonal
@@ -330,10 +356,15 @@ def _feature_from_element(
             recommended=True,
             recommendation=f"OSM {category.value.replace('_', ' ')} within route corridor",
         )
-        if (
-            _feature_metric_geometry(feature, projection).distance(main_metric)
-            > corridor_metres
-        ):
+        metric_geometry = _feature_metric_geometry(feature, projection)
+        if feature.geometry_kind in {
+            OSMGeometryKind.POLYGON,
+            OSMGeometryKind.MULTIPOLYGON,
+        }:
+            in_corridor = metric_geometry.intersects(main_metric.buffer(corridor_metres))
+        else:
+            in_corridor = metric_geometry.distance(main_metric) <= corridor_metres
+        if not in_corridor:
             return None
         return feature
     except (KeyError, TypeError, ValueError) as error:
@@ -357,17 +388,36 @@ def _is_polygonal_water(category: OSMFeatureCategory, tags: dict) -> bool:
     )
 
 
+def _is_polygonal_feature(
+    category: OSMFeatureCategory, tags: dict, osm_type: str
+) -> bool:
+    if category is OSMFeatureCategory.BUILDING:
+        return True
+    if category in {
+        OSMFeatureCategory.FUEL,
+        OSMFeatureCategory.SHOP,
+        OSMFeatureCategory.POI,
+    }:
+        return osm_type in {"way", "relation"}
+    return _is_polygonal_water(category, tags)
+
+
 def _normalized_feature_tags(tags: dict) -> tuple[tuple[str, str], ...]:
     allowed = {
         "access",
         "area",
         "bridge",
+        "building",
         "foot",
         "highway",
         "layer",
+        "leisure",
+        "amenity",
         "name",
         "name:th",
         "natural",
+        "shop",
+        "tourism",
         "type",
         "water",
         "waterway",
@@ -385,6 +435,8 @@ def _feature_metric_geometry(feature: ContextFeature, projection: MetricProjecti
     def xy(points: tuple[GeoPoint, ...]) -> list[tuple[float, float]]:
         return [projection.to_metric(point) for point in points]
 
+    if feature.geometry_kind is OSMGeometryKind.POINT:
+        return Point(projection.to_metric(feature.parts[0].coordinates[0]))
     if feature.geometry_kind is OSMGeometryKind.LINESTRING:
         return LineString(xy(feature.parts[0].coordinates))
     if feature.geometry_kind is OSMGeometryKind.MULTILINESTRING:

@@ -23,6 +23,12 @@ def geometry_parts_from_element(
     """
 
     element_type = element.get("type")
+    if element_type == "node":
+        if "lon" not in element or "lat" not in element:
+            raise ValueError("node has no usable coordinate")
+        point = GeoPoint(float(element["lon"]), float(element["lat"]))
+        return OSMGeometryKind.POINT, (ContextGeometryPart((point,)),)
+
     if element_type == "way":
         points = _element_points(element, nodes)
         if polygonal:
@@ -53,17 +59,19 @@ def geometry_parts_from_element(
         )
         return kind, parts
 
-    outer_rings: list[tuple[GeoPoint, ...]] = []
-    inner_rings: list[tuple[GeoPoint, ...]] = []
+    outer_segments: list[tuple[GeoPoint, ...]] = []
+    inner_segments: list[tuple[GeoPoint, ...]] = []
     for member in members:
         if not isinstance(member, Mapping):
             continue
         points = _element_points(member, nodes)
         role = str(member.get("role", ""))
         if role == "outer":
-            outer_rings.append(_closed_ring(points))
+            outer_segments.append(points)
         elif role == "inner":
-            inner_rings.append(_closed_ring(points))
+            inner_segments.append(points)
+    outer_rings = _assemble_rings(outer_segments)
+    inner_rings = _assemble_rings(inner_segments) if inner_segments else []
     if not outer_rings:
         raise ValueError("multipolygon relation has no complete outer ring")
 
@@ -117,6 +125,32 @@ def _closed_ring(points: tuple[GeoPoint, ...]) -> tuple[GeoPoint, ...]:
     if points[0] != points[-1]:
         raise ValueError("polygon ring is not closed")
     return points
+
+
+def _assemble_rings(
+    segments: list[tuple[GeoPoint, ...]],
+) -> list[tuple[GeoPoint, ...]]:
+    """Join relation members only when their exact endpoints form unambiguous rings."""
+    unused = [segment for segment in segments if len(segment) >= 2]
+    rings: list[tuple[GeoPoint, ...]] = []
+    while unused:
+        chain = list(unused.pop(0))
+        while chain[0] != chain[-1]:
+            matches: list[tuple[int, tuple[GeoPoint, ...]]] = []
+            for index, segment in enumerate(unused):
+                if segment[0] == chain[-1]:
+                    matches.append((index, segment))
+                elif segment[-1] == chain[-1]:
+                    matches.append((index, tuple(reversed(segment))))
+            if len(matches) != 1:
+                raise ValueError(
+                    "multipolygon ring members do not form one unambiguous closed ring"
+                )
+            index, oriented = matches[0]
+            unused.pop(index)
+            chain.extend(oriented[1:])
+        rings.append(_closed_ring(tuple(chain)))
+    return rings
 
 
 def _polygon_part(
