@@ -74,6 +74,14 @@ def _features():
     )
 
 
+def _xdata(entity):
+    return {
+        tag.value.split("=", 1)[0]: tag.value.split("=", 1)[1]
+        for tag in entity.get_xdata("POLEROUTE")
+        if tag.code == 1000 and "=" in tag.value
+    }
+
+
 def test_dxf_exports_every_osm_geometry_and_semantic_layer(tmp_path) -> None:
     destination = tmp_path / "osm.dxf"
     export_geometry_to_dxf(
@@ -85,11 +93,11 @@ def test_dxf_exports_every_osm_geometry_and_semantic_layer(tmp_path) -> None:
     assert {
         "PRS_OSM_BRIDGE", "PRS_OSM_BRIDGE_NAME", "PRS_OSM_FOOTBRIDGE",
         "PRS_OSM_RIVER", "PRS_OSM_RIVER_NAME", "PRS_OSM_CANAL",
-        "PRS_OSM_CANAL_NAME", "PRS_OSM_BUILDING", "PRS_OSM_BUILDING_NAME",
+        "PRS_OSM_CANAL_NAME", "PRS_BUILDING", "PRS_BUILDING_NAME",
         "PRS_OSM_FUEL", "PRS_OSM_FUEL_NAME", "PRS_OSM_SHOP", "PRS_OSM_POI",
         "PRS_OSM_POI_NAME",
     } <= layers
-    assert len(document.modelspace().query('LWPOLYLINE[layer=="PRS_OSM_BUILDING"]')) == 2
+    assert len(document.modelspace().query('LWPOLYLINE[layer=="PRS_BUILDING"]')) == 2
     assert len(document.modelspace().query('LWPOLYLINE[layer=="PRS_OSM_SHOP"]')) == 2
     assert len(document.modelspace().query('LWPOLYLINE[layer=="PRS_OSM_RIVER"]')) == 2
     assert len(document.modelspace().query('CIRCLE[layer=="PRS_OSM_FUEL"]')) == 1
@@ -143,9 +151,103 @@ def test_edited_dxf_sheet_export_preserves_osm_modelspace_entities(tmp_path) -> 
     layers = {entity.dxf.layer for entity in document.modelspace()}
 
     assert "PRS_OSM_BRIDGE" in layers
-    assert "PRS_OSM_BUILDING" in layers
+    assert "PRS_BUILDING" in layers
     assert "PRS_OSM_FUEL" in layers
     assert document.audit().has_errors is False
+
+
+def test_osm_and_overture_buildings_share_canonical_layer_with_source_xdata(tmp_path) -> None:
+    osm = _feature(
+        901,
+        OSMFeatureCategory.BUILDING,
+        OSMGeometryKind.POLYGON,
+        [_part((100.0010, 13.0001), (100.0011, 13.0001), (100.0011, 13.0002))],
+        "อาคาร OSM",
+    )
+    overture = ContextFeature(
+        "",
+        0,
+        OSMFeatureCategory.BUILDING,
+        OSMGeometryKind.POLYGON,
+        (_part((100.0012, 13.0001), (100.0013, 13.0001), (100.0013, 13.0002)),),
+        name="อาคาร Overture",
+        source="Overture",
+        source_id="building-abc",
+        source_release="2026-07-22.0",
+        provider="Overture Maps Foundation",
+        dataset="buildings",
+        confidence=0.87,
+    )
+    destination = tmp_path / "multi-source.dxf"
+
+    export_geometry_to_dxf(
+        _geometry(), destination, include_sheet_layouts=False,
+        osm_features=(osm, overture),
+    )
+    modelspace = ezdxf.readfile(destination).modelspace()
+    buildings = list(modelspace.query('LWPOLYLINE[layer=="PRS_BUILDING"]'))
+    metadata = [_xdata(entity) for entity in buildings]
+
+    assert len(buildings) == 2
+    assert {item["source"] for item in metadata} == {"OpenStreetMap", "Overture"}
+    assert {item["source_id"] for item in metadata} == {"way/901", "building-abc"}
+    assert all(item["category"] == "building" for item in metadata)
+    assert all(item["prs_object_type"] == "context_feature" for item in metadata)
+    assert all(item["prs_ring_role"] == "exterior" for item in metadata)
+
+
+def test_context_feature_xdata_preserves_part_and_ring_identity(tmp_path) -> None:
+    feature = ContextFeature(
+        "relation",
+        77,
+        OSMFeatureCategory.BUILDING,
+        OSMGeometryKind.MULTIPOLYGON,
+        (
+            _part(
+                (100.0010, 13.0001), (100.0011, 13.0001), (100.0011, 13.0002),
+                holes=((
+                    GeoPoint(100.00102, 13.00012),
+                    GeoPoint(100.00104, 13.00012),
+                    GeoPoint(100.00102, 13.00012),
+                ),),
+            ),
+            _part((100.0012, 13.0001), (100.0013, 13.0001), (100.0013, 13.0002)),
+        ),
+    )
+    destination = tmp_path / "parts.dxf"
+
+    export_geometry_to_dxf(
+        _geometry(), destination, include_sheet_layouts=False,
+        osm_features=(feature,),
+    )
+    entities = ezdxf.readfile(destination).modelspace().query(
+        'LWPOLYLINE[layer=="PRS_BUILDING"]'
+    )
+    metadata = [_xdata(entity) for entity in entities]
+
+    assert {(item["prs_part_index"], item["prs_ring_role"]) for item in metadata} == {
+        ("0", "exterior"), ("0", "hole:0"), ("1", "exterior")
+    }
+    assert {item["prs_feature_key"] for item in metadata} == {
+        "building:OpenStreetMap:relation/77"
+    }
+
+
+def test_legacy_osm_building_layer_survives_sheet_handoff(tmp_path) -> None:
+    source = tmp_path / "legacy.dxf"
+    destination = tmp_path / "legacy-sheets.dxf"
+    export_geometry_to_dxf(_geometry(), source, include_sheet_layouts=False)
+    document = ezdxf.readfile(source)
+    document.modelspace().add_lwpolyline(
+        ((0, 0), (1, 0), (1, 1)), close=True,
+        dxfattribs={"layer": "PRS_OSM_BUILDING"},
+    )
+    document.saveas(source)
+
+    export_edited_dxf_with_sheet_layouts(source, destination)
+
+    restored = ezdxf.readfile(destination)
+    assert len(restored.modelspace().query('LWPOLYLINE[layer=="PRS_OSM_BUILDING"]')) == 1
 
 
 def test_osm_canvas_survives_metric_schematic_and_scene_round_trip(qapp) -> None:

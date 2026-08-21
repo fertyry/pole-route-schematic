@@ -8,6 +8,23 @@ from pole_route.domain.route import GeoPoint, Route
 
 
 @dataclass(frozen=True, slots=True)
+class FeatureProvenance:
+    """One upstream record contributing to a context feature."""
+
+    source: str
+    source_id: str = ""
+    provider: str = ""
+    dataset: str = ""
+    resource: str = ""
+    record_id: str = ""
+    release: str = ""
+    version: str = ""
+    update_time: str = ""
+    confidence: float | None = None
+    license: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class ContextRoad:
     """A nearby OSM road candidate with a suggested schematic width."""
 
@@ -64,7 +81,7 @@ class ContextGeometryPart:
 
 @dataclass(frozen=True, slots=True)
 class ContextFeature:
-    """An accepted portable OSM feature, independent of road calculations."""
+    """An accepted portable context feature, independent of road calculations."""
 
     osm_type: str
     osm_id: int
@@ -76,15 +93,34 @@ class ContextFeature:
     recommended: bool = True
     recommendation: str = ""
     source_path: str = ""
+    source: str = ""
+    source_id: str = ""
+    source_release: str = ""
+    source_version: str = ""
+    provider: str = ""
+    dataset: str = ""
+    resource: str = ""
+    record_id: str = ""
+    update_time: str = ""
+    confidence: float | None = None
+    source_license: str = ""
+    provenance: tuple[FeatureProvenance, ...] = ()
+    conflation_status: str = ""
+    matched_source_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if self.osm_type not in {"node", "way", "relation"}:
-            raise ValueError("OSM feature type must be node, way, or relation")
-        if self.osm_id <= 0:
-            raise ValueError("OSM feature ID must be greater than zero")
+        is_osm = self.osm_type in {"node", "way", "relation"} and self.osm_id > 0
+        if not is_osm and not (self.source.strip() and self.source_id.strip()):
+            raise ValueError(
+                "A context feature requires either an OSM identity or generic source identity"
+            )
         if not self.parts:
-            raise ValueError("An OSM feature requires at least one geometry part")
-        if not self.source_path:
+            raise ValueError("A context feature requires at least one geometry part")
+        if is_osm and not self.source:
+            object.__setattr__(self, "source", "OpenStreetMap")
+        if is_osm and not self.source_id:
+            object.__setattr__(self, "source_id", f"{self.osm_type}/{self.osm_id}")
+        if is_osm and not self.source_path:
             object.__setattr__(
                 self, "source_path", f"OpenStreetMap:{self.osm_type}/{self.osm_id}"
             )
@@ -94,6 +130,12 @@ class ContextFeature:
         """Return the stable OSM identity used for de-duplication."""
 
         return self.osm_type, self.osm_id
+
+    @property
+    def feature_key(self) -> str:
+        """Return a stable source-aware key shared by every exported CAD part."""
+
+        return f"{self.category.value}:{self.source}:{self.source_id}"
 
 
 def osm_feature_name(tags: Mapping[str, object]) -> str | None:

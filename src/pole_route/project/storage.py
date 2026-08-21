@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 from pole_route.domain.context import (
     ContextFeature,
     ContextGeometryPart,
+    FeatureProvenance,
     OSMFeatureCategory,
     OSMGeometryKind,
 )
@@ -153,6 +154,35 @@ def osm_features_to_data(
             "recommended": feature.recommended,
             "recommendation": feature.recommendation,
             "source_path": feature.source_path,
+            "source": feature.source,
+            "source_id": feature.source_id,
+            "source_release": feature.source_release,
+            "source_version": feature.source_version,
+            "provider": feature.provider,
+            "dataset": feature.dataset,
+            "resource": feature.resource,
+            "record_id": feature.record_id,
+            "update_time": feature.update_time,
+            "confidence": feature.confidence,
+            "source_license": feature.source_license,
+            "provenance": [
+                {
+                    "source": item.source,
+                    "source_id": item.source_id,
+                    "provider": item.provider,
+                    "dataset": item.dataset,
+                    "resource": item.resource,
+                    "record_id": item.record_id,
+                    "release": item.release,
+                    "version": item.version,
+                    "update_time": item.update_time,
+                    "confidence": item.confidence,
+                    "license": item.license,
+                }
+                for item in feature.provenance
+            ],
+            "conflation_status": feature.conflation_status,
+            "matched_source_ids": list(feature.matched_source_ids),
         }
         for feature in features
     ]
@@ -187,6 +217,43 @@ def osm_features_from_data(data: list[dict[str, Any]]) -> list[ContextFeature]:
             recommended=bool(item.get("recommended", True)),
             recommendation=str(item.get("recommendation", "")),
             source_path=str(item.get("source_path", "")),
+            source=str(item.get("source", "")),
+            source_id=str(item.get("source_id", "")),
+            source_release=str(item.get("source_release", "")),
+            source_version=str(item.get("source_version", "")),
+            provider=str(item.get("provider", "")),
+            dataset=str(item.get("dataset", "")),
+            resource=str(item.get("resource", "")),
+            record_id=str(item.get("record_id", "")),
+            update_time=str(item.get("update_time", "")),
+            confidence=(
+                float(item["confidence"])
+                if item.get("confidence") is not None else None
+            ),
+            source_license=str(item.get("source_license", "")),
+            provenance=tuple(
+                FeatureProvenance(
+                    source=str(entry["source"]),
+                    source_id=str(entry.get("source_id", "")),
+                    provider=str(entry.get("provider", "")),
+                    dataset=str(entry.get("dataset", "")),
+                    resource=str(entry.get("resource", "")),
+                    record_id=str(entry.get("record_id", "")),
+                    release=str(entry.get("release", "")),
+                    version=str(entry.get("version", "")),
+                    update_time=str(entry.get("update_time", "")),
+                    confidence=(
+                        float(entry["confidence"])
+                        if entry.get("confidence") is not None else None
+                    ),
+                    license=str(entry.get("license", "")),
+                )
+                for entry in item.get("provenance", [])
+            ),
+            conflation_status=str(item.get("conflation_status", "")),
+            matched_source_ids=tuple(
+                str(value) for value in item.get("matched_source_ids", [])
+            ),
         )
         for item in data
     ]

@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QGraphicsScene
 from pole_route.domain.context import (
     ContextFeature,
     ContextGeometryPart,
+    FeatureProvenance,
     OSMFeatureCategory,
     OSMGeometryKind,
     osm_feature_name,
@@ -217,6 +218,83 @@ def test_project_round_trip_preserves_osm_features_and_legacy_roads(tmp_path) ->
     assert routes_from_data(document["routes"]) == routes
     assert poles_from_data(document["poles"]) == poles
     assert osm_features_from_data(document["osm_features"]) == [feature]
+
+
+def test_generic_building_source_metadata_round_trip(tmp_path) -> None:
+    feature = ContextFeature(
+        "",
+        0,
+        OSMFeatureCategory.BUILDING,
+        OSMGeometryKind.POLYGON,
+        (
+            ContextGeometryPart(
+                (
+                    GeoPoint(100.0, 13.0),
+                    GeoPoint(100.001, 13.0),
+                    GeoPoint(100.001, 13.001),
+                    GeoPoint(100.0, 13.0),
+                )
+            ),
+        ),
+        name="อาคารจาก Overture",
+        source="Overture",
+        source_id="overture-building-123",
+        source_release="2026-07-22.0",
+        source_version="1",
+        provider="Overture Maps Foundation",
+        dataset="buildings",
+        resource="s3://example/partition",
+        record_id="overture-building-123",
+        update_time="2026-07-22T00:00:00Z",
+        confidence=0.91,
+        source_license="CDLA Permissive 2.0",
+        provenance=(
+            FeatureProvenance(
+                source="OpenStreetMap",
+                source_id="way/456",
+                provider="OpenStreetMap contributors",
+                dataset="OpenStreetMap",
+                record_id="way/456",
+                release="2026-07-01",
+                license="ODbL 1.0",
+            ),
+        ),
+        conflation_status="supplemental-unmatched",
+        matched_source_ids=("OpenStreetMap:way/456",),
+    )
+    path = tmp_path / "multi-source.prs"
+
+    save_project_file(path, {"osm_features": osm_features_to_data((feature,))})
+    restored = osm_features_from_data(load_project_file(path)["osm_features"])[0]
+
+    assert restored == feature
+    assert restored.feature_key == (
+        "building:Overture:overture-building-123"
+    )
+
+
+def test_legacy_osm_feature_derives_generic_source_identity() -> None:
+    [restored] = osm_features_from_data(
+        [
+            {
+                "osm_type": "way",
+                "osm_id": 998986400,
+                "category": "building",
+                "geometry_kind": "polygon",
+                "parts": [
+                    {
+                        "coordinates": [[100.0, 13.0], [100.1, 13.0], [100.0, 13.0]],
+                        "holes": [],
+                    }
+                ],
+                "name": "วัดไท่ฮัว ฝอกวงซัน",
+            }
+        ]
+    )
+
+    assert restored.source == "OpenStreetMap"
+    assert restored.source_id == "way/998986400"
+    assert restored.source_path == "OpenStreetMap:way/998986400"
 
 
 def test_editable_canvas_round_trip_preserves_objects_and_positions(qapp) -> None:

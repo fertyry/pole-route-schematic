@@ -48,6 +48,8 @@ LAYERS = (
     ("PRS_OSM_CANAL_NAME", 4, "CONTINUOUS"),
     ("PRS_OSM_BUILDING", 8, "CONTINUOUS"),
     ("PRS_OSM_BUILDING_NAME", 8, "CONTINUOUS"),
+    ("PRS_BUILDING", 8, "CONTINUOUS"),
+    ("PRS_BUILDING_NAME", 8, "CONTINUOUS"),
     ("PRS_OSM_FUEL", 1, "CONTINUOUS"),
     ("PRS_OSM_FUEL_NAME", 1, "CONTINUOUS"),
     ("PRS_OSM_SHOP", 6, "CONTINUOUS"),
@@ -61,13 +63,14 @@ OSM_DXF_LAYERS = {
     OSMFeatureCategory.FOOTBRIDGE: ("PRS_OSM_FOOTBRIDGE", "PRS_OSM_BRIDGE_NAME"),
     OSMFeatureCategory.RIVER: ("PRS_OSM_RIVER", "PRS_OSM_RIVER_NAME"),
     OSMFeatureCategory.CANAL: ("PRS_OSM_CANAL", "PRS_OSM_CANAL_NAME"),
-    OSMFeatureCategory.BUILDING: ("PRS_OSM_BUILDING", "PRS_OSM_BUILDING_NAME"),
+    OSMFeatureCategory.BUILDING: ("PRS_BUILDING", "PRS_BUILDING_NAME"),
     OSMFeatureCategory.FUEL: ("PRS_OSM_FUEL", "PRS_OSM_FUEL_NAME"),
     OSMFeatureCategory.SHOP: ("PRS_OSM_SHOP", "PRS_OSM_SHOP_NAME"),
     OSMFeatureCategory.POI: ("PRS_OSM_POI", "PRS_OSM_POI_NAME"),
 }
 
 DXF_TARGET_SPAN_METRES = 350.0
+PRS_CONTEXT_APPID = "POLEROUTE"
 
 
 def export_edited_dxf_with_sheet_layouts(
@@ -304,6 +307,8 @@ def export_geometry_to_dxf(
 
     document = ezdxf.new("R2010", setup=True)
     document.units = units.M
+    if PRS_CONTEXT_APPID not in document.appids:
+        document.appids.add(PRS_CONTEXT_APPID)
     if "THAI" not in document.styles:
         document.styles.add("THAI", font="tahoma.ttf")
     for name, color, line_type in LAYERS:
@@ -503,37 +508,85 @@ def _export_osm_feature(modelspace, geometry, feature: ContextFeature) -> int:
         for exterior, holes in projected_parts:
             if holes or len(exterior) != 1:
                 raise _osm_export_error(feature, "POINT requires one coordinate and no holes")
-            modelspace.add_circle(exterior[0], radius=1.5, dxfattribs={"layer": geometry_layer})
+            entity = modelspace.add_circle(
+                exterior[0], radius=1.5, dxfattribs={"layer": geometry_layer}
+            )
+            _set_context_feature_xdata(entity, feature, part_index=0, ring_role="point")
             count += 1
     elif kind in {OSMGeometryKind.LINESTRING, OSMGeometryKind.MULTILINESTRING}:
         if kind is OSMGeometryKind.LINESTRING and len(projected_parts) != 1:
             raise _osm_export_error(feature, "LINESTRING requires exactly one part")
-        for exterior, holes in projected_parts:
+        for part_index, (exterior, holes) in enumerate(projected_parts):
             if holes or len(exterior) < 2:
                 raise _osm_export_error(feature, "line parts require at least two coordinates and no holes")
-            modelspace.add_lwpolyline(exterior, dxfattribs={"layer": geometry_layer})
+            entity = modelspace.add_lwpolyline(
+                exterior, dxfattribs={"layer": geometry_layer}
+            )
+            _set_context_feature_xdata(
+                entity, feature, part_index=part_index, ring_role="line"
+            )
             count += 1
     elif kind in {OSMGeometryKind.POLYGON, OSMGeometryKind.MULTIPOLYGON}:
         if kind is OSMGeometryKind.POLYGON and len(projected_parts) != 1:
             raise _osm_export_error(feature, "POLYGON requires exactly one part")
-        for exterior, holes in projected_parts:
+        for part_index, (exterior, holes) in enumerate(projected_parts):
             if len(exterior) < 3:
                 raise _osm_export_error(feature, "polygon exterior requires at least three coordinates")
-            modelspace.add_lwpolyline(exterior, close=True, dxfattribs={"layer": geometry_layer})
+            entity = modelspace.add_lwpolyline(
+                exterior, close=True, dxfattribs={"layer": geometry_layer}
+            )
+            _set_context_feature_xdata(
+                entity, feature, part_index=part_index, ring_role="exterior"
+            )
             count += 1
-            for hole in holes:
+            for ring_index, hole in enumerate(holes):
                 if len(hole) < 3:
                     raise _osm_export_error(feature, "polygon hole requires at least three coordinates")
-                modelspace.add_lwpolyline(hole, close=True, dxfattribs={"layer": geometry_layer})
+                entity = modelspace.add_lwpolyline(
+                    hole, close=True, dxfattribs={"layer": geometry_layer}
+                )
+                _set_context_feature_xdata(
+                    entity,
+                    feature,
+                    part_index=part_index,
+                    ring_role=f"hole:{ring_index}",
+                )
                 count += 1
     else:
         raise _osm_export_error(feature, "unsupported geometry kind")
 
     if feature.name:
         x, y = _osm_label_anchor(projected_parts, kind)
-        _add_dxf_text(modelspace, name_layer, x, y, feature.name, 2.0)
+        label = _add_dxf_text(modelspace, name_layer, x, y, feature.name, 2.0)
+        _set_context_feature_xdata(label, feature, part_index=-1, ring_role="label")
         count += 1
     return count
+
+
+def _set_context_feature_xdata(
+    entity, feature: ContextFeature, *, part_index: int, ring_role: str
+) -> None:
+    """Attach non-visual, AutoLISP-readable identity metadata to a CAD entity."""
+
+    values = {
+        "prs_object_type": "context_feature",
+        "prs_feature_key": feature.feature_key,
+        "category": feature.category.value,
+        "source": feature.source,
+        "source_id": feature.source_id,
+        "name": feature.name or "",
+        "source_release": feature.source_release,
+        "provider": feature.provider,
+        "dataset": feature.dataset,
+        "osm_type": feature.osm_type,
+        "osm_id": str(feature.osm_id) if feature.osm_id > 0 else "",
+        "prs_part_index": str(part_index),
+        "prs_ring_role": ring_role,
+    }
+    xdata = [(1000, f"{key}={value}"[:255]) for key, value in values.items() if value]
+    if feature.confidence is not None:
+        xdata.append((1040, feature.confidence))
+    entity.set_xdata(PRS_CONTEXT_APPID, xdata)
 
 
 def _metric_osm_point(geometry, point: GeoPoint, feature: ContextFeature):
@@ -910,12 +963,14 @@ def _add_dxf_text(
     height: float,
     *,
     rotation: float = 0.0,
-) -> None:
-    modelspace.add_text(
+) -> object:
+    entity = modelspace.add_text(
         value,
         height=height,
         dxfattribs={"layer": layer, "style": "THAI", "rotation": rotation},
-    ).set_placement((x, y))
+    )
+    entity.set_placement((x, y))
+    return entity
 
 
 def _deduplicate_context_roads(geometry: RoadNetworkGeometry):

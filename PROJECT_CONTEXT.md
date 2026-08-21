@@ -360,7 +360,7 @@ PRS_OSM_BRIDGE            PRS_OSM_BRIDGE_NAME
 PRS_OSM_FOOTBRIDGE
 PRS_OSM_RIVER             PRS_OSM_RIVER_NAME
 PRS_OSM_CANAL             PRS_OSM_CANAL_NAME
-PRS_OSM_BUILDING          PRS_OSM_BUILDING_NAME
+PRS_BUILDING              PRS_BUILDING_NAME
 PRS_OSM_FUEL              PRS_OSM_FUEL_NAME
 PRS_OSM_SHOP              PRS_OSM_SHOP_NAME
 PRS_OSM_POI               PRS_OSM_POI_NAME
@@ -368,7 +368,8 @@ PRS_OSM_POI               PRS_OSM_POI_NAME
 
 ### Online OSM Surround V2 implementation status
 
-Phases 2.1 through 2.5 are implemented. Accepted OSM features retain stable
+Phases 2.1 through 2.5 and the Phase 2.6A representation contract are implemented.
+Accepted OSM features retain stable
 `(osm_type, osm_id)` identity, category, geometry kind, multipart geometry, polygon holes,
 real OSM names, normalized tags, recommendation metadata, and source path through project
 save/reload. The review workflow owns accepted-feature state independently from legacy
@@ -385,6 +386,50 @@ intentional additions so symbols and optional real names remain independently co
 Invalid accepted geometry raises an identity-rich export error instead of being silently
 dropped. Creating layouts from an edited CAD Master preserves these Model Space layers and
 entities.
+
+### Phase 2.6A — multi-source Surround → AutoCAD representation contract
+
+The context-feature model is source-neutral and additive. OpenStreetMap remains the
+primary semantic/context source. Overture Maps is the approved default supplemental
+building source for a future phase; direct Microsoft GlobalML Building Footprints fetching
+is not part of the default product workflow. No supplemental fetch or cross-source
+conflation is implemented in Phase 2.6A.
+
+The A005 100 m corridor benchmark that informed this decision found approximately:
+
+- OpenStreetMap: 1 building footprint
+- Microsoft GlobalML Building Footprints: 404 building footprints
+- Overture Maps Buildings: 612 building footprints
+
+Context features preserve a generic `(source, source_id)` identity plus optional release,
+version, provider, dataset, resource, record ID, update time, confidence, license,
+provenance contributors, conflation status, and matched source IDs. Existing OSM identity
+`(osm_type, osm_id)` remains intact and derives `source=OpenStreetMap` and a stable generic
+source ID when an older project lacks the new fields. Old `.prs` files therefore load
+without a forced schema migration. Future Overture records must use their stable Overture
+record ID as `source_id`, not a fabricated OSM identity.
+
+CAD representation is semantic-first: building footprints from every source export to
+`PRS_BUILDING`, with real names on `PRS_BUILDING_NAME`. The old
+`PRS_OSM_BUILDING`/`PRS_OSM_BUILDING_NAME` layers remain recognized as legacy CAD content
+and must survive CAD Master/sheet handoff, but new exports use the canonical layers. Other
+implemented OSM feature layers retain their current names and visual behavior in this
+phase.
+
+Every exported context-feature geometry part, polygon ring, and optional label carries
+registered `POLEROUTE` XData. Minimum fields are `prs_object_type`, `prs_feature_key`,
+`category`, `source`, and `source_id`. Available names, releases, providers, datasets,
+OSM type/ID, confidence, and multipart part/ring roles are also retained. The same stable
+feature key connects all CAD entities belonging to one semantic candidate.
+
+Attribution is data, not an invented label. Project persistence retains provider/dataset,
+license, release/version, and detailed provenance so a future export UI/title block can
+produce source attribution. Phase 2.6A does not yet render attribution into CAD sheets.
+
+Future semantic symbol block names should be stable and source-neutral (for example
+`PRS_FOOTBRIDGE`, `PRS_FUEL`, `PRS_SHOP`, and `PRS_POI`). Their final symbols are not
+implemented here; existing visual output remains unchanged except for the canonical
+building-layer transition.
 
 ### Qt schematic and editing
 
@@ -461,7 +506,7 @@ entities.
 - Metric DXF Master, semantic pole blocks/metadata, sheet markers
 - Edited-DXF validation and persistence
 - A4 CAD Paper Space generation from edited poles with common scale and schedules
-- Automated suite: 191 tests passed at the last verified coding session
+- Automated suite: 202 tests passed at the last verified coding session
 
 ### Active visual defects reported after the CAD-sheet baseline
 
@@ -489,17 +534,19 @@ Completed Online OSM work:
 3. Phases 2.1-2.5: reviewed **Online OSM Surround V2** domain, persistence, parsing, accepted
    state, canvas rendering, and semantic DXF export. Offline Thailand OSM remains explicitly
    outside the current implementation.
+4. Phase 2.6A: source-neutral context identity/provenance, canonical building CAD layers,
+   and per-entity AutoCAD XData contract. Overture fetching and conflation remain future work.
 
 Later AutoCAD integration work:
 
-4. Implement explicit Connect AutoCAD with drawing selection, target locking, project
+5. Implement explicit Connect AutoCAD with drawing selection, target locking, project
    validation, and disconnected-state handling.
-5. Implement Read Pole Positions, Pole Report preview/export, and Same_Station review.
-6. Calculate/preview/adjust Sheet Plan from the latest pole positions and only then create
+6. Implement Read Pole Positions, Pole Report preview/export, and Same_Station review.
+7. Calculate/preview/adjust Sheet Plan from the latest pole positions and only then create
    confirmed `PRS_SHEET_BREAK` markers.
-7. Execute Model Space Sheet Copies with strict pole-boundary clipping, generated-object
+8. Execute Model Space Sheet Copies with strict pole-boundary clipping, generated-object
    ownership, final labels, frames, and refreshed layouts.
-8. Apply CAD block/layer specification changes and add `PRSPOLESPACE` as a utility.
+9. Apply CAD block/layer specification changes and add `PRSPOLESPACE` as a utility.
 
 No later-phase item is considered implemented merely because it is documented here.
 
