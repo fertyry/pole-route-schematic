@@ -268,6 +268,43 @@ def test_osm_review_v2_groups_selects_and_previews_feature_geometry(qtbot) -> No
     assert dialog.selected_features() == [features[2]]
 
 
+def test_osm_review_shows_one_identity_in_each_semantic_category_tab(qtbot) -> None:
+    from pole_route.domain.context import (
+        ContextFeature,
+        ContextGeometryPart,
+        OSMContext,
+        OSMFeatureCategory,
+        OSMGeometryKind,
+    )
+    from pole_route.domain.route import GeoPoint, Route
+
+    main = Route("Main", "route.kml", (GeoPoint(100, 13), GeoPoint(100, 13.01)))
+    part = ContextGeometryPart((
+        GeoPoint(99.9999, 13.004),
+        GeoPoint(100.0001, 13.004),
+        GeoPoint(100.0001, 13.006),
+        GeoPoint(99.9999, 13.004),
+    ))
+    features = (
+        ContextFeature(
+            "way", 998986400, OSMFeatureCategory.BUILDING,
+            OSMGeometryKind.POLYGON, (part,), name="วัดไท่ฮัว ฝอกวงซัน",
+        ),
+        ContextFeature(
+            "way", 998986400, OSMFeatureCategory.POI,
+            OSMGeometryKind.POLYGON, (part,), name="วัดไท่ฮัว ฝอกวงซัน",
+        ),
+    )
+    dialog = OSMContextDialog(main, OSMContext((), (), features))
+    qtbot.addWidget(dialog)
+
+    assert dialog.feature_tables[OSMFeatureCategory.BUILDING].rowCount() == 1
+    assert dialog.feature_tables[OSMFeatureCategory.POI].rowCount() == 1
+    dialog._set_feature_category(OSMFeatureCategory.BUILDING, True)
+    dialog._set_feature_category(OSMFeatureCategory.POI, True)
+    assert dialog.selected_features() == list(features)
+
+
 def test_accepted_osm_features_replace_deduplicate_and_round_trip(qtbot, tmp_path, monkeypatch) -> None:
     from pole_route.domain.context import (
         ContextFeature, ContextGeometryPart, OSMContext,

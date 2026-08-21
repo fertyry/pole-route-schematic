@@ -124,28 +124,34 @@ def parse_osm_context(
         # candidate pipeline below.  That pipeline has several early exits
         # (including excluded pedestrian highway classes) which must not
         # suppress an otherwise valid bridge or water feature.
-        category = _feature_category(tags)
-        if category is not None and element.get("type") in {"node", "way", "relation"}:
+        categories = _feature_categories(tags)
+        if categories and element.get("type") in {"node", "way", "relation"}:
             try:
-                key = (str(element["type"]), int(element["id"]), category)
+                osm_type = str(element["type"])
+                osm_id = int(element["id"])
             except (KeyError, TypeError, ValueError) as error:
-                warnings.warn(
-                    f"Could not parse {category.value} {element.get('type')}/"
-                    f"{element.get('id')}: invalid OSM identity ({error})",
-                    OSMFeatureParseWarning,
-                    stacklevel=2,
+                for category in categories:
+                    warnings.warn(
+                        f"Could not parse {category.value} {element.get('type')}/"
+                        f"{element.get('id')}: invalid OSM identity ({error})",
+                        OSMFeatureParseWarning,
+                        stacklevel=2,
+                    )
+            else:
+                new_categories = tuple(
+                    category for category in categories
+                    if (osm_type, osm_id, category) not in feature_keys
                 )
-                key = None
-            if key is not None and key not in feature_keys:
-                feature = _feature_from_element(
+                parsed_features = _features_from_element(
                     element,
                     nodes,
-                    category,
+                    new_categories,
                     projection,
                     main_metric,
                     feature_corridor_metres,
                 )
-                if feature is not None:
+                for feature in parsed_features:
+                    key = (feature.osm_type, feature.osm_id, feature.category)
                     feature_keys.add(key)
                     features.append(feature)
         if element.get("type") == "way" and tags.get("highway"):
@@ -279,29 +285,39 @@ def _build_query(
     )
 
 
-def _feature_category(tags: dict) -> OSMFeatureCategory | None:
+def _feature_categories(tags: dict) -> tuple[OSMFeatureCategory, ...]:
+    """Return every semantic category supported by an OSM tag set.
+
+    An OSM element can be both a physical footprint and a semantic landmark,
+    for example ``building=yes`` with ``amenity=place_of_worship``.  Preserve
+    each supported meaning as a separate candidate with the same OSM identity.
+    """
+    categories: list[OSMFeatureCategory] = []
+
+    def add(category: OSMFeatureCategory) -> None:
+        if category not in categories:
+            categories.append(category)
+
     bridge = str(tags.get("bridge", "")).strip().casefold()
     if bridge and bridge not in {"no", "false", "0"} and tags.get("highway"):
         highway = str(tags["highway"]).casefold()
         if highway in {"footway", "pedestrian", "path"}:
-            return (
-                OSMFeatureCategory.FOOTBRIDGE
-                if _allows_footbridge(highway, tags)
-                else None
-            )
-        return OSMFeatureCategory.ROAD_BRIDGE
+            if _allows_footbridge(highway, tags):
+                add(OSMFeatureCategory.FOOTBRIDGE)
+        else:
+            add(OSMFeatureCategory.ROAD_BRIDGE)
 
     waterway = str(tags.get("waterway", "")).casefold()
     water = str(tags.get("water", "")).casefold()
     natural_water = tags.get("natural") == "water"
     if waterway in {"river", "riverbank"} or (natural_water and water == "river"):
-        return OSMFeatureCategory.RIVER
-    if waterway == "canal" or (natural_water and water == "canal"):
-        return OSMFeatureCategory.CANAL
+        add(OSMFeatureCategory.RIVER)
+    elif waterway == "canal" or (natural_water and water == "canal"):
+        add(OSMFeatureCategory.CANAL)
     if tags.get("amenity") == "fuel":
-        return OSMFeatureCategory.FUEL
+        add(OSMFeatureCategory.FUEL)
     if tags.get("shop") in {"mall", "department_store", "supermarket"}:
-        return OSMFeatureCategory.SHOP
+        add(OSMFeatureCategory.SHOP)
     if tags.get("amenity") in {
         "hospital",
         "school",
@@ -313,10 +329,10 @@ def _feature_category(tags: dict) -> OSMFeatureCategory | None:
         "stadium",
         "sports_centre",
     }:
-        return OSMFeatureCategory.POI
+        add(OSMFeatureCategory.POI)
     if tags.get("building"):
-        return OSMFeatureCategory.BUILDING
-    return None
+        add(OSMFeatureCategory.BUILDING)
+    return tuple(categories)
 
 
 def _allows_footbridge(highway: str, tags: dict) -> bool:
@@ -331,22 +347,41 @@ def _allows_footbridge(highway: str, tags: dict) -> bool:
     return highway in {"footway", "pedestrian", "path"}
 
 
-def _feature_from_element(
+def _features_from_element(
     element: dict,
     nodes: dict[int, GeoPoint],
-    category: OSMFeatureCategory,
+    categories: tuple[OSMFeatureCategory, ...],
     projection: MetricProjection,
     main_metric: LineString,
     corridor_metres: float,
-) -> ContextFeature | None:
+) -> list[ContextFeature]:
+    """Build category candidates while reusing each geometry interpretation."""
     tags = element.get("tags") or {}
-    polygonal = _is_polygonal_feature(category, tags, str(element.get("type", "")))
-    try:
-        geometry_kind, parts = geometry_parts_from_element(
-            element, nodes, polygonal=polygonal
-        )
+    osm_type = str(element.get("type", ""))
+    parsed: dict[bool, tuple[OSMGeometryKind, tuple] | Exception] = {}
+    corridor_results: dict[bool, bool] = {}
+    features: list[ContextFeature] = []
+    for category in categories:
+        polygonal = _is_polygonal_feature(category, tags, osm_type)
+        if polygonal not in parsed:
+            try:
+                parsed[polygonal] = geometry_parts_from_element(
+                    element, nodes, polygonal=polygonal
+                )
+            except (KeyError, TypeError, ValueError) as error:
+                parsed[polygonal] = error
+        geometry_result = parsed[polygonal]
+        if isinstance(geometry_result, Exception):
+            warnings.warn(
+                f"Could not parse {category.value} {element.get('type')}/"
+                f"{element.get('id')}: {geometry_result}",
+                OSMFeatureParseWarning,
+                stacklevel=2,
+            )
+            continue
+        geometry_kind, parts = geometry_result
         feature = ContextFeature(
-            osm_type=str(element["type"]),
+            osm_type=osm_type,
             osm_id=int(element["id"]),
             category=category,
             geometry_kind=geometry_kind,
@@ -356,25 +391,22 @@ def _feature_from_element(
             recommended=True,
             recommendation=f"OSM {category.value.replace('_', ' ')} within route corridor",
         )
-        metric_geometry = _feature_metric_geometry(feature, projection)
-        if feature.geometry_kind in {
-            OSMGeometryKind.POLYGON,
-            OSMGeometryKind.MULTIPOLYGON,
-        }:
-            in_corridor = metric_geometry.intersects(main_metric.buffer(corridor_metres))
-        else:
-            in_corridor = metric_geometry.distance(main_metric) <= corridor_metres
-        if not in_corridor:
-            return None
-        return feature
-    except (KeyError, TypeError, ValueError) as error:
-        warnings.warn(
-            f"Could not parse {category.value} {element.get('type')}/"
-            f"{element.get('id')}: {error}",
-            OSMFeatureParseWarning,
-            stacklevel=2,
-        )
-        return None
+        if polygonal not in corridor_results:
+            metric_geometry = _feature_metric_geometry(feature, projection)
+            if feature.geometry_kind in {
+                OSMGeometryKind.POLYGON,
+                OSMGeometryKind.MULTIPOLYGON,
+            }:
+                corridor_results[polygonal] = metric_geometry.intersects(
+                    main_metric.buffer(corridor_metres)
+                )
+            else:
+                corridor_results[polygonal] = (
+                    metric_geometry.distance(main_metric) <= corridor_metres
+                )
+        if corridor_results[polygonal]:
+            features.append(feature)
+    return features
 
 
 def _is_polygonal_water(category: OSMFeatureCategory, tags: dict) -> bool:

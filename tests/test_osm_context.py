@@ -408,6 +408,70 @@ def test_building_way_keeps_unnamed_footprint_and_limited_tags() -> None:
     assert feature.osm_type == "way"
 
 
+@pytest.mark.parametrize(
+    ("osm_id", "semantic_tags", "expected_categories"),
+    [
+        (
+            998986400,
+            {"amenity": "place_of_worship"},
+            {OSMFeatureCategory.BUILDING, OSMFeatureCategory.POI},
+        ),
+        (
+            705,
+            {"amenity": "fuel"},
+            {OSMFeatureCategory.BUILDING, OSMFeatureCategory.FUEL},
+        ),
+        (
+            706,
+            {"shop": "supermarket"},
+            {OSMFeatureCategory.BUILDING, OSMFeatureCategory.SHOP},
+        ),
+    ],
+)
+def test_building_preserves_each_supported_semantic_category(
+    osm_id: int,
+    semantic_tags: dict,
+    expected_categories: set[OSMFeatureCategory],
+) -> None:
+    feature_way = _closed_feature_way(
+        osm_id,
+        {
+            "building": "yes",
+            "name": "Fo Guang Shan",
+            "name:th": "วัดไท่ฮัว ฝอกวงซัน",
+            **semantic_tags,
+        },
+    )
+
+    context = parse_osm_context({"elements": [feature_way]}, _main_route())
+
+    assert {feature.category for feature in context.features} == expected_categories
+    assert {feature.identity for feature in context.features} == {("way", osm_id)}
+    assert {feature.name for feature in context.features} == {"วัดไท่ฮัว ฝอกวงซัน"}
+    assert all(
+        feature.geometry_kind is OSMGeometryKind.POLYGON
+        for feature in context.features
+    )
+
+
+def test_a005_place_of_worship_keeps_building_footprint_candidate() -> None:
+    a005_building = _closed_feature_way(
+        998986400,
+        {
+            "building": "yes",
+            "amenity": "place_of_worship",
+            "name": "วัดไท่ฮัว ฝอกวงซัน",
+        },
+    )
+
+    context = parse_osm_context({"elements": [a005_building]}, _main_route())
+
+    assert sum(
+        item.category is OSMFeatureCategory.BUILDING for item in context.features
+    ) == 1
+    assert sum(item.category is OSMFeatureCategory.POI for item in context.features) == 1
+
+
 def test_building_prefers_thai_name_and_uses_footprint_corridor_intersection() -> None:
     intersecting = _closed_feature_way(
         701,
@@ -535,6 +599,23 @@ def test_duplicate_new_feature_is_emitted_once_per_identity_and_category() -> No
 
     assert [(item.osm_type, item.osm_id, item.category) for item in context.features] == [
         ("node", 750, OSMFeatureCategory.FUEL)
+    ]
+
+
+def test_duplicate_multi_category_match_is_emitted_once_per_category() -> None:
+    building_poi = _closed_feature_way(
+        751, {"building": "yes", "amenity": "place_of_worship"}
+    )
+
+    context = parse_osm_context(
+        {"elements": [building_poi, building_poi]}, _main_route()
+    )
+
+    assert [
+        (item.osm_type, item.osm_id, item.category) for item in context.features
+    ] == [
+        ("way", 751, OSMFeatureCategory.BUILDING),
+        ("way", 751, OSMFeatureCategory.POI),
     ]
 
 
