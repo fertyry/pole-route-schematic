@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-from math import atan2, ceil, cos, degrees, hypot, sin
+from math import atan2, ceil, cos, degrees, hypot, isfinite, sin
 from pathlib import Path
 
 import ezdxf
 from ezdxf import units
-from shapely.geometry import GeometryCollection, LineString, MultiLineString, Point
+from shapely.geometry import GeometryCollection, LineString, MultiLineString, Point, Polygon
 from shapely.ops import nearest_points, substring, unary_union
 
-from pole_route.domain.route import RouteType
+from pole_route.domain.context import ContextFeature, OSMFeatureCategory, OSMGeometryKind
+from pole_route.domain.route import GeoPoint, RouteType
 from pole_route.exporters.excel_exporter import ExcelExportSettings
 from pole_route.geometry.road_geometry import RoadNetworkGeometry
 from pole_route.importers.edited_dxf_importer import inspect_edited_dxf
@@ -38,7 +39,33 @@ LAYERS = (
     ("SHEET_TABLE", 7, "CONTINUOUS"),
     ("SHEET_VIEWPORT", 7, "CONTINUOUS"),
     ("SHEET_BREAK", 6, "DASHED"),
+    ("PRS_OSM_BRIDGE", 30, "CONTINUOUS"),
+    ("PRS_OSM_BRIDGE_NAME", 30, "CONTINUOUS"),
+    ("PRS_OSM_FOOTBRIDGE", 2, "CONTINUOUS"),
+    ("PRS_OSM_RIVER", 5, "CONTINUOUS"),
+    ("PRS_OSM_RIVER_NAME", 5, "CONTINUOUS"),
+    ("PRS_OSM_CANAL", 4, "CONTINUOUS"),
+    ("PRS_OSM_CANAL_NAME", 4, "CONTINUOUS"),
+    ("PRS_OSM_BUILDING", 8, "CONTINUOUS"),
+    ("PRS_OSM_BUILDING_NAME", 8, "CONTINUOUS"),
+    ("PRS_OSM_FUEL", 1, "CONTINUOUS"),
+    ("PRS_OSM_FUEL_NAME", 1, "CONTINUOUS"),
+    ("PRS_OSM_SHOP", 6, "CONTINUOUS"),
+    ("PRS_OSM_SHOP_NAME", 6, "CONTINUOUS"),
+    ("PRS_OSM_POI", 3, "CONTINUOUS"),
+    ("PRS_OSM_POI_NAME", 3, "CONTINUOUS"),
 )
+
+OSM_DXF_LAYERS = {
+    OSMFeatureCategory.ROAD_BRIDGE: ("PRS_OSM_BRIDGE", "PRS_OSM_BRIDGE_NAME"),
+    OSMFeatureCategory.FOOTBRIDGE: ("PRS_OSM_FOOTBRIDGE", "PRS_OSM_BRIDGE_NAME"),
+    OSMFeatureCategory.RIVER: ("PRS_OSM_RIVER", "PRS_OSM_RIVER_NAME"),
+    OSMFeatureCategory.CANAL: ("PRS_OSM_CANAL", "PRS_OSM_CANAL_NAME"),
+    OSMFeatureCategory.BUILDING: ("PRS_OSM_BUILDING", "PRS_OSM_BUILDING_NAME"),
+    OSMFeatureCategory.FUEL: ("PRS_OSM_FUEL", "PRS_OSM_FUEL_NAME"),
+    OSMFeatureCategory.SHOP: ("PRS_OSM_SHOP", "PRS_OSM_SHOP_NAME"),
+    OSMFeatureCategory.POI: ("PRS_OSM_POI", "PRS_OSM_POI_NAME"),
+}
 
 DXF_TARGET_SPAN_METRES = 350.0
 
@@ -269,6 +296,7 @@ def export_geometry_to_dxf(
     include_sheet_layouts: bool = True,
     same_pole_groups: tuple[frozenset[str], ...] = (),
     transformer_rack_groups: tuple[frozenset[str], ...] = (),
+    osm_features: tuple[ContextFeature, ...] = (),
 ) -> int:
     """Write real metric geometry, Unicode labels, CAD layers, and pole blocks."""
     if not geometry.roads:
@@ -366,6 +394,8 @@ def export_geometry_to_dxf(
             )
             object_count += 1
 
+    object_count += _export_osm_features(modelspace, geometry, osm_features)
+
     rendered_groups: set[frozenset[str]] = set()
     label_slots: dict[tuple[float, float], int] = {}
     for projected in geometry.projected_poles:
@@ -439,6 +469,100 @@ def export_geometry_to_dxf(
     except (OSError, ezdxf.DXFError) as error:
         raise DxfExportError(f"DXF could not be saved: {error}") from error
     return object_count
+
+
+def _export_osm_features(modelspace, geometry, features) -> int:
+    """Export every accepted OSM feature or fail with its stable identity."""
+    count = 0
+    for feature in features:
+        try:
+            count += _export_osm_feature(modelspace, geometry, feature)
+        except DxfExportError:
+            raise
+        except Exception as error:
+            raise _osm_export_error(feature, str(error)) from error
+    return count
+
+
+def _export_osm_feature(modelspace, geometry, feature: ContextFeature) -> int:
+    geometry_layer, name_layer = OSM_DXF_LAYERS[feature.category]
+    projected_parts = []
+    for part in feature.parts:
+        exterior = tuple(
+            _metric_osm_point(geometry, point, feature) for point in part.coordinates
+        )
+        holes = tuple(
+            tuple(_metric_osm_point(geometry, point, feature) for point in hole)
+            for hole in part.holes
+        )
+        projected_parts.append((exterior, holes))
+
+    count = 0
+    kind = feature.geometry_kind
+    if kind is OSMGeometryKind.POINT:
+        for exterior, holes in projected_parts:
+            if holes or len(exterior) != 1:
+                raise _osm_export_error(feature, "POINT requires one coordinate and no holes")
+            modelspace.add_circle(exterior[0], radius=1.5, dxfattribs={"layer": geometry_layer})
+            count += 1
+    elif kind in {OSMGeometryKind.LINESTRING, OSMGeometryKind.MULTILINESTRING}:
+        if kind is OSMGeometryKind.LINESTRING and len(projected_parts) != 1:
+            raise _osm_export_error(feature, "LINESTRING requires exactly one part")
+        for exterior, holes in projected_parts:
+            if holes or len(exterior) < 2:
+                raise _osm_export_error(feature, "line parts require at least two coordinates and no holes")
+            modelspace.add_lwpolyline(exterior, dxfattribs={"layer": geometry_layer})
+            count += 1
+    elif kind in {OSMGeometryKind.POLYGON, OSMGeometryKind.MULTIPOLYGON}:
+        if kind is OSMGeometryKind.POLYGON and len(projected_parts) != 1:
+            raise _osm_export_error(feature, "POLYGON requires exactly one part")
+        for exterior, holes in projected_parts:
+            if len(exterior) < 3:
+                raise _osm_export_error(feature, "polygon exterior requires at least three coordinates")
+            modelspace.add_lwpolyline(exterior, close=True, dxfattribs={"layer": geometry_layer})
+            count += 1
+            for hole in holes:
+                if len(hole) < 3:
+                    raise _osm_export_error(feature, "polygon hole requires at least three coordinates")
+                modelspace.add_lwpolyline(hole, close=True, dxfattribs={"layer": geometry_layer})
+                count += 1
+    else:
+        raise _osm_export_error(feature, "unsupported geometry kind")
+
+    if feature.name:
+        x, y = _osm_label_anchor(projected_parts, kind)
+        _add_dxf_text(modelspace, name_layer, x, y, feature.name, 2.0)
+        count += 1
+    return count
+
+
+def _metric_osm_point(geometry, point: GeoPoint, feature: ContextFeature):
+    coordinate = geometry.projection.to_metric(point)
+    if len(coordinate) != 2 or not all(isfinite(value) for value in coordinate):
+        raise _osm_export_error(feature, "coordinate could not be projected to finite metric XY")
+    return coordinate
+
+
+def _osm_label_anchor(projected_parts, kind: OSMGeometryKind) -> tuple[float, float]:
+    if kind is OSMGeometryKind.POINT:
+        return projected_parts[0][0][0]
+    if kind in {OSMGeometryKind.POLYGON, OSMGeometryKind.MULTIPOLYGON}:
+        polygons = [Polygon(exterior, holes) for exterior, holes in projected_parts]
+        polygon = max(polygons, key=lambda item: item.area)
+        anchor = polygon.representative_point()
+        return anchor.x, anchor.y
+    lines = [LineString(exterior) for exterior, _holes in projected_parts]
+    line = max(lines, key=lambda item: item.length)
+    anchor = line.interpolate(line.length / 2.0)
+    return anchor.x, anchor.y
+
+
+def _osm_export_error(feature: ContextFeature, reason: str) -> DxfExportError:
+    return DxfExportError(
+        "OSM feature export failed: "
+        f"category={feature.category.value}, identity={feature.osm_type}/{feature.osm_id}, "
+        f"geometry_kind={feature.geometry_kind.value}, reason={reason}"
+    )
 
 
 def _define_sheet_break_block(document) -> None:

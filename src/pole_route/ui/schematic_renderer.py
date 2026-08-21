@@ -9,11 +9,15 @@ from PySide6.QtWidgets import (
     QGraphicsLineItem,
     QGraphicsScene,
 )
+from shapely.geometry import Point
 
 from pole_route.domain.pole import PoleSide
 from pole_route.domain.schematic import SchematicLayout
+from pole_route.domain.context import ContextFeature
+from pole_route.geometry.road_geometry import RoadNetworkGeometry
+from pole_route.ui.osm_feature_renderer import render_osm_features
 from pole_route.ui.editor_commands import EditableItemGroup, EditableRectItem, EditableTextItem
-from pole_route.ui.scene_lifecycle import clear_scene
+from pole_route.ui.scene_lifecycle import clear_scene, retain_scene_items
 
 EDITABLE_FLAGS = (
     QGraphicsItem.GraphicsItemFlag.ItemIsSelectable
@@ -22,9 +26,22 @@ EDITABLE_FLAGS = (
 )
 
 
-def render_schematic(scene: QGraphicsScene, layout: SchematicLayout, undo_stack: QUndoStack) -> None:
+def render_schematic(
+    scene: QGraphicsScene,
+    layout: SchematicLayout,
+    undo_stack: QUndoStack,
+    osm_features: tuple[ContextFeature, ...] = (),
+    geometry: RoadNetworkGeometry | None = None,
+) -> None:
     """Replace the scene with individually editable schematic objects."""
     clear_scene(scene)
+    if osm_features and geometry is not None:
+        project = (
+            _network_osm_projector(layout, geometry)
+            if layout.roads
+            else _straight_osm_projector(layout, geometry, osm_features)
+        )
+        render_osm_features(scene, osm_features, project)
     road_group = EditableItemGroup(undo_stack)
     road_group.setData(0, "road")
     road_group.setFlags(EDITABLE_FLAGS)
@@ -142,3 +159,64 @@ def render_schematic(scene: QGraphicsScene, layout: SchematicLayout, undo_stack:
         scene.addItem(label)
 
     scene.setSceneRect(0, 0, layout.width, layout.height)
+    retain_scene_items(scene)
+
+
+def _network_osm_projector(layout, geometry):
+    coordinates = [
+        coordinate
+        for road in geometry.roads
+        for line in (road.centerline, road.left_edge, road.right_edge)
+        for coordinate in line.coords
+    ]
+    min_x = min(x for x, _y in coordinates)
+    max_x = max(x for x, _y in coordinates)
+    min_y = min(y for _x, y in coordinates)
+    max_y = max(y for _x, y in coordinates)
+    margin = 120.0
+    scale = min(
+        (layout.width - 2 * margin) / max(max_x - min_x, 1e-9),
+        (layout.height - 2 * margin) / max(max_y - min_y, 1e-9),
+    )
+
+    def project(point):
+        x, y = geometry.projection.to_metric(point)
+        return margin + (x - min_x) * scale, margin + (max_y - y) * scale
+
+    return project
+
+
+def _straight_osm_projector(layout, geometry, features):
+    """Place context by main-route station and signed lateral distance."""
+    main = next((road for road in geometry.roads if road.is_main_route), geometry.roads[0])
+    center_y = (layout.road_top + layout.road_bottom) / 2.0
+    metric_points = [
+        geometry.projection.to_metric(point)
+        for feature in features
+        for part in feature.parts
+        for ring in (part.coordinates, *part.holes)
+        for point in ring
+    ]
+
+    def station_and_offset(x, y):
+        source = Point(x, y)
+        station = main.centerline.project(source)
+        nearest = main.centerline.interpolate(station)
+        delta = min(max(main.centerline.length * 1e-6, 0.01), 1.0)
+        before = main.centerline.interpolate(max(0.0, station - delta))
+        after = main.centerline.interpolate(min(main.centerline.length, station + delta))
+        cross = (after.x - before.x) * (y - nearest.y) - (after.y - before.y) * (x - nearest.x)
+        return station, source.distance(nearest) * (1.0 if cross >= 0 else -1.0)
+
+    offsets = [abs(station_and_offset(x, y)[1]) for x, y in metric_points]
+    available = max(min(center_y - 20.0, layout.height - center_y - 20.0), 1.0)
+    lateral_scale = min(2.0, available / max(offsets, default=1.0))
+
+    def project(point):
+        station, offset = station_and_offset(*geometry.projection.to_metric(point))
+        x = layout.road_left + station / max(main.centerline.length, 1e-9) * (
+            layout.road_right - layout.road_left
+        )
+        return x, center_y - offset * lateral_scale
+
+    return project

@@ -627,6 +627,7 @@ class MainWindow(QMainWindow):
             [(item.route, item.type) for item in routes],
             960,
             540,
+            tuple(self.current_osm_features),
         )
 
     def _build_geometry(self) -> None:
@@ -637,7 +638,9 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("Geometry build failed")
             return
 
-        render_road_geometry(self.route_scene, geometry)
+        render_road_geometry(
+            self.route_scene, geometry, osm_features=tuple(self.current_osm_features)
+        )
         self.current_geometry = geometry
         self.export_dxf_action.setEnabled(True)
         self.import_edited_dxf_action.setEnabled(True)
@@ -671,7 +674,13 @@ class MainWindow(QMainWindow):
             tuple(self.transformer_rack_groups),
         )
         self.undo_stack.clear()
-        render_schematic(self.route_scene, layout, self.undo_stack)
+        render_schematic(
+            self.route_scene,
+            layout,
+            self.undo_stack,
+            tuple(self.current_osm_features),
+            self.current_geometry,
+        )
         self.reset_layout_action.setEnabled(True)
         for action in self.drawing_actions.values():
             action.setEnabled(True)
@@ -788,6 +797,7 @@ class MainWindow(QMainWindow):
                 include_sheet_layouts=include_sheet_layouts,
                 same_pole_groups=tuple(self.same_pole_groups),
                 transformer_rack_groups=tuple(self.transformer_rack_groups),
+                osm_features=tuple(self.current_osm_features),
             )
         except DxfExportError as error:
             QMessageBox.warning(self, "DXF export failed", str(error))

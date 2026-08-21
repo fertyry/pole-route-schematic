@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 
 from pole_route.domain.route import ClassifiedRoute, Route, RouteType
 from pole_route.geometry.junctions import prepare_manual_junctions
-from pole_route.ui.scene_lifecycle import clear_scene
+from pole_route.ui.scene_lifecycle import clear_scene, retain_scene_items
 
 
 class RouteImportDialog(QDialog):
@@ -303,6 +303,7 @@ def draw_route_preview(
     if show_direction:
         _add_direction_labels(scene, project(route.points[0]), project(route.points[-1]))
     scene.setSceneRect(0, 0, width, height)
+    retain_scene_items(scene)
 
 
 ROUTE_TYPE_COLORS = {
@@ -323,6 +324,7 @@ def draw_classified_routes_preview(
     routes_with_types: list[tuple[Route, RouteType]],
     width: float,
     height: float,
+    osm_features=(),
 ) -> None:
     """Fit and draw all selected routes in one shared geographic preview."""
     clear_scene(scene)
@@ -342,6 +344,9 @@ def draw_classified_routes_preview(
             margin + (max_latitude - point.latitude) * scale,
         )
 
+    from pole_route.ui.osm_feature_renderer import render_osm_features
+    render_osm_features(scene, osm_features, project)
+
     for route, route_type in routes_with_types:
         path = QPainterPath()
         path.moveTo(*project(route.points[0]))
@@ -352,6 +357,7 @@ def draw_classified_routes_preview(
         if route_type is RouteType.MAIN_ROUTE:
             _add_direction_labels(scene, project(route.points[0]), project(route.points[-1]))
     scene.setSceneRect(0, 0, width, height)
+    retain_scene_items(scene)
 
 
 def _add_direction_labels(scene: QGraphicsScene, start, end) -> None:

@@ -361,9 +361,30 @@ PRS_OSM_FOOTBRIDGE
 PRS_OSM_RIVER             PRS_OSM_RIVER_NAME
 PRS_OSM_CANAL             PRS_OSM_CANAL_NAME
 PRS_OSM_BUILDING          PRS_OSM_BUILDING_NAME
-PRS_OSM_FUEL              PRS_OSM_SHOP
-PRS_OSM_POI
+PRS_OSM_FUEL              PRS_OSM_FUEL_NAME
+PRS_OSM_SHOP              PRS_OSM_SHOP_NAME
+PRS_OSM_POI               PRS_OSM_POI_NAME
 ```
+
+### Online OSM Surround V2 implementation status
+
+Phases 2.1 through 2.5 are implemented. Accepted OSM features retain stable
+`(osm_type, osm_id)` identity, category, geometry kind, multipart geometry, polygon holes,
+real OSM names, normalized tags, recommendation metadata, and source path through project
+save/reload. The review workflow owns accepted-feature state independently from legacy
+Roads/Sois.
+
+Accepted features render in route preview, metric geometry preview, and editable network or
+straight schematic canvases. Rendering is additive and does not enter road-network geometry,
+pole projection, road offsets, or pole-line calculations. Only a real accepted OSM `name` is
+drawn; technical identities and invented fallback labels are not user-visible labels.
+
+DXF export supports POINT, LINESTRING, MULTILINESTRING, POLYGON (including holes), and
+MULTIPOLYGON on the semantic `PRS_OSM_*` layers above. Fuel, shop, and POI name layers are
+intentional additions so symbols and optional real names remain independently controllable.
+Invalid accepted geometry raises an identity-rich export error instead of being silently
+dropped. Creating layouts from an edited CAD Master preserves these Model Space layers and
+entities.
 
 ### Qt schematic and editing
 
@@ -433,12 +454,14 @@ PRS_OSM_POI
 - UTM road geometry, pole lines, nearest placement, network schematic
 - Duplicate-coordinate review, same-pole and transformer-rack handling
 - Reviewed OSM fetching and road-name retention
+- Online OSM Surround V2 review, accepted-feature persistence, canvas rendering, and semantic
+  DXF export for bridges, waterways, buildings, fuel, shops, and important POIs
 - Portable `.prs` save/open and editable scene restoration
 - Editable Excel preview/export and multi-page schedules
 - Metric DXF Master, semantic pole blocks/metadata, sheet markers
 - Edited-DXF validation and persistence
 - A4 CAD Paper Space generation from edited poles with common scale and schedules
-- Automated suite: 126 tests passed at the last verified coding session
+- Automated suite: 191 tests passed at the last verified coding session
 
 ### Active visual defects reported after the CAD-sheet baseline
 
@@ -461,10 +484,11 @@ Completed stability work:
 1. Phase 1A: save stability, live-canvas preservation, and shared working-directory handling.
 2. Phase 1B: DXF read-only investigation, resolved as a Windows/Autodesk file-association issue.
 
-Next implementation phase:
+Completed Online OSM work:
 
-3. Expand reviewed **Online OSM Surround V2** categories and workflow. Offline Thailand
-   OSM is explicitly not part of the current phase.
+3. Phases 2.1-2.5: reviewed **Online OSM Surround V2** domain, persistence, parsing, accepted
+   state, canvas rendering, and semantic DXF export. Offline Thailand OSM remains explicitly
+   outside the current implementation.
 
 Later AutoCAD integration work:
 

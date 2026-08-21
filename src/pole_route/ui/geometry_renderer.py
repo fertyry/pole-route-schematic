@@ -8,8 +8,10 @@ from PySide6.QtWidgets import QGraphicsScene
 from shapely.geometry import LineString, Point
 
 from pole_route.domain.pole import PoleSide
+from pole_route.domain.context import ContextFeature
 from pole_route.geometry.road_geometry import RoadGeometry, RoadNetworkGeometry
-from pole_route.ui.scene_lifecycle import clear_scene
+from pole_route.ui.scene_lifecycle import clear_scene, retain_scene_items
+from pole_route.ui.osm_feature_renderer import render_osm_features
 
 
 def render_road_geometry(
@@ -17,6 +19,7 @@ def render_road_geometry(
     geometry: RoadGeometry | RoadNetworkGeometry,
     width: float = 960,
     height: float = 540,
+    osm_features: tuple[ContextFeature, ...] = (),
 ) -> None:
     """Draw scaled metric geometry while preserving its aspect ratio."""
     clear_scene(scene)
@@ -38,6 +41,12 @@ def render_road_geometry(
         for point in (projected.original, projected.snapped)
     )
     transform = _SceneTransform.from_geometry(lines, extra_points, width, height)
+
+    render_osm_features(
+        scene,
+        osm_features,
+        lambda point: transform.xy(*geometry.projection.to_metric(point)),
+    )
 
     for road in roads:
         if road.pole_line_enabled:
@@ -74,6 +83,7 @@ def render_road_geometry(
         label.setPos(snapped_x + 7, snapped_y - 12)
 
     scene.setSceneRect(0, 0, width, height)
+    retain_scene_items(scene)
 
 
 def _draw_line(
