@@ -214,6 +214,131 @@ def test_osm_context_dialog_requires_confirmation_and_returns_checked_roads(qtbo
     assert len(dialog.selected_routes()) == 1
 
 
+def test_osm_review_v2_groups_selects_and_previews_feature_geometry(qtbot) -> None:
+    from pole_route.domain.context import (
+        ContextFeature,
+        ContextGeometryPart,
+        OSMContext,
+        OSMFeatureCategory,
+        OSMGeometryKind,
+    )
+    from pole_route.domain.route import GeoPoint, Route
+
+    main = Route("Main", "route.kml", (GeoPoint(100, 13), GeoPoint(100, 13.01)))
+    features = (
+        ContextFeature(
+            "node", 1, OSMFeatureCategory.FUEL, OSMGeometryKind.POINT,
+            (ContextGeometryPart((GeoPoint(100.0001, 13.002),)),),
+            name="ปั๊มทดสอบ", recommended=True,
+        ),
+        ContextFeature(
+            "way", 2, OSMFeatureCategory.FUEL, OSMGeometryKind.LINESTRING,
+            (ContextGeometryPart((GeoPoint(100.0, 13.003), GeoPoint(100.001, 13.003))),),
+            recommended=False,
+        ),
+        ContextFeature(
+            "relation", 3, OSMFeatureCategory.BUILDING,
+            OSMGeometryKind.MULTIPOLYGON,
+            (ContextGeometryPart(
+                (GeoPoint(99.999, 13.004), GeoPoint(100.001, 13.004),
+                 GeoPoint(99.999, 13.004)),
+                ((GeoPoint(99.9995, 13.004), GeoPoint(100.0005, 13.004),
+                  GeoPoint(99.9995, 13.004)),),
+            ),),
+            recommended=True,
+        ),
+    )
+    dialog = OSMContextDialog(main, OSMContext((), (), features))
+    qtbot.addWidget(dialog)
+
+    fuel_table = dialog.feature_tables[OSMFeatureCategory.FUEL]
+    building_table = dialog.feature_tables[OSMFeatureCategory.BUILDING]
+    assert fuel_table.rowCount() == 2
+    assert building_table.rowCount() == 1
+    assert fuel_table.item(0, 1).text() == "ปั๊มทดสอบ"
+    assert fuel_table.item(1, 1).text() == "Fuel — way/2"
+    assert dialog.scene.items()  # POINT, LINESTRING and polygon-with-hole previewed
+
+    dialog._select_recommended(OSMFeatureCategory.FUEL)
+    assert dialog.selected_features() == [features[0]]
+    dialog.category_toggles[OSMFeatureCategory.BUILDING].setChecked(True)
+    assert dialog.selected_features() == [features[0], features[2]]
+    assert fuel_table.item(1, 0).checkState() == Qt.CheckState.Unchecked
+    dialog._set_feature_category(OSMFeatureCategory.FUEL, False)
+    assert dialog.selected_features() == [features[2]]
+
+
+def test_accepted_osm_features_replace_deduplicate_and_round_trip(qtbot, tmp_path, monkeypatch) -> None:
+    from pole_route.domain.context import (
+        ContextFeature, ContextGeometryPart, OSMContext,
+        OSMFeatureCategory, OSMGeometryKind,
+    )
+    from pole_route.domain.route import GeoPoint, Route
+    import pole_route.ui.main_window as main_window_module
+
+    main = Route("Main", "route.kml", (GeoPoint(100, 13), GeoPoint(100, 13.01)))
+    feature = ContextFeature(
+        "node", 25, OSMFeatureCategory.POI, OSMGeometryKind.POINT,
+        (ContextGeometryPart((GeoPoint(100, 13.005),)),), name="โรงเรียน",
+    )
+
+    class AcceptedDialog:
+        DialogCode = OSMContextDialog.DialogCode
+        def __init__(self, *_args): pass
+        def exec(self): return self.DialogCode.Accepted
+        def selected_routes(self): return []
+        def selected_features(self): return [feature, feature]
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.current_route = main
+    window.current_osm_features = [ContextFeature(
+        "node", 99, OSMFeatureCategory.POI, OSMGeometryKind.POINT,
+        (ContextGeometryPart((GeoPoint(100, 13.006),)),),
+    )]
+    monkeypatch.setattr(main_window_module, "OSMContextDialog", AcceptedDialog)
+    window._review_surroundings(OSMContext((), (), (feature,)))
+    assert window.current_osm_features == [feature]
+
+    path = tmp_path / "accepted-features.prs"
+    assert window._write_project(str(path))
+    reopened = MainWindow()
+    qtbot.addWidget(reopened)
+    assert reopened.open_project(str(path))
+    assert reopened.current_osm_features == [feature]
+    reopened._new_project()
+    assert reopened.current_osm_features == []
+
+
+def test_cancelled_osm_review_does_not_change_accepted_features(qtbot, monkeypatch) -> None:
+    from pole_route.domain.context import (
+        ContextFeature, ContextGeometryPart, OSMContext,
+        OSMFeatureCategory, OSMGeometryKind,
+    )
+    from pole_route.domain.route import GeoPoint, Route
+    import pole_route.ui.main_window as main_window_module
+
+    feature = ContextFeature(
+        "node", 30, OSMFeatureCategory.SHOP, OSMGeometryKind.POINT,
+        (ContextGeometryPart((GeoPoint(100, 13.005),)),),
+    )
+
+    class CancelledDialog:
+        DialogCode = OSMContextDialog.DialogCode
+        def __init__(self, *_args): pass
+        def exec(self): return self.DialogCode.Rejected
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.current_route = Route(
+        "Main", "route.kml", (GeoPoint(100, 13), GeoPoint(100, 13.01))
+    )
+    window.current_osm_features = [feature]
+    monkeypatch.setattr(main_window_module, "OSMContextDialog", CancelledDialog)
+    window._review_surroundings(OSMContext((), (), (feature,)))
+    assert window.current_osm_features == [feature]
+
+
 def test_mapping_dialog_uses_explicit_confirmation(qtbot) -> None:
     table = PoleTable(
         ("No", "Latitude", "Longitude"),

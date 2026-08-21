@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from pole_route.domain.blocks import BLOCK_CATALOG
+from pole_route.domain.context import ContextFeature
 from pole_route.domain.pole import Pole
 from pole_route.domain.route import ClassifiedRoute, Route, RouteType
 from pole_route.exporters.dxf_exporter import (
@@ -56,6 +57,8 @@ from pole_route.importers.pole_importer import (
 from pole_route.project.storage import (
     ProjectFileError,
     load_project_file,
+    osm_features_from_data,
+    osm_features_to_data,
     poles_from_data,
     poles_to_data,
     restore_scene,
@@ -100,6 +103,7 @@ class MainWindow(QMainWindow):
         self.current_route: Route | None = None
         self.current_routes: list[ClassifiedRoute] = []
         self.current_context_routes: list[ClassifiedRoute] = []
+        self.current_osm_features: list[ContextFeature] = []
         self.current_road_width = 6.0
         self.current_poles: list[Pole] = []
         self.current_geometry = None
@@ -551,11 +555,11 @@ class MainWindow(QMainWindow):
         self._pending_osm_context = context
 
     def _review_surroundings(self, context) -> None:
-        if not context.roads and not context.places:
+        if not context.roads and not context.places and not context.features:
             QMessageBox.information(
                 self,
                 "No surroundings found",
-                "OpenStreetMap returned no nearby roads or named places for this route.",
+                "OpenStreetMap returned no nearby surroundings for this route.",
             )
             self.statusBar().showMessage("No OpenStreetMap surroundings found")
             return
@@ -564,6 +568,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("OpenStreetMap surroundings cancelled")
             return
         discovered = dialog.selected_routes()
+        selected_features = dialog.selected_features()
         existing_osm_ids = {
             item.route.source_path
             for item in self.current_routes
@@ -574,15 +579,24 @@ class MainWindow(QMainWindow):
         ]
         self.current_routes.extend(discovered)
         self.current_context_routes.extend(discovered)
-        self.show_routes(self.current_routes)
+        # A confirmed re-fetch replaces the accepted non-road feature snapshot.
+        # Category is part of identity because one OSM object may legitimately
+        # represent more than one reviewed semantic feature.
+        unique_features: dict[tuple[str, int, object], ContextFeature] = {}
+        for feature in selected_features:
+            unique_features[(feature.osm_type, feature.osm_id, feature.category)] = feature
+        features_changed = self.current_osm_features != list(unique_features.values())
+        self.current_osm_features = list(unique_features.values())
+        if self.current_routes:
+            self.show_routes(self.current_routes)
         self.current_geometry = None
         self.generate_schematic_action.setEnabled(False)
         self._update_geometry_action()
         self.statusBar().showMessage(
-            f"Added {len(discovered)} nearby road(s); "
-            f"reviewed {len(context.places)} named place(s)"
+            f"Added {len(discovered)} nearby road(s) and "
+            f"accepted {len(self.current_osm_features)} OSM feature(s)"
         )
-        if discovered:
+        if discovered or features_changed:
             self._mark_dirty()
 
     def _surroundings_fetch_finished(self) -> None:
@@ -1064,6 +1078,7 @@ class MainWindow(QMainWindow):
             self.current_route = None
             self.current_routes = []
             self.current_context_routes = []
+            self.current_osm_features = []
             self.current_road_width = 6.0
             self.current_poles = []
             self.current_geometry = None
@@ -1113,6 +1128,7 @@ class MainWindow(QMainWindow):
                 path,
                 {
                     "routes": routes_to_data(self.current_routes),
+                    "osm_features": osm_features_to_data(self.current_osm_features),
                     "poles": poles_to_data(self.current_poles),
                     "same_pole_groups": [sorted(group) for group in self.same_pole_groups],
                     "transformer_rack_groups": [
@@ -1140,6 +1156,7 @@ class MainWindow(QMainWindow):
             document = load_project_file(path)
             routes = routes_from_data(document.get("routes", []))
             poles = poles_from_data(document.get("poles", []))
+            osm_features = osm_features_from_data(document.get("osm_features", []))
             geometry = build_road_network_geometry(routes, poles) if routes and poles else None
         except (ProjectFileError, RoadGeometryError, KeyError, TypeError, ValueError) as error:
             QMessageBox.warning(self, "Project open failed", str(error))
@@ -1153,6 +1170,7 @@ class MainWindow(QMainWindow):
             self.current_context_routes = [
                 item for item in routes if item.type is not RouteType.MAIN_ROUTE
             ]
+            self.current_osm_features = osm_features
             self.current_road_width = (
                 (main_routes[0].width_metres or 6.0) if main_routes else 6.0
             )
