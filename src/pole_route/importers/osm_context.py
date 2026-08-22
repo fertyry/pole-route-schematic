@@ -82,18 +82,26 @@ def fetch_osm_context(
     if feature_corridor_metres <= 0:
         raise ValueError("Feature corridor must be greater than zero")
     query = _build_query(main_route, corridor_metres, feature_corridor_metres)
+    endpoint_fallbacks = 0
     try:
-        payload = (fetcher or _download_overpass)(query)
+        if fetcher is None:
+            payload, endpoint_fallbacks = _download_overpass(query)
+        else:
+            payload = fetcher(query)
         document = json.loads(payload)
     except (HTTPError, URLError, TimeoutError, OSError) as error:
         raise OSMContextError(f"Could not contact OpenStreetMap: {error}") from error
     except (json.JSONDecodeError, TypeError) as error:
         raise OSMContextError("OpenStreetMap returned an invalid response") from error
-    return parse_osm_context(
+    context = parse_osm_context(
         document,
         main_route,
         corridor_metres,
         feature_corridor_metres=feature_corridor_metres,
+    )
+    return OSMContext(
+        context.roads, context.places, context.features, context.warnings,
+        (*context.metrics, ("osm_endpoint_fallbacks", float(endpoint_fallbacks))),
     )
 
 
@@ -227,7 +235,12 @@ def parse_osm_context(
         features, main_route, feature_corridor_metres=feature_corridor_metres
     ))
     features.sort(key=lambda item: (item.category.value, item.name or "", item.osm_id))
-    return OSMContext(tuple(roads), tuple(places), tuple(features))
+    return OSMContext(
+        tuple(roads), tuple(places), tuple(features), (),
+        (("osm_raw", float(len(elements))),
+         ("osm_parsed", float(len(roads) + len(places) + len(features))),
+         ("osm_final", float(len(roads) + len(places) + len(features)))),
+    )
 
 
 def prepare_context_features(
@@ -641,10 +654,10 @@ def _portable_parts(geometry, projection: MetricProjection):
     return kind, parts
 
 
-def _download_overpass(query: str) -> bytes:
+def _download_overpass(query: str) -> tuple[bytes, int]:
     body = urlencode({"data": query}).encode("utf-8")
     last_error = None
-    for endpoint in OVERPASS_URLS:
+    for index, endpoint in enumerate(OVERPASS_URLS):
         request = Request(
             endpoint,
             data=body,
@@ -652,7 +665,7 @@ def _download_overpass(query: str) -> bytes:
         )
         try:
             with urlopen(request, timeout=25) as response:
-                return response.read()
+                return response.read(), index
         except (HTTPError, URLError, TimeoutError, OSError) as error:
             last_error = error
     assert last_error is not None

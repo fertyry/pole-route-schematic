@@ -674,6 +674,39 @@ ambiguous bridge relationships, persistence, and deterministic footbridge orient
 
 ## Current status after Phase 1
 
+## Phase 2.7 — Surround performance and reliability
+
+Online Surround fetching now uses distance-based route batches shared by OSM and Overture:
+
+- Core batch length: 3,000 m.
+- Internal overlap: 150 m on either side of a batch boundary.
+- Accepted objects are deduplicated by stable semantic/source identity after merge; overlap must
+  not create duplicate roads, places, or features.
+- OSM and Overture remain independent sources. A failed Overture request never discards OSM,
+  and a failed OSM interval does not discard successful intervals.
+- OSM retries each batch once and its existing endpoint list provides ordered fallback. Partial
+  warnings identify source, batch number, and metric route interval.
+- Progress reports preparation, source and batch, cached Overture results, conflation, review
+  preparation, and completion. Cancellation is cooperative at source/batch boundaries and must
+  leave the previously accepted context unchanged.
+- Overture cache keys include release, request bounds, and corridor. Cache writes are atomic,
+  malformed entries are ignored, and only the eight most recent JSON entries are retained.
+- Fetch metrics include route length, batch count, source elapsed time, retry/failed-batch counts,
+  cache hits/misses, raw/corridor counts, conflation counts, and total elapsed time.
+
+Real-file validation on 2026-08-22:
+
+- A005: 2,199 m, 1 batch, 11.61 s, 612 buildings, no warnings, Overture cache hit.
+- A006: 3,561 m, 2 batches, 438.53 s, 901 buildings. OSM batch 2 failed after retry;
+  successful OSM plus Overture results were retained with an interval-specific partial warning.
+- Lad Ya: 17,494 m, 6 batches, 1,438.45 s, 1,123 buildings, 4 rivers, 4 footbridges,
+  and 2 road bridges. OSM batch 3 failed after retry and other batches were retained.
+
+These measurements prove bounded progress and partial recovery, not faster upstream service.
+During validation the Overture STAC endpoint repeatedly reported an `aws-s3` index error and
+consumed most wall time (1,287.53 s on Lad Ya) despite ultimately returning data. Provider-side
+latency remains a known risk; do not describe batching itself as a network speed improvement.
+
 ### Working and tested
 
 - KML/KMZ classification, reversing, multiple routes, and junction validation
@@ -688,7 +721,7 @@ ambiguous bridge relationships, persistence, and deterministic footbridge orient
 - Metric DXF Master, semantic pole blocks/metadata, sheet markers
 - Edited-DXF validation and persistence
 - A4 CAD Paper Space generation from edited poles with common scale and schedules
-- Automated suite: 222 tests passed at the last verified coding session
+- Automated suite: 236 tests passed at the last verified coding session
 
 ### Active visual defects reported after the CAD-sheet baseline
 
@@ -731,17 +764,19 @@ Completed Online OSM work:
    display with 175 m along-water context; bridge/water relationships are conservative;
    footbridges export as deterministic semantic blocks with XData. Roads/Sois and pole
    placement behavior remain unchanged.
+7. Phase 2.7: distance batching, overlap dedupe, partial-source recovery, bounded Overture
+   cache, truthful progress/cancellation, and structured fetch metrics.
 
 Later AutoCAD integration work:
 
-7. Implement explicit Connect AutoCAD with drawing selection, target locking, project
+8. Implement explicit Connect AutoCAD with drawing selection, target locking, project
    validation, and disconnected-state handling.
-8. Implement Read Pole Positions, Pole Report preview/export, and Same_Station review.
-9. Calculate/preview/adjust Sheet Plan from the latest pole positions and only then create
+9. Implement Read Pole Positions, Pole Report preview/export, and Same_Station review.
+10. Calculate/preview/adjust Sheet Plan from the latest pole positions and only then create
    confirmed `PRS_SHEET_BREAK` markers.
-10. Execute Model Space Sheet Copies with strict pole-boundary clipping, generated-object
+11. Execute Model Space Sheet Copies with strict pole-boundary clipping, generated-object
    ownership, final labels, frames, and refreshed layouts.
-11. Apply CAD block/layer specification changes and add `PRSPOLESPACE` as a utility.
+12. Apply CAD block/layer specification changes and add `PRSPOLESPACE` as a utility.
 
 No later-phase item is considered implemented merely because it is documented here.
 

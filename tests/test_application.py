@@ -120,6 +120,22 @@ def test_osm_review_waits_until_worker_thread_cleanup(qtbot, monkeypatch) -> Non
     assert reviewed == [context]
 
 
+def test_cancelled_surround_fetch_does_not_review_or_replace_state(qtbot, monkeypatch) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    existing = object()
+    window.current_osm_features = [existing]
+    reviewed = []
+    monkeypatch.setattr(window, "_review_surroundings", reviewed.append)
+
+    window._surroundings_cancelled()
+    window._surroundings_fetch_finished()
+
+    assert reviewed == []
+    assert window.current_osm_features == [existing]
+    assert "unchanged" in window.statusBar().currentMessage()
+
+
 def test_save_after_accepted_osm_context_round_trips_routes(qtbot, tmp_path) -> None:
     from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
 

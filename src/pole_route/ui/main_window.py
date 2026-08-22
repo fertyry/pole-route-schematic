@@ -122,6 +122,7 @@ class MainWindow(QMainWindow):
         self._osm_progress: QProgressDialog | None = None
         self._pending_osm_context = None
         self._pending_osm_error: str | None = None
+        self._pending_osm_cancelled = False
         self.undo_stack.cleanChanged.connect(self._undo_clean_changed)
         self.setWindowTitle("PoleRoute Schematic - V2 Preview")
         self.resize(1100, 720)
@@ -530,21 +531,21 @@ class MainWindow(QMainWindow):
 
         progress = QProgressDialog(
             "Fetching nearby roads, sois, and places from OpenStreetMap...",
-            "",
+            "Cancel",
             0,
-            0,
+            1,
             self,
         )
         progress.setObjectName("osmFetchProgress")
         progress.setWindowTitle("Fetching surroundings")
         progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setCancelButton(None)
         progress.setMinimumDuration(0)
         progress.setAutoClose(False)
         progress.setAutoReset(False)
         self._osm_progress = progress
         self._pending_osm_context = None
         self._pending_osm_error = None
+        self._pending_osm_cancelled = False
 
         thread = QThread(self)
         worker = OSMContextWorker(
@@ -554,6 +555,9 @@ class MainWindow(QMainWindow):
         thread.started.connect(worker.run)
         worker.succeeded.connect(self._surroundings_ready)
         worker.failed.connect(self._surroundings_failed)
+        worker.cancelled.connect(self._surroundings_cancelled)
+        worker.progress.connect(self._surroundings_progress)
+        progress.canceled.connect(self._cancel_surroundings_fetch)
         worker.finished.connect(thread.quit)
         worker.finished.connect(worker.deleteLater)
         thread.finished.connect(self._surroundings_fetch_finished)
@@ -568,6 +572,25 @@ class MainWindow(QMainWindow):
 
     def _surroundings_ready(self, context) -> None:
         self._pending_osm_context = context
+
+    def _surroundings_progress(self, message: str, completed: int, total: int) -> None:
+        progress = self._osm_progress
+        if progress is None:
+            return
+        progress.setLabelText(message)
+        progress.setRange(0, max(1, total))
+        progress.setValue(min(completed, total))
+
+    def _cancel_surroundings_fetch(self) -> None:
+        if self._osm_worker is not None:
+            # Event.set() is thread-safe; calling directly avoids a queued slot being
+            # delayed until the worker's blocking network operation returns.
+            self._osm_worker.cancel()
+        if self._osm_progress is not None:
+            self._osm_progress.setLabelText("Cancelling after the current request...")
+
+    def _surroundings_cancelled(self) -> None:
+        self._pending_osm_cancelled = True
 
     def _review_surroundings(self, context) -> None:
         if context.warnings:
@@ -625,9 +648,13 @@ class MainWindow(QMainWindow):
         self.fetch_surroundings_action.setEnabled(self.current_route is not None)
         error = self._pending_osm_error
         context = self._pending_osm_context
+        cancelled = self._pending_osm_cancelled
         self._pending_osm_error = None
         self._pending_osm_context = None
-        if error is not None:
+        self._pending_osm_cancelled = False
+        if cancelled:
+            self.statusBar().showMessage("Surroundings fetch cancelled; existing context unchanged")
+        elif error is not None:
             QMessageBox.warning(self, "OpenStreetMap fetch failed", error)
             self.statusBar().showMessage("Could not fetch OpenStreetMap surroundings")
         elif context is not None:

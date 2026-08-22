@@ -1,4 +1,5 @@
 import json
+from urllib.error import URLError
 
 import pytest
 
@@ -67,6 +68,35 @@ def test_fetch_osm_context_uses_injected_transport() -> None:
     assert "(around:15," in captured[0]
     assert 'way["highway"]["bridge"](around:100,' in captured[0]
     assert 'relation["waterway"="river"](around:100,' in captured[0]
+
+
+def test_fetch_osm_context_uses_next_endpoint_after_transport_failure(monkeypatch) -> None:
+    import pole_route.importers.osm_context as context_module
+
+    calls = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self):
+            return b'{"elements": []}'
+
+    def urlopen(request, timeout):
+        calls.append((request.full_url, timeout))
+        if len(calls) == 1:
+            raise URLError("primary unavailable")
+        return Response()
+
+    monkeypatch.setattr(context_module, "urlopen", urlopen)
+    context = fetch_osm_context(_main_route())
+
+    assert len(calls) == 2
+    assert calls[0][1] == 25
+    assert dict(context.metrics)["osm_endpoint_fallbacks"] == 1
 
 
 def test_osm_context_keeps_only_true_connections_and_deduplicates_split_ways() -> None:
@@ -138,7 +168,11 @@ def test_osm_context_worker_reports_success_and_finishes(qtbot, monkeypatch) -> 
     with qtbot.waitSignal(worker.finished), qtbot.waitSignal(worker.succeeded) as succeeded:
         worker.run()
 
-    assert succeeded.args == [expected]
+    result = succeeded.args[0]
+    assert result.roads == expected.roads
+    assert result.places == expected.places
+    assert result.features == expected.features
+    assert dict(result.metrics)["batch_count"] == 1
 
 
 def _way(osm_id: int, tags: dict, *, longitude: float = 100.00005) -> dict:

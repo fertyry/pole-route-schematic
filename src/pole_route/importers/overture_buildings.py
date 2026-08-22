@@ -37,6 +37,7 @@ class OvertureFetchResult:
     intersect_count: int
     release: str
     elapsed_seconds: float
+    cache_hit: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +89,7 @@ def fetch_overture_buildings(
         return OvertureFetchResult(
             tuple(_feature_from_cache(item) for item in cached["features"]),
             int(cached["raw_count"]), int(cached["intersect_count"]), release,
-            time.perf_counter() - started,
+            time.perf_counter() - started, True,
         )
     try:
         reader = reader_factory(
@@ -96,31 +97,37 @@ def fetch_overture_buildings(
             connect_timeout=OVERTURE_CONNECT_TIMEOUT_SECONDS,
             request_timeout=OVERTURE_REQUEST_TIMEOUT_SECONDS,
         )
-        rows = list(_rows_from_reader(reader))
+        rows = _rows_from_reader(reader)
     except Exception as error:
         raise OvertureBuildingsError(f"Could not download Overture buildings: {error}") from error
 
     features: list[ContextFeature] = []
     seen: set[str] = set()
-    for row in rows:
-        source_id = str(row.get("id") or "").strip()
-        if not source_id or source_id in seen:
-            continue
-        geometry = _row_geometry(row)
-        if geometry is None:
-            continue
-        metric = _metric_polygon(geometry, projection)
-        if metric is None or not metric.intersects(corridor):
-            continue
-        seen.add(source_id)
-        features.append(_context_feature(row, geometry, release))
+    raw_count = 0
+    try:
+        for row in rows:
+            raw_count += 1
+            source_id = str(row.get("id") or "").strip()
+            if not source_id or source_id in seen:
+                continue
+            geometry = _row_geometry(row)
+            if geometry is None:
+                continue
+            metric = _metric_polygon(geometry, projection)
+            if metric is None or not metric.intersects(corridor):
+                continue
+            seen.add(source_id)
+            features.append(_context_feature(row, geometry, release))
+    except Exception as error:
+        raise OvertureBuildingsError(f"Could not read Overture buildings: {error}") from error
     payload = {
-        "raw_count": len(rows), "intersect_count": len(features),
+        "raw_count": raw_count, "intersect_count": len(features),
         "features": [_feature_to_cache(item) for item in features],
     }
     _write_cache(cache_path, payload)
     return OvertureFetchResult(
-        tuple(features), len(rows), len(features), release, time.perf_counter() - started
+        tuple(features), raw_count, len(features), release, time.perf_counter() - started,
+        False,
     )
 
 
@@ -202,6 +209,16 @@ def conflate_buildings(
 def _rows_from_reader(reader: object) -> Iterable[Mapping[str, object]]:
     if reader is None:
         return ()
+    if isinstance(reader, Iterable):
+        def iter_batches():
+            for batch in reader:
+                if hasattr(batch, "to_pylist"):
+                    yield from batch.to_pylist()
+                elif isinstance(batch, Mapping):
+                    yield batch
+                else:
+                    yield from batch
+        return iter_batches()
     table = reader.read_all() if hasattr(reader, "read_all") else reader
     if hasattr(table, "to_pylist"):
         return table.to_pylist()
@@ -334,20 +351,40 @@ def _cache_path(directory: Path | None, release: str, bbox, corridor: float) -> 
 
 def _read_cache(path: Path):
     try:
-        return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
-    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+        if not path.is_file():
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return None
+        if not isinstance(payload.get("features"), list):
+            return None
+        int(payload["raw_count"])
+        int(payload["intersect_count"])
+        return payload
+    except (OSError, json.JSONDecodeError, KeyError, TypeError, ValueError):
         return None
 
 
 def _write_cache(path: Path, payload: dict) -> None:
+    temporary = path.with_suffix(".tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-        files = sorted(path.parent.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True)
+        temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        temporary.replace(path)
+        files = sorted(
+            path.parent.glob("*.json"),
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
         for old in files[MAX_CACHE_FILES:]:
             old.unlink(missing_ok=True)
     except OSError:
         pass
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def _feature_to_cache(feature: ContextFeature) -> dict:
