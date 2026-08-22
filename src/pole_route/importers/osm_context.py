@@ -5,15 +5,17 @@ from __future__ import annotations
 import json
 import warnings
 from collections.abc import Callable
+from dataclasses import replace
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from shapely.geometry import LineString, MultiLineString, MultiPolygon, Point, Polygon
+from shapely.geometry import GeometryCollection, LineString, MultiLineString, MultiPolygon, Point, Polygon
 from shapely.ops import nearest_points, substring
 
 from pole_route.domain.context import (
     ContextFeature,
+    ContextGeometryPart,
     ContextPlace,
     ContextRoad,
     OSMContext,
@@ -32,6 +34,7 @@ OVERPASS_URLS = (
 DEFAULT_CORRIDOR_METRES = 15.0
 BUILDING_POI_CORRIDOR_METRES = 100.0
 FEATURE_CORRIDOR_METRES = BUILDING_POI_CORRIDOR_METRES
+WATER_CONTEXT_MARGIN_METRES = 175.0
 CONTEXT_ROAD_EXTENSION_METRES = 35.0
 MINIMUM_CONTEXT_ROAD_METRES = 8.0
 EXCLUDED_HIGHWAYS = {
@@ -220,8 +223,30 @@ def parse_osm_context(
     roads = _deduplicate_junction_roads(roads, projection, main_metric)
     roads.sort(key=lambda item: (not item.recommended, item.route.name.casefold()))
     places.sort(key=lambda item: item.name.casefold())
+    features = list(prepare_context_features(
+        features, main_route, feature_corridor_metres=feature_corridor_metres
+    ))
     features.sort(key=lambda item: (item.category.value, item.name or "", item.osm_id))
     return OSMContext(tuple(roads), tuple(places), tuple(features))
+
+
+def prepare_context_features(
+    features: list[ContextFeature] | tuple[ContextFeature, ...],
+    main_route: Route,
+    *,
+    feature_corridor_metres: float = FEATURE_CORRIDOR_METRES,
+) -> tuple[ContextFeature, ...]:
+    """Derive presentation geometry and conservative relations from source features.
+
+    This is also used when opening projects saved before display geometry was
+    persisted.  It never replaces the authoritative ``parts`` coordinates.
+    """
+
+    projection = MetricProjection.for_points(main_route.points)
+    main_metric = LineString(projection.to_metric(point) for point in main_route.points)
+    return tuple(_prepare_water_and_bridge_context(
+        list(features), projection, main_metric, feature_corridor_metres
+    ))
 
 
 def _deduplicate_junction_roads(
@@ -482,6 +507,138 @@ def _feature_metric_geometry(feature: ContextFeature, projection: MetricProjecti
     if feature.geometry_kind is OSMGeometryKind.MULTIPOLYGON:
         return MultiPolygon(polygons)
     raise ValueError(f"Unsupported feature geometry: {feature.geometry_kind}")
+
+
+def _prepare_water_and_bridge_context(
+    features: list[ContextFeature],
+    projection: MetricProjection,
+    main_metric: LineString,
+    corridor_metres: float,
+) -> list[ContextFeature]:
+    """Add derived display geometry and conservative bridge/water relationships."""
+
+    prepared: list[ContextFeature] = []
+    waters: list[tuple[ContextFeature, object]] = []
+    for feature in features:
+        metric = _feature_metric_geometry(feature, projection)
+        if feature.category in {OSMFeatureCategory.RIVER, OSMFeatureCategory.CANAL}:
+            display = _clip_water_context(
+                metric, main_metric, corridor_metres, WATER_CONTEXT_MARGIN_METRES
+            )
+            converted = _portable_parts(display, projection)
+            if converted is not None:
+                kind, parts = converted
+                feature = replace(
+                    feature, display_geometry_kind=kind, display_parts=parts
+                )
+            waters.append((feature, metric))
+        prepared.append(feature)
+
+    result: list[ContextFeature] = []
+    for feature in prepared:
+        if feature.category not in {
+            OSMFeatureCategory.ROAD_BRIDGE,
+            OSMFeatureCategory.FOOTBRIDGE,
+        }:
+            result.append(feature)
+            continue
+        bridge = _feature_metric_geometry(feature, projection)
+        # Sub-metre tolerance covers independent OSM ways whose coordinates
+        # describe the same crossing without sharing an identical node.
+        matches = [
+            (water, geometry) for water, geometry in waters
+            if bridge.intersects(geometry) or bridge.distance(geometry) <= 0.25
+        ]
+        if len(matches) != 1:
+            result.append(replace(
+                feature,
+                crosses_category=None,
+                crosses_feature_key="",
+                crosses_source_id="",
+                crosses_name=None,
+                recommendation=feature.recommendation.partition("; crosses ")[0],
+            ))
+            continue
+        water, _geometry = matches[0]
+        label = water.category.value.replace("_", " ").title()
+        if water.name:
+            label += f" — {water.name}"
+        result.append(replace(
+            feature,
+            crosses_category=water.category,
+            crosses_feature_key=water.feature_key,
+            crosses_source_id=water.source_id,
+            crosses_name=water.name,
+            recommendation=(
+                f"{feature.recommendation.partition('; crosses ')[0]}; crosses {label}"
+            ),
+        ))
+    return result
+
+
+def _clip_water_context(water, main: LineString, corridor: float, margin: float):
+    """Clip water for display while keeping the authoritative geometry untouched."""
+
+    if isinstance(water, (Polygon, MultiPolygon)):
+        return water.intersection(main.buffer(corridor + margin))
+    lines = list(water.geoms) if isinstance(water, MultiLineString) else [water]
+    clipped = []
+    core = main.buffer(corridor)
+    for line in lines:
+        relevant = line.intersection(core)
+        if relevant.is_empty:
+            continue
+        coordinates = []
+        for geometry in getattr(relevant, "geoms", (relevant,)):
+            if isinstance(geometry, (LineString, Point)):
+                coordinates.extend(geometry.coords)
+        if not coordinates:
+            continue
+        stations = [line.project(Point(coordinate)) for coordinate in coordinates]
+        segment = substring(
+            line, max(0.0, min(stations) - margin), min(line.length, max(stations) + margin)
+        )
+        if isinstance(segment, LineString) and segment.length > 0:
+            clipped.append(segment)
+    if not clipped:
+        return water
+    return clipped[0] if len(clipped) == 1 else MultiLineString(clipped)
+
+
+def _portable_parts(geometry, projection: MetricProjection):
+    """Convert a derived metric geometry to the portable domain representation."""
+
+    if geometry.is_empty:
+        return None
+    if isinstance(geometry, GeometryCollection):
+        usable = [item for item in geometry.geoms if isinstance(item, (LineString, Polygon))]
+        if not usable:
+            return None
+        line_items = [item for item in usable if isinstance(item, LineString)]
+        polygon_items = [item for item in usable if isinstance(item, Polygon)]
+        geometry = MultiPolygon(polygon_items) if polygon_items else MultiLineString(line_items)
+
+    def points(coords):
+        return tuple(projection.to_geographic(float(x), float(y)) for x, y in coords)
+
+    if isinstance(geometry, LineString):
+        return OSMGeometryKind.LINESTRING, (ContextGeometryPart(points(geometry.coords)),)
+    if isinstance(geometry, MultiLineString):
+        return OSMGeometryKind.MULTILINESTRING, tuple(
+            ContextGeometryPart(points(line.coords)) for line in geometry.geoms if line.length > 0
+        )
+    polygons = list(geometry.geoms) if isinstance(geometry, MultiPolygon) else [geometry]
+    parts = tuple(
+        ContextGeometryPart(
+            points(polygon.exterior.coords),
+            tuple(points(ring.coords) for ring in polygon.interiors),
+        )
+        for polygon in polygons if isinstance(polygon, Polygon) and not polygon.is_empty
+    )
+    if not parts:
+        return None
+    kind = OSMGeometryKind.POLYGON if len(parts) == 1 else OSMGeometryKind.MULTIPOLYGON
+    return kind, parts
 
 
 def _download_overpass(query: str) -> bytes:

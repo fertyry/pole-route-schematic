@@ -107,6 +107,12 @@ class ContextFeature:
     provenance: tuple[FeatureProvenance, ...] = ()
     conflation_status: str = ""
     matched_source_ids: tuple[str, ...] = ()
+    display_geometry_kind: OSMGeometryKind | None = None
+    display_parts: tuple[ContextGeometryPart, ...] = ()
+    crosses_category: OSMFeatureCategory | None = None
+    crosses_feature_key: str = ""
+    crosses_source_id: str = ""
+    crosses_name: str | None = None
 
     def __post_init__(self) -> None:
         is_osm = self.osm_type in {"node", "way", "relation"} and self.osm_id > 0
@@ -136,6 +142,18 @@ class ContextFeature:
         """Return a stable source-aware key shared by every exported CAD part."""
 
         return f"{self.category.value}:{self.source}:{self.source_id}"
+
+    @property
+    def render_geometry_kind(self) -> OSMGeometryKind:
+        """Return derived display geometry when present, else authoritative geometry."""
+
+        return self.display_geometry_kind or self.geometry_kind
+
+    @property
+    def render_parts(self) -> tuple[ContextGeometryPart, ...]:
+        """Return derived display parts without replacing authoritative source parts."""
+
+        return self.display_parts or self.parts
 
 
 def osm_feature_name(tags: Mapping[str, object]) -> str | None:

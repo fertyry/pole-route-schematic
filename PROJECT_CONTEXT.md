@@ -521,7 +521,7 @@ PRS_OSM_POI               PRS_OSM_POI_NAME
 
 ### Online OSM Surround V2 implementation status
 
-Phases 2.1 through 2.5 and the Phase 2.6A representation contract are implemented.
+Phases 2.1 through 2.5 and Phases 2.6A through 2.6C are implemented.
 Accepted OSM features retain stable
 `(osm_type, osm_id)` identity, category, geometry kind, multipart geometry, polygon holes,
 real OSM names, normalized tags, recommendation metadata, and source path through project
@@ -583,6 +583,35 @@ Future semantic symbol block names should be stable and source-neutral (for exam
 `PRS_FOOTBRIDGE`, `PRS_FUEL`, `PRS_SHOP`, and `PRS_POI`). Their final symbols are not
 implemented here; existing visual output remains unchanged except for the canonical
 building-layer transition.
+
+### Phase 2.6C — water context and bridge/footbridge CAD representation
+
+River and canal features now retain two distinct geometries. Their authoritative source
+geometry remains unchanged in project data, while an optional derived display geometry is
+used by Surround Review, Qt rendering, and DXF export. Linear water display geometry keeps
+every relevant span intersecting the configured Main-route corridor and extends 175 m along
+the waterway beyond the corridor on each end. Polygon water is clipped to the expanded
+corridor and preserves surviving interior rings. This policy is water-only: legacy
+Roads/Sois short-context clipping and all road-network/pole calculations are unchanged.
+
+Road bridges remain real source geometry. Footbridges export as deterministic
+`PRS_FOOTBRIDGE` block inserts on `PRS_OSM_FOOTBRIDGE`, positioned at the midpoint of the
+longest rendered line part and oriented to its local tangent. A legacy footbridge block
+alias remains defined for older CAD workflows. Geometry and inserts carry the existing
+source-neutral `POLEROUTE` XData contract.
+
+Bridge-to-water relationships are conservative metadata, not inferred labels. A bridge or
+footbridge records `crosses_category`, stable feature key/source identity, and a real water
+name only when exactly one river/canal candidate intersects it (or is within the strict
+0.25 m topology tolerance). Zero or multiple candidates remain unassigned rather than being
+guessed. These relationship and display fields persist additively; old `.prs` files load
+with empty values and derive display context after a Main route is available.
+
+Real-project regression checks preserve the accepted feature inventory: A005 keeps 612
+buildings; A006 keeps 128 buildings plus 7 canals, 15 footbridges, and 11 road bridges; the
+Lat Ya fixture keeps 1,123 buildings, 4 rivers, 4 footbridges, and 2 road bridges. These
+checks supplement synthetic tests for long/parallel/crossing water, polygon holes,
+ambiguous bridge relationships, persistence, and deterministic footbridge orientation.
 
 ### Qt schematic and editing
 
@@ -659,7 +688,7 @@ building-layer transition.
 - Metric DXF Master, semantic pole blocks/metadata, sheet markers
 - Edited-DXF validation and persistence
 - A4 CAD Paper Space generation from edited poles with common scale and schedules
-- Automated suite: 202 tests passed at the last verified coding session
+- Automated suite: 222 tests passed at the last verified coding session
 
 ### Active visual defects reported after the CAD-sheet baseline
 
@@ -698,17 +727,21 @@ Completed Online OSM work:
    `PRS_BUILDING_NAME` layers with source and conflation XData. A failed Overture request must
    never discard a successful OSM result. Users can disable supplemental Overture fetching
    from the Data menu; the preference is local application state, not project state.
+6. Phase 2.6C: waterways keep authoritative source geometry plus a derived 100 m corridor
+   display with 175 m along-water context; bridge/water relationships are conservative;
+   footbridges export as deterministic semantic blocks with XData. Roads/Sois and pole
+   placement behavior remain unchanged.
 
 Later AutoCAD integration work:
 
-6. Implement explicit Connect AutoCAD with drawing selection, target locking, project
+7. Implement explicit Connect AutoCAD with drawing selection, target locking, project
    validation, and disconnected-state handling.
-7. Implement Read Pole Positions, Pole Report preview/export, and Same_Station review.
-8. Calculate/preview/adjust Sheet Plan from the latest pole positions and only then create
+8. Implement Read Pole Positions, Pole Report preview/export, and Same_Station review.
+9. Calculate/preview/adjust Sheet Plan from the latest pole positions and only then create
    confirmed `PRS_SHEET_BREAK` markers.
-9. Execute Model Space Sheet Copies with strict pole-boundary clipping, generated-object
+10. Execute Model Space Sheet Copies with strict pole-boundary clipping, generated-object
    ownership, final labels, frames, and refreshed layouts.
-10. Apply CAD block/layer specification changes and add `PRSPOLESPACE` as a utility.
+11. Apply CAD block/layer specification changes and add `PRSPOLESPACE` as a utility.
 
 No later-phase item is considered implemented merely because it is documented here.
 

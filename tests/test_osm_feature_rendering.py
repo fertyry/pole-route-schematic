@@ -101,6 +101,10 @@ def test_dxf_exports_every_osm_geometry_and_semantic_layer(tmp_path) -> None:
     assert len(document.modelspace().query('LWPOLYLINE[layer=="PRS_OSM_SHOP"]')) == 2
     assert len(document.modelspace().query('LWPOLYLINE[layer=="PRS_OSM_RIVER"]')) == 2
     assert len(document.modelspace().query('CIRCLE[layer=="PRS_OSM_FUEL"]')) == 1
+    footbridges = list(document.modelspace().query('INSERT[name=="PRS_FOOTBRIDGE"]'))
+    assert len(footbridges) == 1
+    assert _xdata(footbridges[0])["prs_object_type"] == "OSM_FEATURE"
+    assert "PRS_OSM_FOOTBRIDGE" in document.blocks
 
 
 def test_dxf_uses_real_names_only_and_metric_projection(tmp_path) -> None:
@@ -119,6 +123,39 @@ def test_dxf_uses_real_names_only_and_metric_projection(tmp_path) -> None:
     assert not any("OpenStreetMap:" in text or "way/" in text for text in texts)
     assert circle.dxf.center.x == pytest.approx(expected[0])
     assert circle.dxf.center.y == pytest.approx(expected[1])
+
+
+def test_footbridge_is_one_deterministic_oriented_block_with_relationship_xdata(tmp_path) -> None:
+    base = _feature(
+        22, OSMFeatureCategory.FOOTBRIDGE, OSMGeometryKind.LINESTRING,
+        [_part((100.0003, 12.9999), (100.0005, 13.0001))],
+    )
+    feature = ContextFeature(
+        **{
+            field: getattr(base, field)
+            for field in base.__dataclass_fields__
+            if field not in {"crosses_category", "crosses_feature_key", "crosses_source_id"}
+        },
+        crosses_category=OSMFeatureCategory.CANAL,
+        crosses_feature_key="canal:OpenStreetMap:way/9",
+        crosses_source_id="way/9",
+    )
+    destination = tmp_path / "footbridge.dxf"
+
+    export_geometry_to_dxf(
+        _geometry(), destination, include_sheet_layouts=False, osm_features=(feature,)
+    )
+    document = ezdxf.readfile(destination)
+    inserts = list(document.modelspace().query('INSERT[name=="PRS_FOOTBRIDGE"]'))
+
+    assert len(inserts) == 1
+    assert inserts[0].dxf.rotation != pytest.approx(0.0)
+    metadata = _xdata(inserts[0])
+    assert metadata["prs_object_type"] == "OSM_FEATURE"
+    assert metadata["geometry_kind"] == "linestring"
+    assert metadata["crosses_category"] == "canal"
+    assert metadata["crosses_source_id"] == "way/9"
+    assert not list(document.modelspace().query('TEXT[layer=="PRS_OSM_BRIDGE_NAME"]'))
 
 
 def test_invalid_osm_geometry_fails_with_identity_and_reason(tmp_path) -> None:

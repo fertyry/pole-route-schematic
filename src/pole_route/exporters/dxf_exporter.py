@@ -331,6 +331,7 @@ def export_geometry_to_dxf(
     rack_block.add_line((-1.0, 0.0), (1.0, 0.0), dxfattribs={"layer": "POLES"})
     _add_pole_metadata_attdefs(rack_block)
     _define_sheet_break_block(document)
+    _define_footbridge_blocks(document)
     modelspace = document.modelspace()
     export_roads = _deduplicate_context_roads(geometry)
     object_count = 0
@@ -492,7 +493,7 @@ def _export_osm_features(modelspace, geometry, features) -> int:
 def _export_osm_feature(modelspace, geometry, feature: ContextFeature) -> int:
     geometry_layer, name_layer = OSM_DXF_LAYERS[feature.category]
     projected_parts = []
-    for part in feature.parts:
+    for part in feature.render_parts:
         exterior = tuple(
             _metric_osm_point(geometry, point, feature) for point in part.coordinates
         )
@@ -503,7 +504,9 @@ def _export_osm_feature(modelspace, geometry, feature: ContextFeature) -> int:
         projected_parts.append((exterior, holes))
 
     count = 0
-    kind = feature.geometry_kind
+    kind = feature.render_geometry_kind
+    if feature.category is OSMFeatureCategory.FOOTBRIDGE:
+        return _export_footbridge(modelspace, feature, projected_parts, name_layer)
     if kind is OSMGeometryKind.POINT:
         for exterior, holes in projected_parts:
             if holes or len(exterior) != 1:
@@ -563,6 +566,31 @@ def _export_osm_feature(modelspace, geometry, feature: ContextFeature) -> int:
     return count
 
 
+def _export_footbridge(modelspace, feature, projected_parts, name_layer: str) -> int:
+    """Export one editable, oriented block reference for a footbridge."""
+
+    lines = [LineString(exterior) for exterior, holes in projected_parts if not holes and len(exterior) >= 2]
+    if not lines:
+        raise _osm_export_error(feature, "footbridge requires usable line geometry")
+    line = max(lines, key=lambda item: (item.length, tuple(item.coords)))
+    midpoint = line.interpolate(line.length / 2.0)
+    distance = min(max(line.length * 0.01, 0.05), line.length / 2.0)
+    before = line.interpolate(max(0.0, line.length / 2.0 - distance))
+    after = line.interpolate(min(line.length, line.length / 2.0 + distance))
+    angle = degrees(atan2(after.y - before.y, after.x - before.x))
+    entity = modelspace.add_blockref(
+        "PRS_FOOTBRIDGE", (midpoint.x, midpoint.y),
+        dxfattribs={"layer": "PRS_OSM_FOOTBRIDGE", "rotation": angle},
+    )
+    _set_context_feature_xdata(entity, feature, part_index=0, ring_role="representative")
+    count = 1
+    if feature.name:
+        label = _add_dxf_text(modelspace, name_layer, midpoint.x, midpoint.y, feature.name, 2.0)
+        _set_context_feature_xdata(label, feature, part_index=-1, ring_role="label")
+        count += 1
+    return count
+
+
 def _set_context_feature_xdata(
     entity, feature: ContextFeature, *, part_index: int, ring_role: str
 ) -> None:
@@ -576,7 +604,11 @@ def _set_context_feature_xdata(
         for item in feature.provenance
     ]
     values = {
-        "prs_object_type": "context_feature",
+        "prs_object_type": (
+            "OSM_FEATURE"
+            if feature.category is OSMFeatureCategory.FOOTBRIDGE
+            else "context_feature"
+        ),
         "prs_feature_key": feature.feature_key,
         "category": feature.category.value,
         "source": feature.source,
@@ -587,6 +619,12 @@ def _set_context_feature_xdata(
         "dataset": feature.dataset,
         "osm_type": feature.osm_type,
         "osm_id": str(feature.osm_id) if feature.osm_id > 0 else "",
+        "geometry_kind": feature.geometry_kind.value,
+        "source_path": feature.source_path,
+        "crosses_category": feature.crosses_category.value if feature.crosses_category else "",
+        "crosses_feature_key": feature.crosses_feature_key,
+        "crosses_source_id": feature.crosses_source_id,
+        "crosses_name": feature.crosses_name or "",
         "prs_part_index": str(part_index),
         "prs_ring_role": ring_role,
         "conflation_status": feature.conflation_status,
@@ -641,6 +679,19 @@ def _define_sheet_break_block(document) -> None:
             height=1.8,
             dxfattribs={"layer": "SHEET_BREAK", "style": "THAI"},
         )
+
+
+def _define_footbridge_blocks(document) -> None:
+    """Define the canonical footbridge symbol and its legacy-compatible alias."""
+
+    for name in ("PRS_FOOTBRIDGE", "PRS_OSM_FOOTBRIDGE"):
+        if name in document.blocks:
+            continue
+        block = document.blocks.new(name)
+        block.add_line((-3.0, -1.0), (3.0, -1.0), dxfattribs={"layer": "PRS_OSM_FOOTBRIDGE"})
+        block.add_line((-3.0, 1.0), (3.0, 1.0), dxfattribs={"layer": "PRS_OSM_FOOTBRIDGE"})
+        block.add_line((-3.0, -1.0), (-3.0, 1.0), dxfattribs={"layer": "PRS_OSM_FOOTBRIDGE"})
+        block.add_line((3.0, -1.0), (3.0, 1.0), dxfattribs={"layer": "PRS_OSM_FOOTBRIDGE"})
 
 
 def _add_sheet_break_markers(modelspace, geometry, settings: ExcelExportSettings) -> int:

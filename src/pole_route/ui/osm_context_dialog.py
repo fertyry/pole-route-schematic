@@ -143,7 +143,7 @@ class OSMContextDialog(QDialog):
             table.setItem(row, 2, QTableWidgetItem(_CATEGORY_LABELS[category]))
             table.setItem(row, 3, QTableWidgetItem(_feature_source(feature)))
             table.setItem(row, 4, QTableWidgetItem(feature.source_id))
-            table.setItem(row, 5, QTableWidgetItem(feature.geometry_kind.value))
+            table.setItem(row, 5, QTableWidgetItem(feature.render_geometry_kind.value))
             table.setItem(row, 6, QTableWidgetItem(feature.recommendation))
             table.setItem(row, 7, QTableWidgetItem(feature.conflation_status))
         table.resizeColumnsToContents()
@@ -252,7 +252,7 @@ def _draw_context_preview(
     points.extend(point for road in context.roads for point in road.route.points)
     points.extend(place.point for place in context.places)
     points.extend(
-        point for feature in context.features for part in feature.parts
+        point for feature in context.features for part in feature.render_parts
         for point in (*part.coordinates, *(p for hole in part.holes for p in hole))
     )
     min_lon = min(point.longitude for point in points)
@@ -278,13 +278,13 @@ def _draw_context_preview(
         scene.addPath(make_path(road.route.points), QPen(QColor("#bdbdbd"), 1.5))
     for feature in context.features:
         color = _CATEGORY_COLORS[feature.category]
-        for part in feature.parts:
-            if feature.geometry_kind is OSMGeometryKind.POINT:
+        for part in feature.render_parts:
+            if feature.render_geometry_kind is OSMGeometryKind.POINT:
                 x, y = project(part.coordinates[0])
                 scene.addEllipse(x - 4, y - 4, 8, 8, QPen(color), QBrush(color))
                 continue
             path = make_path(part.coordinates)
-            if feature.geometry_kind in {OSMGeometryKind.POLYGON, OSMGeometryKind.MULTIPOLYGON}:
+            if feature.render_geometry_kind in {OSMGeometryKind.POLYGON, OSMGeometryKind.MULTIPOLYGON}:
                 path.setFillRule(Qt.FillRule.OddEvenFill)
                 for hole in part.holes:
                     path.addPath(make_path(hole))

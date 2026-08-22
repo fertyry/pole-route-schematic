@@ -183,6 +183,23 @@ def osm_features_to_data(
             ],
             "conflation_status": feature.conflation_status,
             "matched_source_ids": list(feature.matched_source_ids),
+            "display_geometry_kind": (
+                feature.display_geometry_kind.value
+                if feature.display_geometry_kind is not None else None
+            ),
+            "display_parts": [
+                {
+                    "coordinates": [_geopoint_to_data(point) for point in part.coordinates],
+                    "holes": [[_geopoint_to_data(point) for point in ring] for ring in part.holes],
+                }
+                for part in feature.display_parts
+            ],
+            "crosses_category": (
+                feature.crosses_category.value if feature.crosses_category is not None else None
+            ),
+            "crosses_feature_key": feature.crosses_feature_key,
+            "crosses_source_id": feature.crosses_source_id,
+            "crosses_name": feature.crosses_name,
         }
         for feature in features
     ]
@@ -254,6 +271,29 @@ def osm_features_from_data(data: list[dict[str, Any]]) -> list[ContextFeature]:
             matched_source_ids=tuple(
                 str(value) for value in item.get("matched_source_ids", [])
             ),
+            display_geometry_kind=(
+                OSMGeometryKind(item["display_geometry_kind"])
+                if item.get("display_geometry_kind") else None
+            ),
+            display_parts=tuple(
+                ContextGeometryPart(
+                    coordinates=tuple(
+                        _geopoint_from_data(point) for point in part["coordinates"]
+                    ),
+                    holes=tuple(
+                        tuple(_geopoint_from_data(point) for point in ring)
+                        for ring in part.get("holes", [])
+                    ),
+                )
+                for part in item.get("display_parts", [])
+            ),
+            crosses_category=(
+                OSMFeatureCategory(item["crosses_category"])
+                if item.get("crosses_category") else None
+            ),
+            crosses_feature_key=str(item.get("crosses_feature_key", "")),
+            crosses_source_id=str(item.get("crosses_source_id", "")),
+            crosses_name=item.get("crosses_name"),
         )
         for item in data
     ]

@@ -43,6 +43,7 @@ from pole_route.exporters.excel_exporter import (
 from pole_route.geometry.road_geometry import RoadGeometryError, build_road_network_geometry
 from pole_route.geometry.schematic_layout import create_schematic_layout
 from pole_route.importers.kml_importer import RouteImportError, inspect_route_file
+from pole_route.importers.osm_context import prepare_context_features
 from pole_route.importers.edited_dxf_importer import (
     EditedDxfImportError,
     inspect_edited_dxf,
@@ -1198,7 +1199,9 @@ class MainWindow(QMainWindow):
             self.current_context_routes = [
                 item for item in routes if item.type is not RouteType.MAIN_ROUTE
             ]
-            self.current_osm_features = osm_features
+            self.current_osm_features = list(prepare_context_features(
+                osm_features, self.current_route
+            )) if self.current_route else osm_features
             self.current_road_width = (
                 (main_routes[0].width_metres or 6.0) if main_routes else 6.0
             )

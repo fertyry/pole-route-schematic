@@ -32,19 +32,19 @@ def render_osm_features(
         color = FEATURE_COLORS[feature.category]
         pen = QPen(color, 1.5, Qt.PenStyle.SolidLine)
         anchors: list[tuple[float, float]] = []
-        if feature.geometry_kind is OSMGeometryKind.POINT:
-            for part in feature.parts:
+        if feature.render_geometry_kind is OSMGeometryKind.POINT:
+            for part in feature.render_parts:
                 for coordinate in part.coordinates:
                     x, y = project(coordinate)
                     item = scene.addEllipse(x - 5, y - 5, 10, 10, pen, QBrush(color))
                     _tag(item, feature)
                     anchors.append((x, y))
         else:
-            for part in feature.parts:
+            for part in feature.render_parts:
                 exterior = tuple(project(point) for point in part.coordinates)
                 if exterior:
                     item = scene.addPath(
-                        _path(exterior, feature.geometry_kind in {
+                        _path(exterior, feature.render_geometry_kind in {
                             OSMGeometryKind.POLYGON, OSMGeometryKind.MULTIPOLYGON
                         }), pen
                     )
