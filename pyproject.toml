@@ -14,6 +14,7 @@ dependencies = [
     "pyproj>=3.6,<4",
     "openpyxl>=3.1,<4",
     "ezdxf>=1.4,<2",
+    "overturemaps>=0.18,<0.19",
     "pywin32>=306,<312; platform_system == 'Windows'",
 ]
 

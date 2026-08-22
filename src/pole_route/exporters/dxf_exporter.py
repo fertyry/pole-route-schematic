@@ -568,6 +568,13 @@ def _set_context_feature_xdata(
 ) -> None:
     """Attach non-visual, AutoLISP-readable identity metadata to a CAD entity."""
 
+    import json
+
+    provenance = [
+        {"source": item.source, "source_id": item.source_id, "release": item.release,
+         "provider": item.provider, "dataset": item.dataset}
+        for item in feature.provenance
+    ]
     values = {
         "prs_object_type": "context_feature",
         "prs_feature_key": feature.feature_key,
@@ -582,6 +589,9 @@ def _set_context_feature_xdata(
         "osm_id": str(feature.osm_id) if feature.osm_id > 0 else "",
         "prs_part_index": str(part_index),
         "prs_ring_role": ring_role,
+        "conflation_status": feature.conflation_status,
+        "matched_source_ids": ",".join(feature.matched_source_ids),
+        "provenance": json.dumps(provenance, ensure_ascii=False, separators=(",", ":")),
     }
     xdata = [(1000, f"{key}={value}"[:255]) for key, value in values.items() if value]
     if feature.confidence is not None:

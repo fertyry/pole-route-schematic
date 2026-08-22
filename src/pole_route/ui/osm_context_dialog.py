@@ -44,7 +44,7 @@ class OSMContextDialog(QDialog):
 
     def __init__(self, main_route: Route, context: OSMContext, parent=None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Review surroundings from OpenStreetMap")
+        self.setWindowTitle("Review surroundings")
         self.resize(1120, 800)
         self._main_route = main_route
         self._context = context
@@ -52,9 +52,9 @@ class OSMContextDialog(QDialog):
         self.category_toggles: dict[OSMFeatureCategory, QCheckBox] = {}
 
         intro = QLabel(
-            "OpenStreetMap suggestions are reference data. Review each category and "
-            "confirm only the surroundings to add. Nothing is accepted automatically. "
-            "Data © OpenStreetMap contributors."
+            "OpenStreetMap is the primary context source; Overture may supplement missing "
+            "building footprints. Review each category and confirm only the surroundings "
+            "to add. Data © OpenStreetMap contributors and Overture Maps Foundation."
         )
         intro.setWordWrap(True)
         self.tabs = QTabWidget()
@@ -133,18 +133,19 @@ class OSMContextDialog(QDialog):
         controls.addStretch(1)
         page_layout.addLayout(controls)
 
-        table = QTableWidget(len(candidates), 7)
+        table = QTableWidget(len(candidates), 8)
         table.setHorizontalHeaderLabels(
-            ["Use", "Name", "Category", "OSM type", "OSM ID", "Geometry", "Status"]
+            ["Use", "Name", "Category", "Source", "Source ID", "Geometry", "Status", "Match"]
         )
         for row, feature in enumerate(candidates):
             table.setItem(row, 0, _check_item(False))
             table.setItem(row, 1, QTableWidgetItem(_feature_display_name(feature)))
             table.setItem(row, 2, QTableWidgetItem(_CATEGORY_LABELS[category]))
-            table.setItem(row, 3, QTableWidgetItem(feature.osm_type))
-            table.setItem(row, 4, QTableWidgetItem(str(feature.osm_id)))
+            table.setItem(row, 3, QTableWidgetItem(_feature_source(feature)))
+            table.setItem(row, 4, QTableWidgetItem(feature.source_id))
             table.setItem(row, 5, QTableWidgetItem(feature.geometry_kind.value))
             table.setItem(row, 6, QTableWidgetItem(feature.recommendation))
+            table.setItem(row, 7, QTableWidgetItem(feature.conflation_status))
         table.resizeColumnsToContents()
         table.itemChanged.connect(partial(self._sync_category_toggle, category))
         self.feature_tables[category] = table
@@ -224,7 +225,21 @@ def _check_item(checked: bool) -> QTableWidgetItem:
 
 
 def _feature_display_name(feature: ContextFeature) -> str:
-    return feature.name or f"{_CATEGORY_LABELS[feature.category]} — {feature.osm_type}/{feature.osm_id}"
+    if feature.name:
+        return feature.name
+    if feature.osm_type and feature.osm_id > 0:
+        return f"{_CATEGORY_LABELS[feature.category]} — {feature.osm_type}/{feature.osm_id}"
+    return f"Unnamed {_CATEGORY_LABELS[feature.category]}"
+
+
+def _feature_source(feature: ContextFeature) -> str:
+    sources = {feature.source, *(item.source for item in feature.provenance)}
+    sources.discard("")
+    if "OpenStreetMap" in sources and "Overture" in sources:
+        return "OSM + Overture"
+    if feature.source == "OpenStreetMap":
+        return "OSM"
+    return feature.source or "Unknown"
 
 
 def _draw_context_preview(

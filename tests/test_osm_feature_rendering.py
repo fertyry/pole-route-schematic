@@ -233,6 +233,34 @@ def test_context_feature_xdata_preserves_part_and_ring_identity(tmp_path) -> Non
     }
 
 
+def test_conflated_building_xdata_keeps_match_and_provenance(tmp_path) -> None:
+    from pole_route.domain.context import FeatureProvenance
+
+    feature = ContextFeature(
+        "way", 901, OSMFeatureCategory.BUILDING, OSMGeometryKind.POLYGON,
+        (_part((100.0010, 13.0001), (100.0011, 13.0001), (100.0011, 13.0002)),),
+        provenance=(
+            FeatureProvenance("OpenStreetMap", "way/901"),
+            FeatureProvenance("Overture", "building-abc", release="2026-07-22.0"),
+        ),
+        conflation_status="matched",
+        matched_source_ids=("Overture:building-abc",),
+    )
+    destination = tmp_path / "conflated.dxf"
+
+    export_geometry_to_dxf(
+        _geometry(), destination, include_sheet_layouts=False, osm_features=(feature,),
+    )
+    entity = list(ezdxf.readfile(destination).modelspace().query(
+        'LWPOLYLINE[layer=="PRS_BUILDING"]'
+    ))[0]
+    metadata = _xdata(entity)
+
+    assert metadata["conflation_status"] == "matched"
+    assert metadata["matched_source_ids"] == "Overture:building-abc"
+    assert '"source":"Overture"' in metadata["provenance"]
+
+
 def test_legacy_osm_building_layer_survives_sheet_handoff(tmp_path) -> None:
     source = tmp_path / "legacy.dxf"
     destination = tmp_path / "legacy-sheets.dxf"

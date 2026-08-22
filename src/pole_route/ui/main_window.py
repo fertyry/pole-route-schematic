@@ -3,7 +3,7 @@
 from dataclasses import asdict, replace
 from pathlib import Path
 
-from PySide6.QtCore import QLocale, QSize, Qt, QThread
+from PySide6.QtCore import QLocale, QSettings, QSize, Qt, QThread
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QApplication,
@@ -178,6 +178,17 @@ class MainWindow(QMainWindow):
         self.fetch_surroundings_action.triggered.connect(self._fetch_surroundings)
         toolbar.addAction(self.fetch_surroundings_action)
 
+        self.overture_buildings_action = QAction("Use Overture building supplements", self)
+        self.overture_buildings_action.setCheckable(True)
+        self.overture_buildings_action.setChecked(
+            QSettings().value("surroundings/use_overture_buildings", True, type=bool)
+        )
+        self.overture_buildings_action.toggled.connect(
+            lambda enabled: QSettings().setValue(
+                "surroundings/use_overture_buildings", enabled
+            )
+        )
+
         self.import_poles_action = QAction("Import poles", self)
         self.import_poles_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
         self.import_poles_action.triggered.connect(self._choose_pole_file)
@@ -344,6 +355,7 @@ class MainWindow(QMainWindow):
             [
                 self.import_route_action,
                 self.fetch_surroundings_action,
+                self.overture_buildings_action,
                 self.import_poles_action,
                 self.same_pole_action,
             ]
@@ -534,7 +546,9 @@ class MainWindow(QMainWindow):
         self._pending_osm_error = None
 
         thread = QThread(self)
-        worker = OSMContextWorker(self.current_route)
+        worker = OSMContextWorker(
+            self.current_route, include_overture=self.overture_buildings_action.isChecked()
+        )
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.succeeded.connect(self._surroundings_ready)
@@ -555,6 +569,10 @@ class MainWindow(QMainWindow):
         self._pending_osm_context = context
 
     def _review_surroundings(self, context) -> None:
+        if context.warnings:
+            QMessageBox.warning(
+                self, "Some surroundings are unavailable", "\n".join(context.warnings)
+            )
         if not context.roads and not context.places and not context.features:
             QMessageBox.information(
                 self,
@@ -582,9 +600,9 @@ class MainWindow(QMainWindow):
         # A confirmed re-fetch replaces the accepted non-road feature snapshot.
         # Category is part of identity because one OSM object may legitimately
         # represent more than one reviewed semantic feature.
-        unique_features: dict[tuple[str, int, object], ContextFeature] = {}
+        unique_features: dict[str, ContextFeature] = {}
         for feature in selected_features:
-            unique_features[(feature.osm_type, feature.osm_id, feature.category)] = feature
+            unique_features[feature.feature_key] = feature
         features_changed = self.current_osm_features != list(unique_features.values())
         self.current_osm_features = list(unique_features.values())
         if self.current_routes:

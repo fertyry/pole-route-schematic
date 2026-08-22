@@ -535,18 +535,27 @@ Completed Online OSM work:
    state, canvas rendering, and semantic DXF export. Offline Thailand OSM remains explicitly
    outside the current implementation.
 4. Phase 2.6A: source-neutral context identity/provenance, canonical building CAD layers,
-   and per-entity AutoCAD XData contract. Overture fetching and conflation remain future work.
+   and per-entity AutoCAD XData contract.
+5. Phase 2.6B: Overture Buildings is an optional online supplement to OSM. Fetching is
+   bounded to the 100 m Main-route corridor, keeps full intersecting footprints, and uses
+   conservative OSM-first spatial conflation. Confident matches keep OSM geometry and merge
+   provenance; ambiguous and unmatched Overture footprints remain separately reviewable.
+   The Building review shows OSM, Overture, or OSM + Overture source state. Accepted features
+   continue to persist through `.prs` and export to the canonical `PRS_BUILDING` /
+   `PRS_BUILDING_NAME` layers with source and conflation XData. A failed Overture request must
+   never discard a successful OSM result. Users can disable supplemental Overture fetching
+   from the Data menu; the preference is local application state, not project state.
 
 Later AutoCAD integration work:
 
-5. Implement explicit Connect AutoCAD with drawing selection, target locking, project
+6. Implement explicit Connect AutoCAD with drawing selection, target locking, project
    validation, and disconnected-state handling.
-6. Implement Read Pole Positions, Pole Report preview/export, and Same_Station review.
-7. Calculate/preview/adjust Sheet Plan from the latest pole positions and only then create
+7. Implement Read Pole Positions, Pole Report preview/export, and Same_Station review.
+8. Calculate/preview/adjust Sheet Plan from the latest pole positions and only then create
    confirmed `PRS_SHEET_BREAK` markers.
-8. Execute Model Space Sheet Copies with strict pole-boundary clipping, generated-object
+9. Execute Model Space Sheet Copies with strict pole-boundary clipping, generated-object
    ownership, final labels, frames, and refreshed layouts.
-9. Apply CAD block/layer specification changes and add `PRSPOLESPACE` as a utility.
+10. Apply CAD block/layer specification changes and add `PRSPOLESPACE` as a utility.
 
 No later-phase item is considered implemented merely because it is documented here.
 

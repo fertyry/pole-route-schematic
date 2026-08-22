@@ -153,3 +153,5 @@ class OSMContext:
     roads: tuple[ContextRoad, ...]
     places: tuple[ContextPlace, ...]
     features: tuple[ContextFeature, ...] = ()
+    warnings: tuple[str, ...] = ()
+    metrics: tuple[tuple[str, float], ...] = ()
