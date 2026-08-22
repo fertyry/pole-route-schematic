@@ -80,7 +80,7 @@ src/pole_route/
 - Installed quantity does not determine physical-pole count.
 - CAD pole identity is stored in block attributes, never inferred from visible text or XY.
 
-## Current implemented workflow (baseline before the next CAD phase)
+## Current implemented workflow (legacy baseline before the next workflow change)
 
 1. Create/open a portable `.prs` project and enter project information.
 2. Import one or more KML/KMZ LineStrings.
@@ -90,15 +90,163 @@ src/pole_route/
 5. Import Excel/CSV poles through a mandatory column-mapping preview.
 6. Review duplicate/near-duplicate coordinates and classify their physical meaning.
 7. Build projected metric road geometry and pole placements.
-8. Generate/edit a non-scale Qt schematic or export a metric CAD Master.
+8. Generate/edit a non-scale Qt schematic or export metric CAD.
 9. Save routes, poles, context, physical groups, scene, settings, and edited-DXF data to `.prs`.
-10. Export editable multi-sheet Excel, or edit the CAD Master in AutoCAD/Map 3D.
+10. Export editable multi-sheet Excel, or edit the exported CAD in AutoCAD/Map 3D.
 11. Import edited DXF, validate stable IDs and sheet markers, confirm review, then use
     `Create CAD sheets` to rebuild A4 landscape Paper Space layouts.
 
-This describes the implemented workflow through commit `014e18a`, not the final target workflow. The approved
-AutoCAD execution architecture below supersedes the old assumption that sheet breaks and
-Paper Space layouts should be finalized before the user finishes editing the CAD Master.
+This list records the legacy implemented sequence through commit `014e18a`; it is not the
+authoritative target workflow. In particular, its placement of Import Pole before Build is
+superseded by **Pole Import is Optional** below. The approved AutoCAD execution architecture
+also supersedes the old assumption that sheet breaks and Paper Space layouts should be
+finalized before the user finishes editing the CAD source drawing.
+
+## Pole Import is Optional
+
+Import Pole is no longer a mandatory step or a gate before building and generating base
+output. PoleRoute must support a Base Map / Base CAD workflow without pole data:
+
+```text
+Import / Read Route
+→ Fetch Surround
+→ Build Base
+→ Generate Base CAD
+→ Export DXF
+```
+
+Base CAD may contain every accepted source that is available before poles are supplied,
+including:
+
+- Main Route
+- Roads / Sois
+- Buildings
+- River / Canal
+- Bridges
+- POI / Fuel / Shop
+- other reviewed Surround context
+
+The absence of Pole data must not block Build Base or Generate Base CAD. Existing source
+code may not yet implement this decision completely; the decision is nevertheless the
+authoritative target workflow.
+
+## Optional Pole Overlay Workflow
+
+Pole data may be supplied later and applied as a non-destructive overlay:
+
+```text
+Import Pole
+→ Create or use POLE_OFFSET
+→ Project / Snap pole positions onto POLE_OFFSET
+→ Calculate Station / Position / Latitude / Longitude
+→ Overlay / Update pole objects in the existing CAD drawing
+```
+
+Making pole import optional does not change the pole-placement rules:
+
+- Main Route remains the reference alignment.
+- Create the offset from the pole side and the existing offset rules.
+- Every projected pole must lie on `POLE_OFFSET`.
+- Do not alter projection, offset, stationing, or placement logic merely because poles can
+  arrive after Base CAD generation.
+- Applying or updating the Pole Overlay must not damage, replace, or discard the Base Map /
+  Base CAD and its reviewed surroundings.
+
+## CAD File Workflow
+
+PoleRoute creates DXF as its file interchange format. The normal AutoCAD handoff is:
+
+```text
+PoleRoute creates DXF
+→ Open DXF in AutoCAD
+→ Save As DWG
+→ Use DWG as the native working/editing file in AutoCAD
+```
+
+For a file-based handoff back into PoleRoute:
+
+```text
+DWG
+→ Save As DXF in AutoCAD
+→ Import Edited DXF into PoleRoute
+→ Continue the required PoleRoute workflow
+```
+
+The rule is deliberately simple:
+
+- **DXF = interchange format for input to and output from PoleRoute.**
+- **DWG = AutoCAD's native working/editing format.**
+
+PoleRoute does not need to read DWG directly in the file-based workflow. DWG is the
+recommended AutoCAD working format, not a mandatory PoleRoute project format.
+
+## Existing DWG Workflow
+
+For a DWG received from another person:
+
+- Open the DWG in AutoCAD.
+- A future Connect AutoCAD workflow may Read/Register its Main Route directly; converting
+  to DXF merely to select the route in a connected AutoCAD session is unnecessary.
+- To use the current file-based import path, Save As DXF in AutoCAD first and import that
+  DXF into PoleRoute.
+
+## Route from CAD without Lat/Long
+
+When Main Route comes from an AutoCAD polyline/DWG rather than a georeferenced KML or
+LineString, the user must supply both endpoint correspondences:
+
+```text
+CAD Start X,Y ↔ Start Latitude/Longitude
+CAD End X,Y   ↔ End Latitude/Longitude
+```
+
+PoleRoute uses these two pairs to derive the route transformation. Only after that
+transformation is validated may it fetch OSM/Overture data, calculate pole latitude and
+longitude, or run other world-coordinate workflows.
+
+- Never guess missing world coordinates.
+- If either Start or End Latitude/Longitude is incomplete, block operations that require
+  world coordinates, including Fetch Surround.
+- Validate route distance, scale, and rotation before relying on the transformation.
+
+## Connect AutoCAD Direction
+
+Connect AutoCAD is an important future workflow, but this decision does not implement it.
+The connection must be explicit rather than real-time synchronization:
+
+- If multiple drawings are open, require the user to select the target drawing.
+- Lock the selected target and never follow the active AutoCAD tab automatically.
+- Read and update only through explicit user actions.
+- Planned actions include `Read Route`, `Read Pole Offset`, `Update Poles`,
+  `Read Pole Positions`, and `Execute Sheets`.
+- Late-arriving pole data must be supportable by updating only the Pole Overlay in an
+  already edited drawing, without rebuilding or destroying its Base CAD.
+
+## Workflow superseding previous assumptions
+
+This decision supersedes the previously mandatory sequence:
+
+```text
+Import Route
+→ Fetch Surround
+→ Import Pole
+→ Build
+→ Generate
+→ Export DXF
+→ Import Edited DXF
+→ Create Sheet
+```
+
+Specifically, Import Pole is no longer a gate before Build/Generate. References elsewhere
+in this document to DWG or CAD Master must be read consistently with the new file contract:
+DWG is the recommended native AutoCAD working format, DXF remains PoleRoute's primary
+interchange format, and a file-based return from AutoCAD is made by saving the DWG as DXF.
+
+## Phase / Implementation Note
+
+The optional-pole, CAD-file, CAD-route georeferencing, and Connect AutoCAD statements above
+are architecture/workflow decisions only. No corresponding production logic was implemented
+as part of this documentation update.
 
 ## Phase 1 stability status
 
@@ -139,7 +287,7 @@ Do not change `dxf_exporter.py` to address this resolved symptom unless new evid
 an exporter defect. If the symptom returns, check the `.dxf` file association and
 `AcLauncher.exe` first. Phase 1B is closed.
 
-## CAD Master workflow clarification
+## CAD working-file clarification
 
 The approved handoff into AutoCAD is:
 
@@ -148,11 +296,12 @@ PoleRoute
 → Export DXF
 → Open the DXF in AutoCAD
 → Save As DWG
-→ Use that DWG as the CAD Master
+→ Use that DWG as the recommended AutoCAD working/editing file
 ```
 
-DXF remains PoleRoute's interchange/export format into AutoCAD. AutoCAD offers Save As
-DWG when saving an opened DXF, and the resulting DWG is the native working CAD Master for:
+DXF remains PoleRoute's interchange format into and out of AutoCAD. AutoCAD offers Save As
+DWG when saving an opened DXF, and the resulting DWG is the recommended native working file
+for:
 
 - continued saves and manual CAD editing
 - Connect AutoCAD
@@ -160,6 +309,10 @@ DWG when saving an opened DXF, and the resulting DWG is the native working CAD M
 - Execute
 - Sheet Copies
 - Layouts
+
+For file-based return to PoleRoute, Save As DXF from that DWG and use Import Edited DXF.
+Direct DWG reading is reserved for the future connected-AutoCAD workflow and is not required
+for file-based interchange.
 
 ## Approved AutoCAD execution architecture (planned)
 
@@ -472,7 +625,7 @@ building-layer transition.
 
 ## Rules that must not change without explicit product discussion
 
-1. Do not bypass mandatory mapping/review/confirmation dialogs.
+1. When pole data is imported, do not bypass its mandatory mapping/review/confirmation dialogs.
 2. Do not infer physical-pole count from installed quantity.
 3. Do not merge work records or discard detail/quantity metadata.
 4. Do not identify moved CAD poles by nearest coordinate or visible label; use block IDs.
