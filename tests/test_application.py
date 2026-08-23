@@ -72,8 +72,7 @@ def test_main_window_can_show_poles(qtbot) -> None:
     assert window.pole_table.item(0, 5).text() == "Left"
 
 
-def test_geometry_action_requires_route_and_poles(qtbot) -> None:
-    from pole_route.domain.pole import Pole
+def test_geometry_action_requires_main_route_but_not_poles(qtbot) -> None:
     from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
 
     window = MainWindow()
@@ -89,11 +88,35 @@ def test_geometry_action_requires_route_and_poles(qtbot) -> None:
         ClassifiedRoute(window.current_route, RouteType.MAIN_ROUTE, 6.0, 2.0)
     ]
     window._update_geometry_action()
+    assert window.build_geometry_action.isEnabled()
+
+    window.current_routes = [
+        ClassifiedRoute(window.current_route, RouteType.ROAD, 6.0, 2.0)
+    ]
+    window._update_geometry_action()
     assert not window.build_geometry_action.isEnabled()
 
-    window.current_poles = [Pole("1", 13.0, 100.001)]
-    window._update_geometry_action()
-    assert window.build_geometry_action.isEnabled()
+
+def test_route_only_build_enables_generate_without_poles(qtbot) -> None:
+    from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    route = Route(
+        "Road",
+        "route.kml",
+        (GeoPoint(100.0, 13.0), GeoPoint(100.01, 13.0)),
+    )
+    window.current_route = route
+    window.current_routes = [
+        ClassifiedRoute(route, RouteType.MAIN_ROUTE, 6.0, 2.0)
+    ]
+
+    window._build_geometry()
+
+    assert window.current_geometry is not None
+    assert window.current_geometry.projected_poles == ()
+    assert window.generate_schematic_action.isEnabled()
 
 
 def test_fetch_surroundings_requires_a_main_route(qtbot) -> None:

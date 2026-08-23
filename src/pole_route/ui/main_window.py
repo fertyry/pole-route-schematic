@@ -432,7 +432,7 @@ class MainWindow(QMainWindow):
         self.heading.setStyleSheet("font-size: 20px; font-weight: 600; padding: 6px;")
 
         self.workspace_note = QLabel(
-            "Import a route and pole data, then build the metric road-geometry preview."
+            "Import a route, then build the base geometry. Pole data is optional."
         )
         self.workspace_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.workspace_note.setWordWrap(True)
@@ -690,7 +690,7 @@ class MainWindow(QMainWindow):
         self.current_geometry = geometry
         self.export_dxf_action.setEnabled(True)
         self.import_edited_dxf_action.setEnabled(True)
-        self.generate_schematic_action.setEnabled(bool(geometry.projected_poles))
+        self.generate_schematic_action.setEnabled(bool(geometry.roads))
         self.workspace_note.setText(
             "Metric preview: blue centerline, grey road edges, yellow pole lines, "
             "green/red projected poles. This is not the final schematic."
@@ -961,7 +961,7 @@ class MainWindow(QMainWindow):
 
     def _update_geometry_action(self) -> None:
         self.build_geometry_action.setEnabled(
-            bool(self.current_routes) and bool(self.current_poles)
+            any(route.type is RouteType.MAIN_ROUTE for route in self.current_routes)
         )
         self.current_geometry = None
         self.undo_stack.clear()
@@ -1151,7 +1151,7 @@ class MainWindow(QMainWindow):
             self._update_geometry_action()
             self.generate_schematic_action.setEnabled(False)
             self.workspace_note.setText(
-                "Import a route and pole data, then build the metric road-geometry preview."
+                "Import a route, then build the base geometry. Pole data is optional."
             )
         finally:
             self._changing_project = False
@@ -1213,7 +1213,7 @@ class MainWindow(QMainWindow):
             routes = routes_from_data(document.get("routes", []))
             poles = poles_from_data(document.get("poles", []))
             osm_features = osm_features_from_data(document.get("osm_features", []))
-            geometry = build_road_network_geometry(routes, poles) if routes and poles else None
+            geometry = build_road_network_geometry(routes, poles) if routes else None
         except (ProjectFileError, RoadGeometryError, KeyError, TypeError, ValueError) as error:
             QMessageBox.warning(self, "Project open failed", str(error))
             return False
@@ -1251,9 +1251,9 @@ class MainWindow(QMainWindow):
             self.project_path = path
             self.working_directory.remember_file(path)
             has_schematic = bool(document.get("has_schematic"))
-            self.build_geometry_action.setEnabled(bool(routes) and bool(poles))
+            self.build_geometry_action.setEnabled(bool(main_routes))
             self.fetch_surroundings_action.setEnabled(bool(main_routes))
-            self.generate_schematic_action.setEnabled(bool(geometry and geometry.projected_poles))
+            self.generate_schematic_action.setEnabled(bool(geometry and geometry.roads))
             self.reset_layout_action.setEnabled(has_schematic)
             self.edit_canvas_action.setEnabled(has_schematic)
             self.export_action.setEnabled(has_schematic)
