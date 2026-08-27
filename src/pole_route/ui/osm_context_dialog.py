@@ -58,6 +58,21 @@ class OSMContextDialog(QDialog):
         )
         intro.setWordWrap(True)
         self.tabs = QTabWidget()
+        bulk_controls = QHBoxLayout()
+        self.select_all_categories_button = QPushButton("Select All Categories")
+        self.select_all_categories_button.clicked.connect(
+            lambda: self._set_all_categories(True)
+        )
+        self.clear_all_categories_button = QPushButton("Clear All Categories")
+        self.clear_all_categories_button.clicked.connect(
+            lambda: self._set_all_categories(False)
+        )
+        self.select_all_recommended_button = QPushButton("Select Recommended")
+        self.select_all_recommended_button.clicked.connect(self._select_all_recommended)
+        bulk_controls.addWidget(self.select_all_categories_button)
+        bulk_controls.addWidget(self.clear_all_categories_button)
+        bulk_controls.addWidget(self.select_all_recommended_button)
+        bulk_controls.addStretch(1)
         self._add_roads_tab()
         for category in OSMFeatureCategory:
             self._add_feature_tab(category)
@@ -76,6 +91,7 @@ class OSMContextDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout = QVBoxLayout(self)
         layout.addWidget(intro)
+        layout.addLayout(bulk_controls)
         layout.addWidget(self.tabs, 1)
         layout.addWidget(QLabel(
             "Preview: blue Main route, grey roads/sois, coloured OSM feature categories"
@@ -177,6 +193,19 @@ class OSMContextDialog(QDialog):
         state = Qt.CheckState.Checked if selected else Qt.CheckState.Unchecked
         for row in range(self.roads_table.rowCount()):
             self.roads_table.item(row, 0).setCheckState(state)
+
+    def _set_all_categories(self, selected: bool) -> None:
+        self._set_all_roads(selected)
+        for category in OSMFeatureCategory:
+            self._set_feature_category(category, selected)
+
+    def _select_all_recommended(self) -> None:
+        for row, road in enumerate(self._context.roads):
+            self.roads_table.item(row, 0).setCheckState(
+                Qt.CheckState.Checked if road.recommended else Qt.CheckState.Unchecked
+            )
+        for category in OSMFeatureCategory:
+            self._select_recommended(category)
 
     def _set_feature_category(self, category: OSMFeatureCategory, selected: bool) -> None:
         table = self.feature_tables[category]

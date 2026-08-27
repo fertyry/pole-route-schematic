@@ -23,11 +23,14 @@ from PySide6.QtWidgets import (
 )
 
 from pole_route.domain.context import (
+    ContextPlace,
+    ContextRoad,
     ContextFeature,
     ContextGeometryPart,
     FeatureProvenance,
     OSMFeatureCategory,
     OSMGeometryKind,
+    OSMContext,
 )
 from pole_route.domain.pole import Pole, PoleSide
 from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
@@ -90,7 +93,69 @@ def load_project_file(path: str | Path) -> dict[str, Any]:
     # OSM Surround V2 is an additive field. Projects written before Phase 2.1
     # remain valid and expose an empty feature collection to callers.
     document.setdefault("osm_features", [])
+    document.setdefault("surrounding_candidates", None)
     return document
+
+
+def osm_context_to_data(context: OSMContext | None) -> dict[str, Any] | None:
+    """Serialize the last fetched candidates independently of accepted context."""
+
+    if context is None:
+        return None
+    return {
+        "roads": [
+            {
+                "route": routes_to_data([ClassifiedRoute(
+                    road.route, RouteType.ROAD, road.suggested_width_metres, None, False
+                )])[0],
+                "highway": road.highway,
+                "suggested_width_metres": road.suggested_width_metres,
+                "recommended": road.recommended,
+                "recommendation": road.recommendation,
+            }
+            for road in context.roads
+        ],
+        "places": [
+            {
+                "name": place.name,
+                "category": place.category,
+                "point": [place.point.longitude, place.point.latitude, place.point.altitude],
+            }
+            for place in context.places
+        ],
+        "features": osm_features_to_data(context.features),
+        "warnings": list(context.warnings),
+        "metrics": [[key, value] for key, value in context.metrics],
+    }
+
+
+def osm_context_from_data(data: dict[str, Any] | None) -> OSMContext | None:
+    """Restore fetched candidates; missing data keeps legacy projects compatible."""
+
+    if not data:
+        return None
+    roads = []
+    for item in data.get("roads", []):
+        [classified] = routes_from_data([item["route"]])
+        roads.append(ContextRoad(
+            classified.route,
+            str(item.get("highway", "")),
+            float(item.get("suggested_width_metres", classified.width_metres or 6.0)),
+            bool(item.get("recommended", True)),
+            str(item.get("recommendation", "Connects to the Main route")),
+        ))
+    places = tuple(
+        ContextPlace(
+            str(item["name"]), str(item.get("category", "")), GeoPoint(*item["point"])
+        )
+        for item in data.get("places", [])
+    )
+    return OSMContext(
+        tuple(roads), places,
+        tuple(osm_features_from_data(data.get("features", []))),
+        tuple(str(item) for item in data.get("warnings", [])),
+        tuple((str(key), float(value)) for key, value in data.get("metrics", [])),
+    )
 
 
 def routes_to_data(routes: list[ClassifiedRoute]) -> list[dict[str, Any]]:

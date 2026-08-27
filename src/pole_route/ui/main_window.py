@@ -38,7 +38,7 @@ from pole_route.cad import (
     read_managed_pole_positions,
     update_managed_poles,
 )
-from pole_route.domain.context import ContextFeature
+from pole_route.domain.context import ContextFeature, OSMContext
 from pole_route.domain.pole import Pole
 from pole_route.domain.physical_pole import build_physical_pole_mapping
 from pole_route.domain.route import ClassifiedRoute, Route, RouteType
@@ -71,6 +71,8 @@ from pole_route.importers.pole_importer import (
 from pole_route.project.storage import (
     ProjectFileError,
     load_project_file,
+    osm_context_from_data,
+    osm_context_to_data,
     osm_features_from_data,
     osm_features_to_data,
     poles_from_data,
@@ -118,6 +120,7 @@ class MainWindow(QMainWindow):
         self.current_routes: list[ClassifiedRoute] = []
         self.current_context_routes: list[ClassifiedRoute] = []
         self.current_osm_features: list[ContextFeature] = []
+        self.surrounding_candidates: OSMContext | None = None
         self.current_road_width = 6.0
         self.current_poles: list[Pole] = []
         self.current_geometry = None
@@ -189,13 +192,18 @@ class MainWindow(QMainWindow):
         self.import_route_action.triggered.connect(self._choose_route_file)
         toolbar.addAction(self.import_route_action)
 
-        self.fetch_surroundings_action = QAction("Fetch surroundings", self)
+        self.fetch_surroundings_action = QAction("Refresh surroundings", self)
         self.fetch_surroundings_action.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_DirLinkIcon)
         )
         self.fetch_surroundings_action.setEnabled(False)
         self.fetch_surroundings_action.triggered.connect(self._fetch_surroundings)
         toolbar.addAction(self.fetch_surroundings_action)
+
+        self.review_surroundings_action = QAction("Review surroundings", self)
+        self.review_surroundings_action.setEnabled(False)
+        self.review_surroundings_action.triggered.connect(self._review_cached_surroundings)
+        toolbar.addAction(self.review_surroundings_action)
 
         self.overture_buildings_action = QAction("Use Overture building supplements", self)
         self.overture_buildings_action.setCheckable(True)
@@ -613,6 +621,13 @@ class MainWindow(QMainWindow):
         progress.show()
         thread.start()
 
+    def _review_cached_surroundings(self) -> None:
+        """Review the last complete candidate snapshot without network access."""
+
+        if self.surrounding_candidates is None or self.current_route is None:
+            return
+        self._review_surroundings(self.surrounding_candidates)
+
     def _surroundings_failed(self, message: str) -> None:
         self._pending_osm_error = message
 
@@ -657,16 +672,17 @@ class MainWindow(QMainWindow):
             return
         discovered = dialog.selected_routes()
         selected_features = dialog.selected_features()
-        existing_osm_ids = {
-            item.route.source_path
-            for item in self.current_routes
-            if item.route.source_path.startswith("OpenStreetMap:")
-        }
-        discovered = [
-            item for item in discovered if item.route.source_path not in existing_osm_ids
+        # Replace only previously accepted OSM roads. Manually imported context
+        # routes remain untouched, and accepting an empty selection clears OSM roads.
+        retained = [
+            item for item in self.current_routes
+            if not item.route.source_path.startswith("OpenStreetMap:")
         ]
-        self.current_routes.extend(discovered)
-        self.current_context_routes.extend(discovered)
+        unique_roads = {item.route.source_path: item for item in discovered}
+        self.current_routes = retained + list(unique_roads.values())
+        self.current_context_routes = [
+            item for item in self.current_routes if item.type is not RouteType.MAIN_ROUTE
+        ]
         # A confirmed re-fetch replaces the accepted non-road feature snapshot.
         # Category is part of identity because one OSM object may legitimately
         # represent more than one reviewed semantic feature.
@@ -704,6 +720,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "OpenStreetMap fetch failed", error)
             self.statusBar().showMessage("Could not fetch OpenStreetMap surroundings")
         elif context is not None:
+            # Publish candidates only after a complete worker result. Failure and
+            # cancellation therefore preserve both prior candidates and accepted data.
+            self.surrounding_candidates = context
+            self.review_surroundings_action.setEnabled(True)
+            self._mark_dirty()
             self._review_surroundings(context)
 
     def _close_osm_progress(self) -> None:
@@ -1307,6 +1328,7 @@ class MainWindow(QMainWindow):
             self.current_routes = []
             self.current_context_routes = []
             self.current_osm_features = []
+            self.surrounding_candidates = None
             self.current_road_width = 6.0
             self.current_poles = []
             self.current_geometry = None
@@ -1321,6 +1343,7 @@ class MainWindow(QMainWindow):
             self.pole_table.setRowCount(0)
             self.undo_stack.clear()
             self.fetch_surroundings_action.setEnabled(False)
+            self.review_surroundings_action.setEnabled(False)
             self._update_geometry_action()
             self.generate_schematic_action.setEnabled(False)
             self.workspace_note.setText(
@@ -1358,6 +1381,9 @@ class MainWindow(QMainWindow):
                 {
                     "routes": routes_to_data(self.current_routes),
                     "osm_features": osm_features_to_data(self.current_osm_features),
+                    "surrounding_candidates": osm_context_to_data(
+                        self.surrounding_candidates
+                    ),
                     "poles": poles_to_data(self.current_poles),
                     "same_pole_groups": [sorted(group) for group in self.same_pole_groups],
                     "transformer_rack_groups": [
@@ -1389,6 +1415,9 @@ class MainWindow(QMainWindow):
             routes = routes_from_data(document.get("routes", []))
             poles = poles_from_data(document.get("poles", []))
             osm_features = osm_features_from_data(document.get("osm_features", []))
+            surrounding_candidates = osm_context_from_data(
+                document.get("surrounding_candidates")
+            )
             geometry = build_road_network_geometry(routes, poles) if routes else None
         except (ProjectFileError, RoadGeometryError, KeyError, TypeError, ValueError) as error:
             QMessageBox.warning(self, "Project open failed", str(error))
@@ -1405,6 +1434,10 @@ class MainWindow(QMainWindow):
             self.current_osm_features = list(prepare_context_features(
                 osm_features, self.current_route
             )) if self.current_route else osm_features
+            self.surrounding_candidates = surrounding_candidates
+            self.review_surroundings_action.setEnabled(
+                self.current_route is not None and surrounding_candidates is not None
+            )
             self.current_road_width = (
                 (main_routes[0].width_metres or 6.0) if main_routes else 6.0
             )

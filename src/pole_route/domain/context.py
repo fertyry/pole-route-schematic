@@ -168,8 +168,8 @@ def osm_feature_name(tags: Mapping[str, object]) -> str | None:
 
 @dataclass(frozen=True, slots=True)
 class OSMContext:
-    roads: tuple[ContextRoad, ...]
-    places: tuple[ContextPlace, ...]
+    roads: tuple[ContextRoad, ...] = ()
+    places: tuple[ContextPlace, ...] = ()
     features: tuple[ContextFeature, ...] = ()
     warnings: tuple[str, ...] = ()
     metrics: tuple[tuple[str, float], ...] = ()

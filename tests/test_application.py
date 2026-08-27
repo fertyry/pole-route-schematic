@@ -147,7 +147,9 @@ def test_cancelled_surround_fetch_does_not_review_or_replace_state(qtbot, monkey
     window = MainWindow()
     qtbot.addWidget(window)
     existing = object()
+    existing_candidates = object()
     window.current_osm_features = [existing]
+    window.surrounding_candidates = existing_candidates
     reviewed = []
     monkeypatch.setattr(window, "_review_surroundings", reviewed.append)
 
@@ -156,7 +158,71 @@ def test_cancelled_surround_fetch_does_not_review_or_replace_state(qtbot, monkey
 
     assert reviewed == []
     assert window.current_osm_features == [existing]
+    assert window.surrounding_candidates is existing_candidates
     assert "unchanged" in window.statusBar().currentMessage()
+
+
+def test_failed_surround_refresh_preserves_candidates_and_accepted_state(
+    qtbot, monkeypatch,
+) -> None:
+    from PySide6.QtWidgets import QMessageBox
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    accepted = object()
+    candidates = object()
+    window.current_osm_features = [accepted]
+    window.surrounding_candidates = candidates
+    monkeypatch.setattr(QMessageBox, "warning", lambda *_args: None)
+
+    window._surroundings_failed("network failed")
+    window._surroundings_fetch_finished()
+
+    assert window.current_osm_features == [accepted]
+    assert window.surrounding_candidates is candidates
+
+
+def test_review_surroundings_reopens_cached_candidates_without_fetch(qtbot, monkeypatch) -> None:
+    from pole_route.domain.context import OSMContext
+    from pole_route.domain.route import GeoPoint, Route
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.current_route = Route(
+        "Main", "route.kml", (GeoPoint(100, 13), GeoPoint(100, 13.01))
+    )
+    context = OSMContext()
+    window.surrounding_candidates = context
+    reviewed = []
+    monkeypatch.setattr(window, "_review_surroundings", reviewed.append)
+    monkeypatch.setattr(window, "_fetch_surroundings", lambda: pytest.fail("network fetch"))
+
+    window._review_cached_surroundings()
+
+    assert reviewed == [context]
+
+
+def test_successful_refresh_publishes_candidate_snapshot_before_review(
+    qtbot, monkeypatch,
+) -> None:
+    from pole_route.domain.context import OSMContext
+    from pole_route.domain.route import GeoPoint, Route
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.current_route = Route(
+        "Main", "route.kml", (GeoPoint(100, 13), GeoPoint(100, 13.01))
+    )
+    context = OSMContext()
+    reviewed = []
+    monkeypatch.setattr(window, "_review_surroundings", reviewed.append)
+    window._surroundings_ready(context)
+
+    window._surroundings_fetch_finished()
+
+    assert window.surrounding_candidates is context
+    assert reviewed == [context]
+    assert window.review_surroundings_action.isEnabled()
 
 
 def test_save_after_accepted_osm_context_round_trips_routes(qtbot, tmp_path) -> None:
@@ -305,6 +371,18 @@ def test_osm_review_v2_groups_selects_and_previews_feature_geometry(qtbot) -> No
     assert fuel_table.item(1, 0).checkState() == Qt.CheckState.Unchecked
     dialog._set_feature_category(OSMFeatureCategory.FUEL, False)
     assert dialog.selected_features() == [features[2]]
+    qtbot.mouseClick(
+        dialog.select_all_categories_button, Qt.MouseButton.LeftButton
+    )
+    assert dialog.selected_features() == list(features)
+    qtbot.mouseClick(
+        dialog.clear_all_categories_button, Qt.MouseButton.LeftButton
+    )
+    assert dialog.selected_features() == []
+    qtbot.mouseClick(
+        dialog.select_all_recommended_button, Qt.MouseButton.LeftButton
+    )
+    assert dialog.selected_features() == [features[0], features[2]]
 
 
 def test_osm_review_shows_one_identity_in_each_semantic_category_tab(qtbot) -> None:
@@ -373,7 +451,9 @@ def test_accepted_osm_features_replace_deduplicate_and_round_trip(qtbot, tmp_pat
         (ContextGeometryPart((GeoPoint(100, 13.006),)),),
     )]
     monkeypatch.setattr(main_window_module, "OSMContextDialog", AcceptedDialog)
-    window._review_surroundings(OSMContext((), (), (feature,)))
+    candidates = OSMContext((), (), (feature,))
+    window.surrounding_candidates = candidates
+    window._review_surroundings(candidates)
     assert window.current_osm_features == [feature]
 
     path = tmp_path / "accepted-features.prs"
@@ -382,8 +462,10 @@ def test_accepted_osm_features_replace_deduplicate_and_round_trip(qtbot, tmp_pat
     qtbot.addWidget(reopened)
     assert reopened.open_project(str(path))
     assert reopened.current_osm_features == [feature]
+    assert reopened.surrounding_candidates == candidates
     reopened._new_project()
     assert reopened.current_osm_features == []
+    assert reopened.surrounding_candidates is None
 
 
 def test_cancelled_osm_review_does_not_change_accepted_features(qtbot, monkeypatch) -> None:

@@ -19,6 +19,8 @@ from pole_route.geometry.road_geometry import build_road_network_geometry
 from pole_route.geometry.schematic_layout import create_schematic_layout
 from pole_route.project.storage import (
     load_project_file,
+    osm_context_from_data,
+    osm_context_to_data,
     osm_features_from_data,
     osm_features_to_data,
     poles_from_data,
@@ -190,8 +192,42 @@ def test_old_project_without_osm_features_loads_empty_collection(tmp_path) -> No
     document = load_project_file(path)
 
     assert document["osm_features"] == []
+    assert document["surrounding_candidates"] is None
     assert osm_features_from_data(document["osm_features"]) == []
     assert routes_from_data(document["routes"]) == routes
+
+
+def test_surrounding_candidates_round_trip_independently_from_accepted_features(
+    tmp_path,
+) -> None:
+    from pole_route.domain.context import ContextPlace, ContextRoad, OSMContext
+
+    route = Route(
+        "Soi candidate", "OpenStreetMap:way/77",
+        (GeoPoint(100.0, 13.0), GeoPoint(100.001, 13.001)),
+    )
+    feature = _feature(
+        77, OSMFeatureCategory.BUILDING, OSMGeometryKind.POLYGON,
+        (ContextGeometryPart((
+            GeoPoint(100.0, 13.0), GeoPoint(100.001, 13.0),
+            GeoPoint(100.001, 13.001), GeoPoint(100.0, 13.0),
+        )),),
+        name="อาคารทดสอบ",
+    )
+    context = OSMContext(
+        (ContextRoad(route, "residential", 6.0, False, "Manual review"),),
+        (ContextPlace("วัดทดสอบ", "place_of_worship", GeoPoint(100.0, 13.0)),),
+        (feature,), ("partial source warning",), (("fetch_seconds", 1.25),),
+    )
+    path = tmp_path / "candidates.prs"
+    save_project_file(path, {
+        "osm_features": [],
+        "surrounding_candidates": osm_context_to_data(context),
+    })
+
+    document = load_project_file(path)
+    assert document["osm_features"] == []
+    assert osm_context_from_data(document["surrounding_candidates"]) == context
 
 
 def test_project_round_trip_preserves_osm_features_and_legacy_roads(tmp_path) -> None:
