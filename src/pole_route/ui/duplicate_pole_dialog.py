@@ -6,6 +6,7 @@ from math import asin, cos, radians, sin, sqrt
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -64,6 +65,8 @@ class DuplicatePoleDialog(QDialog):
         self._poles = poles
         self._groups = groups
         self._choices: list[QComboBox] = []
+        self._rack_pole_a: list[QComboBox] = []
+        self._rack_pole_b: list[QComboBox] = []
         self.setWindowTitle("Review duplicate pole coordinates")
         self.resize(1180, 480)
         layout = QVBoxLayout(self)
@@ -71,13 +74,19 @@ class DuplicatePoleDialog(QDialog):
             "These records share the same or a very close coordinate. Choose what they "
             "represent physically; installed quantity alone does not determine pole count."
         ))
-        table = QTableWidget(len(groups), 6)
+        table = QTableWidget(len(groups), 8)
+        table.setSelectionMode(
+            QAbstractItemView.SelectionMode.NoSelection
+        )
+        table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         table.setHorizontalHeaderLabels((
             "Records",
             "Pole No. / Detail",
             "Installed Qty.",
             "Maximum separation",
             "Interpretation",
+            "Rack Pole A",
+            "Rack Pole B",
             "Result",
         ))
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -85,7 +94,9 @@ class DuplicatePoleDialog(QDialog):
         table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
-        table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)
         for row, group in enumerate(groups):
             records = [poles[index] for index in group]
             table.setItem(row, 0, QTableWidgetItem(" / ".join(pole.number for pole in records)))
@@ -107,14 +118,40 @@ class DuplicatePoleDialog(QDialog):
             )
             table.setItem(row, 3, QTableWidgetItem(f"{maximum:.2f} m"))
             combo = QComboBox()
+
             for label, value in CHOICES:
                 combo.addItem(label, value)
-            if len(records) == 2 and any("/1" in pole.number for pole in records):
-                combo.setCurrentIndex(1)
-            combo.currentIndexChanged.connect(lambda _index, r=row: self._update_result(table, r))
+
+            rack_a = QComboBox()
+            rack_b = QComboBox()
+
+            # Default: not applicable unless this row is a transformer rack.
+            rack_a.addItem("-", None)
+            rack_b.addItem("-", None)
+
+            for pole in records:
+                rack_a.addItem(pole.number, pole.number)
+                rack_b.addItem(pole.number, pole.number)
+
+            rack_a.setEnabled(False)
+            rack_b.setEnabled(False)
+
+            table.setCellWidget(row, 5, rack_a)
+            table.setCellWidget(row, 6, rack_b)
+
+            self._rack_pole_a.append(rack_a)
+            self._rack_pole_b.append(rack_b)
+
+            combo.currentIndexChanged.connect(
+                lambda _index, r=row: self._update_result(table, r)
+            )
+
             table.setCellWidget(row, 4, combo)
             self._choices.append(combo)
+
             self._update_result(table, row)
+        table.clearSelection()
+        table.setCurrentItem(None)
         layout.addWidget(table)
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Confirm pole interpretation")
@@ -122,22 +159,100 @@ class DuplicatePoleDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-    def decisions(self) -> list[tuple[frozenset[str], str]]:
-        return [
-            (frozenset(self._poles[index].number for index in group), combo.currentData())
-            for group, combo in zip(self._groups, self._choices, strict=True)
-        ]
+    def decisions(
+        self,
+    ) -> list[tuple[frozenset[str], str, tuple[str, str] | None]]:
+        results = []
+
+        for group, combo, rack_a, rack_b in zip(
+            self._groups,
+            self._choices,
+            self._rack_pole_a,
+            self._rack_pole_b,
+            strict=True,
+        ):
+            members = frozenset(
+                self._poles[index].number
+                for index in group
+            )
+
+            decision = combo.currentData()
+
+            rack_pair = None
+
+            if decision == TRANSFORMER_RACK:
+                pole_a = rack_a.currentData()
+                pole_b = rack_b.currentData()
+
+                if pole_a != pole_b:
+                    rack_pair = (pole_a, pole_b)
+
+            results.append(
+                (
+                    members,
+                    decision,
+                    rack_pair,
+                )
+            )
+
+        return results
+
+    def accept(self) -> None:
+        """Reject incomplete or ambiguous transformer-rack leg selections."""
+        for row, (group, choice, rack_a, rack_b) in enumerate(zip(
+            self._groups,
+            self._choices,
+            self._rack_pole_a,
+            self._rack_pole_b,
+            strict=True,
+        )):
+            if choice.currentData() != TRANSFORMER_RACK:
+                continue
+            members = {self._poles[index].number for index in group}
+            pole_a, pole_b = rack_a.currentData(), rack_b.currentData()
+            if pole_a is None or pole_b is None or pole_a == pole_b:
+                rack_a.setFocus()
+                return
+            if pole_a not in members or pole_b not in members:
+                rack_a.setFocus()
+                return
+        super().accept()
 
     def _update_result(self, table: QTableWidget, row: int) -> None:
+        decision = self._choices[row].currentData()
+
+        is_rack = decision == TRANSFORMER_RACK
+
+        self._rack_pole_a[row].setEnabled(is_rack)
+        self._rack_pole_b[row].setEnabled(is_rack)
+        
+        rack_a = self._rack_pole_a[row]
+        rack_b = self._rack_pole_b[row]
+
+        if is_rack:
+            if rack_a.currentData() is None and rack_a.count() >= 3:
+                rack_a.setCurrentIndex(1)
+                rack_b.setCurrentIndex(2)
+        else:
+            rack_a.setCurrentIndex(0)
+            rack_b.setCurrentIndex(0)
+
         result = {
             SAME_POLE: "Draw one pole marker and keep every work-item label.",
-            TRANSFORMER_RACK: "Draw two pole markers with a connecting rack symbol.",
-            SEPARATE_POLES: "Keep separate markers and flag the source coordinates for correction.",
-            ACCESSORY: "Draw one pole marker; retain the extra record as attached work.",
-        }[self._choices[row].currentData()]
+            TRANSFORMER_RACK: (
+                "Draw two physical rack poles. Select Rack Pole A and Rack Pole B."
+            ),
+            SEPARATE_POLES: (
+                "Keep separate markers and flag the source coordinates for correction."
+            ),
+            ACCESSORY: (
+                "Draw one pole marker; retain the extra record as attached work."
+            ),
+        }[decision]
+
         item = QTableWidgetItem(result)
         item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        table.setItem(row, 5, item)
+        table.setItem(row, 7, item)
 
 
 def _distance_metres(left: Pole, right: Pole) -> float:

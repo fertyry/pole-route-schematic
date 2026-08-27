@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 from pole_route.domain.blocks import BLOCK_CATALOG
 from pole_route.domain.context import ContextFeature
 from pole_route.domain.pole import Pole
+from pole_route.domain.physical_pole import build_physical_pole_mapping
 from pole_route.domain.route import ClassifiedRoute, Route, RouteType
 from pole_route.exporters.dxf_exporter import (
     DxfExportError,
@@ -110,6 +111,7 @@ class MainWindow(QMainWindow):
         self.current_geometry = None
         self.same_pole_groups: list[frozenset[str]] = []
         self.transformer_rack_groups: list[frozenset[str]] = []
+        self.transformer_rack_leg_pairs: list[tuple[str, str]] = []
         self.edited_dxf: dict | None = None
         self.export_settings = ExcelExportSettings()
         self.project_path: str | None = None
@@ -437,7 +439,7 @@ class MainWindow(QMainWindow):
         self.workspace_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.workspace_note.setWordWrap(True)
 
-        self.pole_table = QTableWidget(0, 7)
+        self.pole_table = QTableWidget(0, 8)
         self.pole_table.setObjectName("poleTable")
         self.pole_table.setHorizontalHeaderLabels(
             [
@@ -448,6 +450,7 @@ class MainWindow(QMainWindow):
                 "Installed Qty.",
                 "Side",
                 "Physical pole",
+                "P Label",
             ]
         )
         self.pole_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -843,6 +846,9 @@ class MainWindow(QMainWindow):
                 include_sheet_layouts=include_sheet_layouts,
                 same_pole_groups=tuple(self.same_pole_groups),
                 transformer_rack_groups=tuple(self.transformer_rack_groups),
+                transformer_rack_leg_pairs=tuple(
+                    self.transformer_rack_leg_pairs
+                ),
                 osm_features=tuple(self.current_osm_features),
             )
         except DxfExportError as error:
@@ -1017,21 +1023,26 @@ class MainWindow(QMainWindow):
 
         same_pole_groups: list[frozenset[str]] = []
         transformer_rack_groups: list[frozenset[str]] = []
+        transformer_rack_leg_pairs: list[tuple[str, str]] = []
         close_groups = find_close_pole_groups(poles)
         if close_groups:
             review = DuplicatePoleDialog(poles, close_groups, self)
             if review.exec() != DuplicatePoleDialog.DialogCode.Accepted:
                 self.statusBar().showMessage("Pole import cancelled during duplicate-coordinate review")
                 return
-            for group, decision in review.decisions():
+            for group, decision, rack_pair in review.decisions():
                 if decision in {SAME_POLE, ACCESSORY}:
                     same_pole_groups.append(group)
+
                 elif decision == TRANSFORMER_RACK:
-                    same_pole_groups.append(group)
                     transformer_rack_groups.append(group)
+
+                    if rack_pair is not None:
+                        transformer_rack_leg_pairs.append(rack_pair)
         self.current_poles = poles
         self.same_pole_groups = same_pole_groups
         self.transformer_rack_groups = transformer_rack_groups
+        self.transformer_rack_leg_pairs = transformer_rack_leg_pairs
         self.show_poles(poles)
         self._show_same_pole_groups()
         self._update_geometry_action()
@@ -1052,6 +1063,7 @@ class MainWindow(QMainWindow):
                 str(pole.installed_quantity),
                 pole.side.value,
                 "",
+                "-",
             )
             for column_index, value in enumerate(values):
                 self.pole_table.setItem(row_index, column_index, QTableWidgetItem(value))
@@ -1074,10 +1086,7 @@ class MainWindow(QMainWindow):
                 remaining.append(group)
         group = frozenset(merged)
         self.same_pole_groups = [*remaining, group]
-        label = " / ".join(sorted(group))
-        for row, pole in enumerate(self.current_poles):
-            if pole.number in group:
-                self.pole_table.setItem(row, 6, QTableWidgetItem(label))
+        self._show_same_pole_groups()
         self.statusBar().showMessage(
             f"Marked {len(group)} records as one physical pole; regenerate the schematic"
         )
@@ -1140,6 +1149,7 @@ class MainWindow(QMainWindow):
             self.current_geometry = None
             self.same_pole_groups = []
             self.transformer_rack_groups = []
+            self.transformer_rack_leg_pairs = []
             self.edited_dxf = None
             self.export_settings = ExcelExportSettings()
             self.project_path = None
@@ -1189,6 +1199,9 @@ class MainWindow(QMainWindow):
                     "same_pole_groups": [sorted(group) for group in self.same_pole_groups],
                     "transformer_rack_groups": [
                         sorted(group) for group in self.transformer_rack_groups
+                    ],
+                    "transformer_rack_leg_pairs": [
+                        list(pair) for pair in self.transformer_rack_leg_pairs
                     ],
                     "canvas": scene_to_data(self.route_scene),
                     "workspace_note": self.workspace_note.text(),
@@ -1240,6 +1253,11 @@ class MainWindow(QMainWindow):
             self.transformer_rack_groups = [
                 frozenset(group) for group in document.get("transformer_rack_groups", [])
             ]
+            self.transformer_rack_leg_pairs = [
+                tuple(pair)
+                for pair in document.get("transformer_rack_leg_pairs", [])
+                if len(pair) == 2
+            ]
             self.export_settings = ExcelExportSettings(
                 **document.get("export_settings", {})
             )
@@ -1274,11 +1292,44 @@ class MainWindow(QMainWindow):
         return True
 
     def _show_same_pole_groups(self) -> None:
+        mapping = self._physical_pole_mapping()
+        for row, pole in enumerate(self.current_poles):
+            self.pole_table.setItem(row, 6, QTableWidgetItem(""))
+            self.pole_table.setItem(row, 7, QTableWidgetItem(mapping.label_for(pole.number)))
         for group in self.same_pole_groups:
             label = " / ".join(sorted(group))
             for row, pole in enumerate(self.current_poles):
                 if pole.number in group:
                     self.pole_table.setItem(row, 6, QTableWidgetItem(label))
+        for group in self.transformer_rack_groups:
+            label = " / ".join(sorted(group))
+            for row, pole in enumerate(self.current_poles):
+                if pole.number in group:
+                    self.pole_table.setItem(row, 6, QTableWidgetItem(label))
+
+    def _physical_pole_mapping(self):
+        ordered = [pole.number for pole in self.current_poles]
+        if self.current_geometry is not None and self.current_geometry.roads:
+            main = next(
+                (road for road in self.current_geometry.roads if road.is_main_route),
+                self.current_geometry.roads[0],
+            )
+            ordered = [
+                item.pole.number
+                for item in sorted(
+                    self.current_geometry.projected_poles,
+                    key=lambda item: main.centerline.project(item.original),
+                )
+            ]
+            ordered.extend(
+                pole.number for pole in self.current_poles if pole.number not in ordered
+            )
+        return build_physical_pole_mapping(
+            ordered,
+            self.same_pole_groups,
+            self.transformer_rack_groups,
+            self.transformer_rack_leg_pairs,
+        )
 
     def _confirm_discard_changes(self) -> bool:
         if not self.project_dirty:

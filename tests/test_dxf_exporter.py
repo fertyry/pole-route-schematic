@@ -1,14 +1,81 @@
+import os
+import stat
+
+import ezdxf
+import pytest
+
 from pole_route.domain.pole import Pole, PoleSide
 from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
 from pole_route.exporters.dxf_exporter import (
+    DxfExportError,
     _sheet_station_ranges,
     export_geometry_to_dxf,
     recommended_dxf_sheet_count,
 )
 from pole_route.exporters.excel_exporter import ExcelExportSettings
+from pole_route.exporters.dxf_diagnostics import diagnose_dxf
 from pole_route.geometry.road_geometry import build_road_network_geometry
 from ezdxf.math import Vec3
 from shapely.ops import substring
+
+
+def _simple_geometry():
+    route = Route(
+        "Main",
+        "main.kml",
+        (GeoPoint(100.0, 13.0), GeoPoint(100.002, 13.0)),
+    )
+    return build_road_network_geometry(
+        [ClassifiedRoute(route, RouteType.MAIN_ROUTE, 12.0, 2.0)],
+        [Pole("P1", 13.00005, 100.001, "", PoleSide.LEFT)],
+    )
+
+
+def _assert_writable_valid_r2010_dxf(path) -> None:
+    result = diagnose_dxf(path)
+    assert result.exists
+    assert result.os_writable
+    assert result.windows_readonly in (False, None)
+    assert result.read_write_open_succeeded
+    assert result.dxf_version == "AC1024"
+    assert result.has_eof_marker
+    assert result.audit_errors == ()
+    assert result.read_error is None
+
+
+def test_normal_export_creates_writable_auditable_dxf_and_releases_handle(tmp_path) -> None:
+    destination = tmp_path / "new-master.dxf"
+
+    export_geometry_to_dxf(_simple_geometry(), destination, include_sheet_layouts=False)
+
+    _assert_writable_valid_r2010_dxf(destination)
+    renamed = destination.with_name("renamed-master.dxf")
+    os.replace(destination, renamed)
+    assert renamed.exists()
+
+
+def test_normal_export_can_overwrite_existing_writable_dxf(tmp_path) -> None:
+    destination = tmp_path / "existing-master.dxf"
+    destination.write_text("old content", encoding="ascii")
+
+    export_geometry_to_dxf(_simple_geometry(), destination, include_sheet_layouts=False)
+
+    _assert_writable_valid_r2010_dxf(destination)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows read-only attribute behavior")
+def test_normal_export_reports_error_instead_of_overwriting_readonly_destination(tmp_path) -> None:
+    destination = tmp_path / "readonly-master.dxf"
+    destination.write_text("do not replace", encoding="ascii")
+    os.chmod(destination, stat.S_IREAD)
+    try:
+        with pytest.raises(DxfExportError, match="could not be saved"):
+            export_geometry_to_dxf(
+                _simple_geometry(), destination, include_sheet_layouts=False
+            )
+        assert destination.read_text(encoding="ascii") == "do not replace"
+    finally:
+        os.chmod(destination, stat.S_IWRITE)
 
 
 def test_dxf_export_contains_metric_layers_and_reusable_pole_block(tmp_path) -> None:
@@ -238,6 +305,7 @@ def test_dxf_export_draws_one_transformer_rack_block_for_group(tmp_path) -> None
         destination,
         include_sheet_layouts=False,
         transformer_rack_groups=(frozenset({"P1", "P1/1", "A1"}),),
+        transformer_rack_leg_pairs=(("P1", "P1/1"),),
     )
 
     document = ezdxf.readfile(destination)
@@ -248,11 +316,11 @@ def test_dxf_export_draws_one_transformer_rack_block_for_group(tmp_path) -> None
     assert racks[0].get_attrib_text("POLE_IDS") == "P1|P1/1|A1"
     assert racks[0].get_attrib_text("QUANTITIES") == "2|2|1"
     assert racks[0].get_attrib_text("KIND") == "TRANSFORMER_RACK"
-    assert len(list(document.blocks.get("PRS_TRANSFORMER_RACK").query("SOLID"))) == 2
+    assert len(list(document.blocks.get("PRS_TRANSFORMER_RACK").query("SOLID"))) == 3
     labels = list(modelspace.query('TEXT[layer=="POLE_LABELS"]'))
-    assert len({entity.dxf.text for entity in labels}) == 3
+    assert {entity.dxf.text for entity in labels} == {"P1", "P2"}
     assert all(entity.dxf.rotation == 0.0 for entity in labels)
-    assert len({(entity.dxf.insert.x, entity.dxf.insert.y) for entity in labels}) == 3
+    assert len({(entity.dxf.insert.x, entity.dxf.insert.y) for entity in labels}) == 2
 
 
 def test_dxf_export_groups_one_physical_pole_and_keeps_source_metadata(tmp_path) -> None:

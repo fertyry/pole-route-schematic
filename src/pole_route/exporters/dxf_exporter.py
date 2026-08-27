@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from math import atan2, ceil, cos, degrees, hypot, isfinite, sin
+from math import atan2, ceil, cos, degrees, hypot, isfinite, radians, sin
 from pathlib import Path
 
 import ezdxf
@@ -11,6 +11,7 @@ from shapely.geometry import GeometryCollection, LineString, MultiLineString, Po
 from shapely.ops import nearest_points, substring, unary_union
 
 from pole_route.domain.context import ContextFeature, OSMFeatureCategory, OSMGeometryKind
+from pole_route.domain.physical_pole import build_physical_pole_mapping
 from pole_route.domain.route import GeoPoint, RouteType
 from pole_route.exporters.excel_exporter import ExcelExportSettings
 from pole_route.geometry.road_geometry import RoadNetworkGeometry
@@ -30,7 +31,7 @@ LAYERS = (
     ("T_ROAD_EDGE", 30, "CONTINUOUS"),
     ("ROAD_NETWORK_EDGE", 7, "CONTINUOUS"),
     ("SOI_CENTERLINE", 8, "DASHED"),
-    ("SOI_EDGE", 9, "CONTINUOUS"),
+    ("SOI_EDGE", 7, "CONTINUOUS"),
     ("POLE_OFFSET", 3, "DASHED"),
     ("POLES", 1, "CONTINUOUS"),
     ("POLE_LABELS", 7, "CONTINUOUS"),
@@ -250,10 +251,10 @@ def _add_solid_square(block, center_x: float) -> None:
     """Add a filled one-metre pole marker to a reusable block definition."""
     block.add_solid(
         (
-            (center_x - 0.5, -0.5),
-            (center_x + 0.5, -0.5),
-            (center_x - 0.5, 0.5),
-            (center_x + 0.5, 0.5),
+            (center_x - 1.0, -1.0),
+            (center_x + 1.0, -1.0),
+            (center_x - 1.0, 1.0),
+            (center_x + 1.0, 1.0),
         ),
         dxfattribs={"layer": "POLES"},
     )
@@ -299,6 +300,7 @@ def export_geometry_to_dxf(
     include_sheet_layouts: bool = True,
     same_pole_groups: tuple[frozenset[str], ...] = (),
     transformer_rack_groups: tuple[frozenset[str], ...] = (),
+    transformer_rack_leg_pairs: tuple[tuple[str, str], ...] = (),
     osm_features: tuple[ContextFeature, ...] = (),
 ) -> int:
     """Write real metric geometry, Unicode labels, CAD layers, and pole blocks."""
@@ -328,7 +330,16 @@ def export_geometry_to_dxf(
     rack_block = document.blocks.new("PRS_TRANSFORMER_RACK")
     for x in (-1.5, 1.5):
         _add_solid_square(rack_block, x)
-    rack_block.add_line((-1.0, 0.0), (1.0, 0.0), dxfattribs={"layer": "POLES"})
+    rack_block.add_line((-0.5, 0.0), (0.5, 0.0), dxfattribs={"layer": "POLES"})
+    rack_block.add_solid(
+        (
+            (-3.0, 2.0),
+            (3.0, 2.0),
+            (0.0, 7.196152423),
+            (0.0, 7.196152423),
+        ),
+        dxfattribs={"layer": "POLES"},
+    )
     _add_pole_metadata_attdefs(rack_block)
     _define_sheet_break_block(document)
     _define_footbridge_blocks(document)
@@ -404,56 +415,188 @@ def export_geometry_to_dxf(
 
     rendered_groups: set[frozenset[str]] = set()
     label_slots: dict[tuple[float, float], int] = {}
+
+    main_for_sequence = next(
+        (item for item in geometry.roads if item.is_main_route),
+        geometry.roads[0],
+    )
+
+    sequence_poles = sorted(
+        geometry.projected_poles,
+        key=lambda item: main_for_sequence.centerline.project(item.original),
+    )
+
+    physical_mapping = build_physical_pole_mapping(
+        [item.pole.number for item in sequence_poles],
+        same_pole_groups,
+        transformer_rack_groups,
+        transformer_rack_leg_pairs,
+    )
+    pole_labels = {
+        assignment.source_pole_id: assignment.p_label
+        for assignment in physical_mapping.assignments
+        if assignment.p_label is not None
+    }
+
+
     for projected in geometry.projected_poles:
-        position = (round(projected.snapped.x, 3), round(projected.snapped.y, 3))
+        position = (
+            round(projected.snapped.x, 3),
+            round(projected.snapped.y, 3),
+        )
+
         road = geometry.roads[projected.route_index]
+
         rotation = _line_angle(
-            road.centerline, road.centerline.project(projected.snapped)
+            road.centerline,
+            road.centerline.project(projected.snapped),
         )
+
         rack_group = next(
-            (group for group in transformer_rack_groups if projected.pole.number in group),
+            (
+                group
+                for group in transformer_rack_groups
+                if projected.pole.number in group
+            ),
             None,
         )
+
         same_group = next(
-            (group for group in same_pole_groups if projected.pole.number in group),
+            (
+                group
+                for group in same_pole_groups
+                if projected.pole.number in group
+            ),
             None,
         )
-        physical_group = rack_group or same_group or frozenset({projected.pole.number})
+
+        physical_group = (
+            rack_group
+            or same_group
+            or frozenset({projected.pole.number})
+        )
+
         if physical_group not in rendered_groups:
             rendered_groups.add(physical_group)
+
             members = [
                 item
                 for item in geometry.projected_poles
                 if item.pole.number in physical_group
             ]
-            main = next((item for item in geometry.roads if item.is_main_route), road)
+
+            main = next(
+                (item for item in geometry.roads if item.is_main_route),
+                road,
+            )
+
             station = main.centerline.project(projected.original)
-            block_name = "PRS_TRANSFORMER_RACK" if rack_group else "PRS_POLE"
+
+            block_name = (
+                "PRS_TRANSFORMER_RACK"
+                if rack_group
+                else "PRS_POLE"
+            )
+
             reference = modelspace.add_blockref(
                 block_name,
                 (projected.snapped.x, projected.snapped.y),
-                dxfattribs={"layer": "POLES", "rotation": rotation},
+                dxfattribs={
+                    "layer": "POLES",
+                    "rotation": rotation,
+                },
             )
-            reference.add_auto_attribs(_pole_metadata(members, station, block_name))
+
+            reference.add_auto_attribs(
+                _pole_metadata(
+                    members,
+                    station,
+                    block_name,
+                )
+            )
+
             object_count += 1
-        label = projected.pole.number
-        if projected.pole.detail:
-            label += f"  {projected.pole.detail}"
-        label_height = 1.8
-        label_slot = label_slots.get(position, 0)
-        label_slots[position] = label_slot + 1
-        _add_dxf_text(
-            modelspace,
-            "POLE_LABELS",
-            projected.snapped.x + 1.2,
-            projected.snapped.y + 1.2 + label_slot * (label_height + 0.4),
-            label,
-            label_height,
-            # Keep the CAD Master easy to read and edit.  Text is re-oriented
-            # per sheet only after the edited DXF returns for page cutting.
-            rotation=0.0,
-        )
-        object_count += 1
+
+            label_height = 1.8
+
+            if rack_group:
+                # Only the two real rack legs receive visible P labels.
+                rack_pair = next(
+                    (
+                        pair
+                        for pair in transformer_rack_leg_pairs
+                        if pair[0] in rack_group and pair[1] in rack_group
+                    ),
+                    None,
+                )
+                
+                rack_poles = []
+
+                if rack_pair is not None:
+                    by_id = {
+                        member.pole.number: member
+                        for member in members
+                    }
+
+                    for pole_id in rack_pair:
+                        member = by_id.get(pole_id)
+                        if member is not None:
+                            rack_poles.append(member)
+
+                angle = radians(rotation)
+
+                for member, label_local_x in zip(
+                    rack_poles,
+                    (-3.5, 2.5),
+                ):
+                    label_local_y = 1.5
+
+                    label_x = (
+                        projected.snapped.x
+                        + label_local_x * cos(angle)
+                        - label_local_y * sin(angle)
+                    )
+
+                    label_y = (
+                        projected.snapped.y
+                        + label_local_x * sin(angle)
+                        + label_local_y * cos(angle)
+                    )
+
+                    _add_dxf_text(
+                        modelspace,
+                        "POLE_LABELS",
+                        label_x,
+                        label_y,
+                        pole_labels[member.pole.number],
+                        label_height,
+                        rotation=0.0,
+                    )
+
+                    object_count += 1
+
+            else:
+                # Normal pole or Same Pole: one visible P label.
+                visible_label = pole_labels[
+                    members[0].pole.number
+                ]
+
+                label_slot = label_slots.get(position, 0)
+                label_slots[position] = label_slot + 1
+
+                _add_dxf_text(
+                    modelspace,
+                    "POLE_LABELS",
+                    projected.snapped.x + 1.2,
+                    projected.snapped.y
+                    + 1.2
+                    + label_slot * (label_height + 0.4),
+                    visible_label,
+                    label_height,
+                    rotation=0.0,
+                )
+
+                object_count += 1
 
     object_count += _add_sheet_break_markers(
         modelspace,
@@ -1133,3 +1276,11 @@ def _dxf_text(value: str) -> str:
 
 def _format(value: object) -> str:
     return f"{value:.9f}" if isinstance(value, float) else str(value)
+
+def _visible_pole_label(pole_id: str) -> str:
+    value = str(pole_id).strip()
+
+    if value.upper().startswith("P"):
+        return value
+
+    return f"P{value}"
