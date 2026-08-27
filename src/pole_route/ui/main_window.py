@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QGraphicsScene,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QMainWindow,
     QMenu,
@@ -26,6 +27,17 @@ from PySide6.QtWidgets import (
 )
 
 from pole_route.domain.blocks import BLOCK_CATALOG
+from pole_route.cad import (
+    AutoCADConnection,
+    AutoCADConnectionError,
+    CadReadbackError,
+    ComCadGateway,
+    build_pole_overlay_plan,
+    read_latest_pole_offset,
+    read_latest_route,
+    read_managed_pole_positions,
+    update_managed_poles,
+)
 from pole_route.domain.context import ContextFeature
 from pole_route.domain.pole import Pole
 from pole_route.domain.physical_pole import build_physical_pole_mapping
@@ -118,6 +130,9 @@ class MainWindow(QMainWindow):
         self.project_dirty = False
         self._changing_project = False
         self.working_directory = WorkingDirectory()
+        self.autocad_connection = AutoCADConnection()
+        self._cad_route_points: tuple[tuple[float, float], ...] | None = None
+        self._cad_pole_offset: tuple[tuple[float, float], ...] | None = None
         self.undo_stack = QUndoStack(self)
         self._osm_thread: QThread | None = None
         self._osm_worker: OSMContextWorker | None = None
@@ -337,6 +352,21 @@ class MainWindow(QMainWindow):
         self.create_cad_sheets_action.setEnabled(False)
         self.create_cad_sheets_action.triggered.connect(self._create_cad_sheets)
         toolbar.addAction(self.create_cad_sheets_action)
+
+        self.connect_autocad_action = QAction("Connect AutoCAD", self)
+        self.connect_autocad_action.triggered.connect(self._connect_autocad)
+        self.read_cad_route_action = QAction("Read Route", self)
+        self.read_cad_route_action.setEnabled(False)
+        self.read_cad_route_action.triggered.connect(self._read_cad_route)
+        self.read_cad_offset_action = QAction("Read Pole Offset", self)
+        self.read_cad_offset_action.setEnabled(False)
+        self.read_cad_offset_action.triggered.connect(self._read_cad_pole_offset)
+        self.update_cad_poles_action = QAction("Update Poles", self)
+        self.update_cad_poles_action.setEnabled(False)
+        self.update_cad_poles_action.triggered.connect(self._update_cad_poles)
+        self.read_cad_poles_action = QAction("Read Pole Positions", self)
+        self.read_cad_poles_action.setEnabled(False)
+        self.read_cad_poles_action.triggered.connect(self._read_cad_pole_positions)
         self._organize_v2_commands(toolbar)
 
     def _organize_v2_commands(self, workflow_toolbar: QToolBar) -> None:
@@ -387,6 +417,19 @@ class MainWindow(QMainWindow):
         output_menu.addAction(self.export_dxf_action)
         output_menu.addAction(self.import_edited_dxf_action)
         output_menu.addAction(self.create_cad_sheets_action)
+
+        cad_menu = self.menuBar().addMenu("AutoCAD")
+        cad_menu.setObjectName("autoCadMenu")
+        cad_menu.addAction(self.connect_autocad_action)
+        cad_menu.addSeparator()
+        cad_menu.addActions(
+            [
+                self.read_cad_route_action,
+                self.read_cad_offset_action,
+                self.update_cad_poles_action,
+                self.read_cad_poles_action,
+            ]
+        )
 
         # The first row shows only the normal end-to-end workflow.
         for action in (
@@ -691,6 +734,7 @@ class MainWindow(QMainWindow):
             self.route_scene, geometry, osm_features=tuple(self.current_osm_features)
         )
         self.current_geometry = geometry
+        self._set_cad_actions_enabled(self.autocad_connection.connected)
         self.export_dxf_action.setEnabled(True)
         self.import_edited_dxf_action.setEnabled(True)
         self.generate_schematic_action.setEnabled(bool(geometry.roads))
@@ -860,6 +904,124 @@ class MainWindow(QMainWindow):
             f"Exported {object_count} metric CAD object(s) ({workflow}) to {path}"
         )
 
+    def _connect_autocad(self) -> None:
+        """Select and lock one already-open AutoCAD drawing."""
+        try:
+            drawings = self.autocad_connection.drawings()
+            if not drawings:
+                raise AutoCADConnectionError("AutoCAD has no open drawings.")
+            labels = [f"{item.name} - {item.full_name}" for item in drawings]
+            selected, accepted = QInputDialog.getItem(
+                self, "Connect AutoCAD", "Open drawing", labels, 0, False
+            )
+            if not accepted:
+                return
+            identity = self.autocad_connection.select(
+                drawings[labels.index(selected)].full_name
+            )
+        except AutoCADConnectionError as error:
+            QMessageBox.warning(self, "AutoCAD connection failed", str(error))
+            return
+        self._set_cad_actions_enabled(True)
+        self.statusBar().showMessage(f"AutoCAD locked to {identity.name}")
+
+    def _cad_gateway(self) -> ComCadGateway:
+        return ComCadGateway(self.autocad_connection.target_document)
+
+    def _set_cad_actions_enabled(self, connected: bool) -> None:
+        self.read_cad_route_action.setEnabled(connected)
+        self.read_cad_offset_action.setEnabled(connected)
+        self.read_cad_poles_action.setEnabled(connected)
+        self.update_cad_poles_action.setEnabled(
+            connected and self.current_geometry is not None and bool(self.current_poles)
+        )
+
+    def _read_cad_route(self) -> None:
+        try:
+            self._cad_route_points = read_latest_route(self._cad_gateway())
+        except (AutoCADConnectionError, CadReadbackError) as error:
+            self._cad_operation_failed("Read Route", error)
+            return
+        self.statusBar().showMessage(
+            f"Read MAIN_CENTERLINE from locked drawing ({len(self._cad_route_points)} points)"
+        )
+
+    def _read_cad_pole_offset(self) -> None:
+        try:
+            self._cad_pole_offset = read_latest_pole_offset(self._cad_gateway())
+        except (AutoCADConnectionError, CadReadbackError) as error:
+            self._cad_operation_failed("Read Pole Offset", error)
+            return
+        self.statusBar().showMessage(
+            f"Read POLE_OFFSET from locked drawing ({len(self._cad_pole_offset)} points)"
+        )
+
+    def _update_cad_poles(self) -> None:
+        """Replace only PoleRoute-managed pole/rack inserts in the locked drawing."""
+        if self.current_geometry is None or not self.current_poles:
+            QMessageBox.warning(
+                self, "Update Poles", "Build geometry and import pole data first."
+            )
+            return
+        try:
+            gateway = self._cad_gateway()
+            offset = read_latest_pole_offset(gateway)
+            plan = build_pole_overlay_plan(
+                self.current_geometry, self._physical_pole_mapping(), offset
+            )
+            updated = update_managed_poles(gateway, plan)
+        except (AutoCADConnectionError, CadReadbackError) as error:
+            self._cad_operation_failed("Update Poles", error)
+            return
+        self._cad_pole_offset = offset
+        self.statusBar().showMessage(
+            f"Updated {len(updated)} managed pole/rack object(s); base CAD unchanged"
+        )
+
+    def _read_cad_pole_positions(self) -> None:
+        """Apply edited managed-block positions to matching source pole records."""
+        if self.current_geometry is None or not self.current_poles:
+            QMessageBox.warning(
+                self, "Read Pole Positions", "Build geometry and import pole data first."
+            )
+            return
+        try:
+            positions = read_managed_pole_positions(self._cad_gateway())
+        except (AutoCADConnectionError, CadReadbackError) as error:
+            self._cad_operation_failed("Read Pole Positions", error)
+            return
+        mapping = self._physical_pole_mapping()
+        changed = 0
+        updated_poles = []
+        for pole in self.current_poles:
+            physical_id = mapping.assignment_for(pole.number).physical_pole_id
+            if physical_id is None or physical_id not in positions:
+                updated_poles.append(pole)
+                continue
+            geographic = self.current_geometry.projection.to_geographic(
+                *positions[physical_id]
+            )
+            updated_poles.append(
+                replace(
+                    pole,
+                    latitude=geographic.latitude,
+                    longitude=geographic.longitude,
+                )
+            )
+            changed += 1
+        self.current_poles = updated_poles
+        self.show_poles(updated_poles)
+        self._show_same_pole_groups()
+        self._mark_dirty()
+        self.statusBar().showMessage(
+            f"Read {changed} matched pole record position(s) from locked drawing"
+        )
+
+    def _cad_operation_failed(self, operation: str, error: Exception) -> None:
+        self._set_cad_actions_enabled(self.autocad_connection.connected)
+        QMessageBox.warning(self, f"{operation} failed", str(error))
+        self.statusBar().showMessage(f"{operation} failed; project and CAD unchanged")
+
     def _import_edited_dxf(self) -> None:
         """Validate and retain pole/break identities from an edited CAD Master."""
         path, _ = QFileDialog.getOpenFileName(
@@ -981,6 +1143,7 @@ class MainWindow(QMainWindow):
         self.export_dxf_action.setEnabled(False)
         self.import_edited_dxf_action.setEnabled(False)
         self.create_cad_sheets_action.setEnabled(False)
+        self._set_cad_actions_enabled(self.autocad_connection.connected)
         self.drawing_actions[DrawingMode.SELECT].setChecked(True)
         self.canvas.set_mode(DrawingMode.SELECT)
 

@@ -267,6 +267,8 @@ def _add_pole_metadata_attdefs(block) -> None:
         "DETAILS",
         "QUANTITIES",
         "PHYSICAL_GROUP",
+        "PHYSICAL_IDS",
+        "P_LABELS",
         "STATION_M",
         "KIND",
     ):
@@ -278,7 +280,14 @@ def _add_pole_metadata_attdefs(block) -> None:
         )
 
 
-def _pole_metadata(members, station: float, block_name: str) -> dict[str, str]:
+def _pole_metadata(
+    members,
+    station: float,
+    block_name: str,
+    *,
+    physical_ids: tuple[str, ...] = (),
+    p_labels: tuple[str, ...] = (),
+) -> dict[str, str]:
     """Return stable source data used to rebuild labels after CAD editing."""
     poles = [member.pole for member in members]
     pole_ids = [pole.number for pole in poles]
@@ -287,6 +296,8 @@ def _pole_metadata(members, station: float, block_name: str) -> dict[str, str]:
         "DETAILS": "|".join(pole.detail for pole in poles),
         "QUANTITIES": "|".join(str(pole.installed_quantity) for pole in poles),
         "PHYSICAL_GROUP": "|".join(pole_ids),
+        "PHYSICAL_IDS": "|".join(physical_ids or tuple(pole_ids)),
+        "P_LABELS": "|".join(p_labels),
         "STATION_M": f"{station:.3f}",
         "KIND": "TRANSFORMER_RACK" if block_name == "PRS_TRANSFORMER_RACK" else "POLE",
     }
@@ -512,6 +523,30 @@ def export_geometry_to_dxf(
                     members,
                     station,
                     block_name,
+                    physical_ids=tuple(
+                        dict.fromkeys(
+                            assignment.physical_pole_id
+                            for member in members
+                            if (
+                                assignment := physical_mapping.assignment_for(
+                                    member.pole.number
+                                )
+                            ).physical_pole_id
+                            is not None
+                        )
+                    ),
+                    p_labels=tuple(
+                        dict.fromkeys(
+                            assignment.p_label
+                            for member in members
+                            if (
+                                assignment := physical_mapping.assignment_for(
+                                    member.pole.number
+                                )
+                            ).p_label
+                            is not None
+                        )
+                    ),
                 )
             )
 
