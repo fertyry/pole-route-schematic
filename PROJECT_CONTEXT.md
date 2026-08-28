@@ -57,6 +57,34 @@ a full map/basemap engine, an Earth viewer, and a GIS field-collection system ar
 current core products. Google Earth Pro remains the present Pole QC viewer; a future
 MapLibre + OpenFreeMap viewer remains possible without making the basemap authoritative.
 
+## Surround fetch reliability and performance contract
+
+Fetch performance is a product requirement, not merely a correctness concern. Online
+surroundings use large efficient initial route intervals (currently about 3 km) and
+adaptively subdivide only retryable failed intervals. Successful intervals must not be
+re-fetched when repairing a partial snapshot.
+
+The three commands have distinct semantics:
+
+- **Refresh surroundings** fetches a new full provider snapshot.
+- **Review surroundings** performs no network work and opens persisted candidates.
+- **Retry failed areas** requests only unresolved final intervals, merges recovered objects
+  by stable source identity, preserves successful candidates, and leaves Accepted
+  Surroundings unchanged until the user explicitly accepts the updated review.
+
+Final interval coverage is structured, persisted, and visible as COMPLETE, PARTIAL, or
+FAILED provider state. Diagnostics include actual request, retry, endpoint-fallback, split,
+timing, cache, candidate, conflation, and review-preparation metrics. Provider failures are
+isolated so OSM, Overture Buildings, and approved Overture Places results do not destroy one
+another.
+
+The current Qt worker executes provider chains sequentially. This avoids uncontrolled load
+on public Overpass endpoints and keeps cancellation/object ownership predictable. Limited
+cross-provider concurrency is a future measured optimization, not a default assumption.
+
+Overture Places is approved current work for high-value engineering landmarks with strict
+distance/category filtering. Overture Transportation remains deferred.
+
 ## Technology
 
 - Python 3.11+; Python 3.13 is used on the main computer

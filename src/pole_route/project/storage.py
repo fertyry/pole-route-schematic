@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import tempfile
+from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QLineF, QPointF, QRectF, Qt
@@ -23,22 +23,24 @@ from PySide6.QtWidgets import (
 )
 
 from pole_route.domain.context import (
-    ContextPlace,
-    ContextRoad,
     ContextFeature,
     ContextGeometryPart,
+    ContextPlace,
+    ContextRoad,
     FeatureProvenance,
+    FetchCoverage,
+    FetchCoverageStatus,
+    OSMContext,
     OSMFeatureCategory,
     OSMGeometryKind,
-    OSMContext,
 )
-from pole_route.domain.pole import Pole, PoleSide
 from pole_route.domain.pea_gis import PEAPoleRecord
 from pole_route.domain.pea_ordering import (
     PEAPoleOrdering,
     PEAPoleReviewEntry,
     PoleQCStatus,
 )
+from pole_route.domain.pole import Pole, PoleSide
 from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
 from pole_route.ui.editor_commands import (
     EditableEllipseItem,
@@ -134,6 +136,19 @@ def osm_context_to_data(context: OSMContext | None) -> dict[str, Any] | None:
         "features": osm_features_to_data(context.features),
         "warnings": list(context.warnings),
         "metrics": [[key, value] for key, value in context.metrics],
+        "coverage": [
+            {
+                "provider": item.provider,
+                "station_start": item.station_start,
+                "station_end": item.station_end,
+                "status": item.status.value,
+                "split_depth": item.split_depth,
+                "attempts": item.attempts,
+                "retries": item.retries,
+                "failure_reason": item.failure_reason,
+            }
+            for item in context.coverage
+        ],
     }
 
 
@@ -163,6 +178,19 @@ def osm_context_from_data(data: dict[str, Any] | None) -> OSMContext | None:
         tuple(osm_features_from_data(data.get("features", []))),
         tuple(str(item) for item in data.get("warnings", [])),
         tuple((str(key), float(value)) for key, value in data.get("metrics", [])),
+        tuple(
+            FetchCoverage(
+                provider=str(item["provider"]),
+                station_start=float(item["station_start"]),
+                station_end=float(item["station_end"]),
+                status=FetchCoverageStatus(item["status"]),
+                split_depth=int(item.get("split_depth", 0)),
+                attempts=int(item.get("attempts", 1)),
+                retries=int(item.get("retries", 0)),
+                failure_reason=str(item.get("failure_reason", "")),
+            )
+            for item in data.get("coverage", [])
+        ),
     )
 
 

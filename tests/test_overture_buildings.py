@@ -4,11 +4,17 @@ import pytest
 from shapely.geometry import GeometryCollection, MultiPolygon, Polygon, mapping
 
 from pole_route.domain.context import (
-    ContextFeature, ContextGeometryPart, OSMContext, OSMFeatureCategory, OSMGeometryKind,
+    ContextFeature,
+    ContextGeometryPart,
+    OSMContext,
+    OSMFeatureCategory,
+    OSMGeometryKind,
 )
 from pole_route.domain.route import GeoPoint, Route
 from pole_route.importers.overture_buildings import (
-    OvertureBuildingsError, OvertureFetchResult, conflate_buildings,
+    OvertureBuildingsError,
+    OvertureFetchResult,
+    conflate_buildings,
     fetch_overture_buildings,
 )
 from pole_route.importers.surroundings import (
@@ -322,10 +328,11 @@ def test_progress_reports_sources_conflation_review_and_completion():
     messages = [update.message for update in updates]
     assert messages == [
         "Preparing route...",
-        "Fetching OSM 1/1",
-        "Fetching Overture Buildings 1/1",
-        "Loaded cached Overture Buildings 1/1",
-        "Conflating Buildings...",
+        "OSM: 1/1",
+        "OSM: 0-1106 m complete",
+        "Overture Buildings: fetching 1/1",
+        "Overture Buildings: cache hit 1/1",
+        "Overture Buildings: conflating",
         "Preparing review...",
         "Surroundings ready",
     ]
@@ -350,7 +357,7 @@ def test_osm_only_progress_reaches_ready_without_supplemental_source():
     assert updates[-1].completed == updates[-1].total
 
 
-def test_long_fetch_keeps_partial_osm_batches_and_deduplicates_overlap():
+def test_long_fetch_adaptively_recovers_failed_parent_and_deduplicates_overlap():
     route = Route(
         "Long", "long.kml",
         (GeoPoint(100.0, 13.0), GeoPoint(100.0, 13.09)),
@@ -369,10 +376,11 @@ def test_long_fetch_keeps_partial_osm_batches_and_deduplicates_overlap():
         route, include_overture=False, osm_fetcher=osm_fetcher,
     )
     assert result.features == (shared,)
-    assert any("PARTIAL: OSM batch 2/4" in warning for warning in result.warnings)
     metrics = dict(result.metrics)
     assert metrics["batch_count"] == 4
-    assert metrics["osm_failed_batches"] == 1
+    assert metrics["osm_adaptive_splits"] == 1
+    assert metrics["osm_failed_batches"] == 0
+    assert calls == 7
 
 
 def test_long_fetch_keeps_overture_success_when_one_batch_fails():

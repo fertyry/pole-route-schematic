@@ -67,6 +67,31 @@ class OSMGeometryKind(StrEnum):
     MULTIPOLYGON = "multipolygon"
 
 
+class FetchCoverageStatus(StrEnum):
+    SUCCESS = "success"
+    FAILED = "failed"
+
+
+class ProviderFetchState(StrEnum):
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+    FAILED = "failed"
+
+
+@dataclass(frozen=True, slots=True)
+class FetchCoverage:
+    """One final provider interval after retry/adaptive subdivision."""
+
+    provider: str
+    station_start: float
+    station_end: float
+    status: FetchCoverageStatus
+    split_depth: int = 0
+    attempts: int = 1
+    retries: int = 0
+    failure_reason: str = ""
+
+
 @dataclass(frozen=True, slots=True)
 class ContextGeometryPart:
     """One point/line part or one polygon exterior with optional interior rings."""
@@ -173,3 +198,15 @@ class OSMContext:
     features: tuple[ContextFeature, ...] = ()
     warnings: tuple[str, ...] = ()
     metrics: tuple[tuple[str, float], ...] = ()
+    coverage: tuple[FetchCoverage, ...] = ()
+
+    def provider_state(self, provider: str) -> ProviderFetchState:
+        intervals = [item for item in self.coverage if item.provider == provider]
+        if not intervals:
+            return ProviderFetchState.COMPLETE
+        successes = sum(item.status is FetchCoverageStatus.SUCCESS for item in intervals)
+        if successes == len(intervals):
+            return ProviderFetchState.COMPLETE
+        if successes:
+            return ProviderFetchState.PARTIAL
+        return ProviderFetchState.FAILED

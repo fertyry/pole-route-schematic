@@ -5,17 +5,31 @@ from functools import partial
 from PySide6.QtCore import QLocale, Qt
 from PySide6.QtGui import QBrush, QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
-    QCheckBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QGraphicsScene,
-    QGraphicsView, QHBoxLayout, QLabel, QPushButton, QTableWidget,
-    QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
+    QDoubleSpinBox,
+    QGraphicsScene,
+    QGraphicsView,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
 from pole_route.domain.context import (
-    ContextFeature, OSMContext, OSMFeatureCategory, OSMGeometryKind,
+    ContextFeature,
+    FetchCoverageStatus,
+    OSMContext,
+    OSMFeatureCategory,
+    OSMGeometryKind,
 )
 from pole_route.domain.route import ClassifiedRoute, Route, RouteType
 from pole_route.ui.scene_lifecycle import clear_scene
-
 
 _CATEGORY_LABELS = {
     OSMFeatureCategory.ROAD_BRIDGE: "Road Bridge",
@@ -57,6 +71,14 @@ class OSMContextDialog(QDialog):
             "to add. Data © OpenStreetMap contributors and Overture Maps Foundation."
         )
         intro.setWordWrap(True)
+        coverage_text = _coverage_summary(context)
+        self.coverage_status = QLabel(coverage_text)
+        self.coverage_status.setWordWrap(True)
+        if coverage_text.startswith(("PARTIAL DATA", "FAILED DATA")):
+            self.coverage_status.setStyleSheet(
+                "QLabel { background: #fff3cd; color: #664d03; padding: 8px; "
+                "border: 1px solid #ffecb5; }"
+            )
         self.tabs = QTabWidget()
         bulk_controls = QHBoxLayout()
         self.select_all_categories_button = QPushButton("Select All Categories")
@@ -91,6 +113,8 @@ class OSMContextDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout = QVBoxLayout(self)
         layout.addWidget(intro)
+        if coverage_text:
+            layout.addWidget(self.coverage_status)
         layout.addLayout(bulk_controls)
         layout.addWidget(self.tabs, 1)
         layout.addWidget(QLabel(
@@ -269,6 +293,35 @@ def _feature_source(feature: ContextFeature) -> str:
     if feature.source == "OpenStreetMap":
         return "OSM"
     return feature.source or "Unknown"
+
+
+def _coverage_summary(context: OSMContext) -> str:
+    if not context.coverage:
+        return ""
+    failed = [
+        item for item in context.coverage
+        if item.status is FetchCoverageStatus.FAILED
+    ]
+    if not failed:
+        providers = sorted({item.provider for item in context.coverage})
+        return "COMPLETE DATA\n" + "\n".join(f"{provider}: complete" for provider in providers)
+    providers = sorted({item.provider for item in context.coverage})
+    successful_providers = {
+        item.provider for item in context.coverage
+        if item.status is FetchCoverageStatus.SUCCESS
+    }
+    heading = "PARTIAL DATA" if successful_providers else "FAILED DATA"
+    lines = [heading]
+    for provider in providers:
+        unresolved = [item for item in failed if item.provider == provider]
+        if not unresolved:
+            lines.append(f"{provider}: complete")
+            continue
+        intervals = ", ".join(
+            f"{item.station_start:.0f}-{item.station_end:.0f} m" for item in unresolved
+        )
+        lines.append(f"{provider}: unresolved {intervals}")
+    return "\n".join(lines)
 
 
 def _draw_context_preview(

@@ -69,7 +69,25 @@ Implemented foundation:
   Windows `.kml` file association. An unsaved project must be saved first, and launch failure
   leaves the generated KML intact for manual opening.
 
-### 4. Generic PEA Assets — NEXT (Milestone B1)
+### 4. Surround Reliability + Performance — COMPLETE (Milestone C0)
+
+- Keep efficient 3 km primary OSM intervals and adaptively subdivide only retryable
+  failures down to the bounded policy minimum.
+- Persist final provider coverage and expose COMPLETE/PARTIAL/FAILED state in Review.
+- `Retry failed areas` reuses successful candidates and requests only unresolved intervals;
+  `Refresh surroundings` remains an intentional full new snapshot.
+- Record provider request/retry/split, timing, cache, candidate, conflation, and review
+  preparation metrics for real-route diagnosis.
+- Keep providers sequential in the existing single background worker for predictable Qt
+  ownership and responsible public-provider load; bounded cross-provider concurrency may be
+  reconsidered only with measured evidence.
+
+### 5. Overture Places — NEXT (Milestone C1)
+
+- Add source-neutral high-value landmarks with strict distance/category filtering and full
+  provenance. Do not add Overture Transportation or broad consumer-POI clutter.
+
+### 6. Generic PEA Assets — after route4 fetch validation (Milestone B1)
 
 - Add profile-driven parsing for coordinate-bearing `DS_*` worksheets.
 - Begin with `DS_Transformer` and `DS_Switch`, while using a source-neutral asset record
@@ -82,7 +100,7 @@ Before implementing B1, validate A1–A3 with a real PEA GIS workbook and Google
 confirm route direction, visual pole sequence, high-offset/curve cases, Pole ID metadata,
 excluded records, and regeneration after changing order/inclusion/direction.
 
-### 5. Overture Places
+### 7. Overture Places design notes
 
 - Reuse the existing source-neutral context/provenance architecture.
 - Add useful landmarks such as hospitals, schools, universities, places of worship,
@@ -93,7 +111,7 @@ excluded records, and regeneration after changing order/inclusion/direction.
 - Keep existing OSM roads/sois/bridges/water and supplemental Overture Buildings.
 - Do not add Overture Transportation in this phase.
 
-### 6. Later CAD integration of confirmed PEA data
+### 8. Later CAD integration of confirmed PEA data
 
 - Reuse canonical physical-pole IDs, optional Pole Overlay, locked AutoCAD connection,
   metadata, and readback services.

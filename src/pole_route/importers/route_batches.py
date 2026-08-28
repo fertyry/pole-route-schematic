@@ -59,3 +59,25 @@ def split_route_by_distance(
             Route(f"{route.name} [{index}/{count}]", route.source_path, points),
         ))
     return tuple(batches)
+
+
+def route_interval(
+    route: Route,
+    start_metres: float,
+    end_metres: float,
+    *,
+    overlap_metres: float = SURROUND_BATCH_OVERLAP_METRES,
+) -> Route:
+    """Return one station interval with bounded fetch overlap."""
+    projection = MetricProjection.for_points(route.points)
+    line = LineString(projection.to_metric(point) for point in route.points)
+    if start_metres < 0 or end_metres <= start_metres or end_metres > line.length + 0.01:
+        raise ValueError("Route interval stations are invalid")
+    fetch_start = max(0.0, start_metres - overlap_metres)
+    fetch_end = min(float(line.length), end_metres + overlap_metres)
+    part = substring(line, fetch_start, fetch_end)
+    return Route(
+        f"{route.name} [{start_metres:.0f}-{end_metres:.0f} m]",
+        route.source_path,
+        tuple(projection.to_geographic(float(x), float(y)) for x, y in part.coords),
+    )

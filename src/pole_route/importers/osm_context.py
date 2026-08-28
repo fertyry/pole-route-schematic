@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 import warnings
 from collections.abc import Callable
 from dataclasses import replace
@@ -10,7 +11,14 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from shapely.geometry import GeometryCollection, LineString, MultiLineString, MultiPolygon, Point, Polygon
+from shapely.geometry import (
+    GeometryCollection,
+    LineString,
+    MultiLineString,
+    MultiPolygon,
+    Point,
+    Polygon,
+)
 from shapely.ops import nearest_points, substring
 
 from pole_route.domain.context import (
@@ -83,6 +91,7 @@ def fetch_osm_context(
         raise ValueError("Feature corridor must be greater than zero")
     query = _build_query(main_route, corridor_metres, feature_corridor_metres)
     endpoint_fallbacks = 0
+    download_started = time.perf_counter()
     try:
         if fetcher is None:
             payload, endpoint_fallbacks = _download_overpass(query)
@@ -93,15 +102,21 @@ def fetch_osm_context(
         raise OSMContextError(f"Could not contact OpenStreetMap: {error}") from error
     except (json.JSONDecodeError, TypeError) as error:
         raise OSMContextError("OpenStreetMap returned an invalid response") from error
+    download_seconds = time.perf_counter() - download_started
+    parse_started = time.perf_counter()
     context = parse_osm_context(
         document,
         main_route,
         corridor_metres,
         feature_corridor_metres=feature_corridor_metres,
     )
+    parse_seconds = time.perf_counter() - parse_started
     return OSMContext(
         context.roads, context.places, context.features, context.warnings,
-        (*context.metrics, ("osm_endpoint_fallbacks", float(endpoint_fallbacks))),
+        (*context.metrics,
+         ("osm_endpoint_fallbacks", float(endpoint_fallbacks)),
+         ("osm_download_seconds", download_seconds),
+         ("osm_parse_filter_seconds", parse_seconds)),
     )
 
 

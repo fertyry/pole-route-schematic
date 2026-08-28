@@ -39,7 +39,11 @@ from pole_route.cad import (
     update_managed_poles,
 )
 from pole_route.domain.blocks import BLOCK_CATALOG
-from pole_route.domain.context import ContextFeature, OSMContext
+from pole_route.domain.context import (
+    ContextFeature,
+    FetchCoverageStatus,
+    OSMContext,
+)
 from pole_route.domain.pea_gis import PEAPoleRecord
 from pole_route.domain.pea_ordering import PEAPoleOrdering
 from pole_route.domain.physical_pole import build_physical_pole_mapping
@@ -227,6 +231,11 @@ class MainWindow(QMainWindow):
         self.review_surroundings_action.setEnabled(False)
         self.review_surroundings_action.triggered.connect(self._review_cached_surroundings)
         toolbar.addAction(self.review_surroundings_action)
+
+        self.retry_surroundings_action = QAction("Retry failed areas", self)
+        self.retry_surroundings_action.setEnabled(False)
+        self.retry_surroundings_action.triggered.connect(self._retry_failed_surroundings)
+        toolbar.addAction(self.retry_surroundings_action)
 
         self.overture_buildings_action = QAction("Use Overture building supplements", self)
         self.overture_buildings_action.setCheckable(True)
@@ -439,6 +448,7 @@ class MainWindow(QMainWindow):
             [
                 self.import_route_action,
                 self.fetch_surroundings_action,
+                self.retry_surroundings_action,
                 self.overture_buildings_action,
                 self.import_poles_action,
                 self.import_pea_gis_action,
@@ -612,6 +622,9 @@ class MainWindow(QMainWindow):
         self.current_route = route
         self.current_routes = classified
         self.current_context_routes = [item for item in classified if item.type is not RouteType.MAIN_ROUTE]
+        self.surrounding_candidates = None
+        self.review_surroundings_action.setEnabled(False)
+        self.retry_surroundings_action.setEnabled(False)
         self.current_road_width = main_routes[0].width_metres or 6.0
         self.fetch_surroundings_action.setEnabled(True)
         self._update_geometry_action()
@@ -623,10 +636,24 @@ class MainWindow(QMainWindow):
 
     def _fetch_surroundings(self) -> None:
         """Download and explicitly review OSM context around the main route."""
+        self._start_surroundings_fetch(None)
+
+    def _retry_failed_surroundings(self) -> None:
+        """Fetch only unresolved intervals in the current candidate snapshot."""
+        if self.surrounding_candidates is None:
+            return
+        self._start_surroundings_fetch(self.surrounding_candidates)
+
+    def _start_surroundings_fetch(self, retry_context: OSMContext | None) -> None:
         if self.current_route is None or self._osm_thread is not None:
             return
         self.fetch_surroundings_action.setEnabled(False)
-        self.statusBar().showMessage("Fetching nearby roads and places from OpenStreetMap...")
+        self.retry_surroundings_action.setEnabled(False)
+        self.statusBar().showMessage(
+            "Retrying unresolved surroundings..."
+            if retry_context is not None
+            else "Fetching nearby roads and places from OpenStreetMap..."
+        )
 
         progress = QProgressDialog(
             "Fetching nearby roads, sois, and places from OpenStreetMap...",
@@ -648,7 +675,9 @@ class MainWindow(QMainWindow):
 
         thread = QThread(self)
         worker = OSMContextWorker(
-            self.current_route, include_overture=self.overture_buildings_action.isChecked()
+            self.current_route,
+            include_overture=self.overture_buildings_action.isChecked(),
+            retry_context=retry_context,
         )
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
@@ -759,6 +788,12 @@ class MainWindow(QMainWindow):
         self._pending_osm_error = None
         self._pending_osm_context = None
         self._pending_osm_cancelled = False
+        self.retry_surroundings_action.setEnabled(
+            self.surrounding_candidates is not None and any(
+                item.status is FetchCoverageStatus.FAILED
+                for item in getattr(self.surrounding_candidates, "coverage", ())
+            )
+        )
         if cancelled:
             self.statusBar().showMessage("Surroundings fetch cancelled; existing context unchanged")
         elif error is not None:
@@ -769,6 +804,10 @@ class MainWindow(QMainWindow):
             # cancellation therefore preserve both prior candidates and accepted data.
             self.surrounding_candidates = context
             self.review_surroundings_action.setEnabled(True)
+            self.retry_surroundings_action.setEnabled(any(
+                item.status is FetchCoverageStatus.FAILED
+                for item in getattr(context, "coverage", ())
+            ))
             self._mark_dirty()
             self._review_surroundings(context)
 
@@ -1569,6 +1608,7 @@ class MainWindow(QMainWindow):
             self.undo_stack.clear()
             self.fetch_surroundings_action.setEnabled(False)
             self.review_surroundings_action.setEnabled(False)
+            self.retry_surroundings_action.setEnabled(False)
             self.review_pea_order_action.setEnabled(False)
             self.check_google_earth_action.setEnabled(False)
             self._update_geometry_action()
@@ -1672,6 +1712,12 @@ class MainWindow(QMainWindow):
             self.surrounding_candidates = surrounding_candidates
             self.review_surroundings_action.setEnabled(
                 self.current_route is not None and surrounding_candidates is not None
+            )
+            self.retry_surroundings_action.setEnabled(
+                surrounding_candidates is not None and any(
+                    item.status is FetchCoverageStatus.FAILED
+                    for item in surrounding_candidates.coverage
+                )
             )
             self.current_road_width = (
                 (main_routes[0].width_metres or 6.0) if main_routes else 6.0
