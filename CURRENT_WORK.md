@@ -56,15 +56,20 @@ Implemented foundation:
 - Block route-based review when there is no Main Route or more than one Main Route rather
   than inventing or concatenating an alignment.
 
-### 3. Google Earth Pro QC — NEXT (Milestone A3)
+### 3. Google Earth Pro QC — COMPLETE (Milestone A3)
 
-- Generate a persistent project-folder KML; `.prs`, not KML, remains the source of truth.
-- Include Main Route and proposed/confirmed pole points with Pole ID, height, voltage,
-  station, offset, and order.
-- Support opening the generated KML in Google Earth Pro and regenerating it after the
-  user returns to the Pole Order Review workflow.
+- Generate a persistent deterministic `<project>_PEA_QC.kml` beside the saved `.prs`;
+  `.prs`, not KML, remains the source of truth.
+- Include the effective Main Route direction, START/END, and proposed or confirmed pole
+  points with Pole ID, height, voltage, station, offset, order, inclusion, manual-override,
+  and QC metadata.
+- Preserve A2's exact reviewed order, keep excluded poles visible for audit, and distinguish
+  Normal, Review, Strong review, and Excluded records with deterministic KML styles.
+- `Check in Google Earth` regenerates the same artifact atomically and opens it through the
+  Windows `.kml` file association. An unsaved project must be saved first, and launch failure
+  leaves the generated KML intact for manual opening.
 
-### 4. Generic PEA Assets
+### 4. Generic PEA Assets — NEXT (Milestone B1)
 
 - Add profile-driven parsing for coordinate-bearing `DS_*` worksheets.
 - Begin with `DS_Transformer` and `DS_Switch`, while using a source-neutral asset record
@@ -72,6 +77,10 @@ Implemented foundation:
 - Suggest nearby pole matches using distance and other evidence.
 - Require user review and confirmation; never auto-confirm asset-to-pole relationships.
 - Persist raw attributes, normalized essentials, source identity, and confirmed links.
+
+Before implementing B1, validate A1–A3 with a real PEA GIS workbook and Google Earth Pro:
+confirm route direction, visual pole sequence, high-offset/curve cases, Pole ID metadata,
+excluded records, and regeneration after changing order/inclusion/direction.
 
 ### 5. Overture Places
 

@@ -27,7 +27,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from pole_route.domain.blocks import BLOCK_CATALOG
 from pole_route.cad import (
     AutoCADConnection,
     AutoCADConnectionError,
@@ -39,11 +38,12 @@ from pole_route.cad import (
     read_managed_pole_positions,
     update_managed_poles,
 )
+from pole_route.domain.blocks import BLOCK_CATALOG
 from pole_route.domain.context import ContextFeature, OSMContext
 from pole_route.domain.pea_gis import PEAPoleRecord
 from pole_route.domain.pea_ordering import PEAPoleOrdering
-from pole_route.domain.pole import Pole, PoleSide
 from pole_route.domain.physical_pole import build_physical_pole_mapping
+from pole_route.domain.pole import Pole, PoleSide
 from pole_route.domain.route import ClassifiedRoute, Route, RouteType
 from pole_route.exporters.dxf_exporter import (
     DxfExportError,
@@ -56,14 +56,26 @@ from pole_route.exporters.excel_exporter import (
     collect_scene_objects,
     export_pages_to_excel,
 )
-from pole_route.geometry.road_geometry import RoadGeometryError, build_road_network_geometry
+from pole_route.exporters.kml_qc_exporter import (
+    KMLQCExportError,
+    KMLQCLaunchError,
+    export_pea_qc_kml,
+    launch_kml,
+    pea_qc_kml_path,
+)
 from pole_route.geometry.pea_linear_reference import reference_pea_poles
+from pole_route.geometry.road_geometry import RoadGeometryError, build_road_network_geometry
 from pole_route.geometry.schematic_layout import create_schematic_layout
-from pole_route.importers.kml_importer import RouteImportError, inspect_route_file
-from pole_route.importers.osm_context import prepare_context_features
 from pole_route.importers.edited_dxf_importer import (
     EditedDxfImportError,
     inspect_edited_dxf,
+)
+from pole_route.importers.kml_importer import RouteImportError, inspect_route_file
+from pole_route.importers.osm_context import prepare_context_features
+from pole_route.importers.pea_gis import (
+    PEAGISImportError,
+    discover_pea_workbook,
+    import_ds_poles,
 )
 from pole_route.importers.pole_importer import (
     OPTIONAL_FIELDS,
@@ -72,11 +84,6 @@ from pole_route.importers.pole_importer import (
     poles_from_table,
     suggest_column_mapping,
 )
-from pole_route.importers.pea_gis import (
-    PEAGISImportError,
-    discover_pea_workbook,
-    import_ds_poles,
-)
 from pole_route.project.storage import (
     ProjectFileError,
     load_project_file,
@@ -84,10 +91,10 @@ from pole_route.project.storage import (
     osm_context_to_data,
     osm_features_from_data,
     osm_features_to_data,
-    pea_poles_from_data,
-    pea_poles_to_data,
     pea_pole_ordering_from_data,
     pea_pole_ordering_to_data,
+    pea_poles_from_data,
+    pea_poles_to_data,
     poles_from_data,
     poles_to_data,
     restore_scene,
@@ -117,8 +124,8 @@ from pole_route.ui.excel_export_dialog import ExcelExportDialog
 from pole_route.ui.geometry_renderer import render_road_geometry
 from pole_route.ui.osm_context_dialog import OSMContextDialog
 from pole_route.ui.osm_context_worker import OSMContextWorker
-from pole_route.ui.project_info_dialog import ProjectInfoDialog
 from pole_route.ui.pea_pole_review_dialog import PEAPoleReviewDialog
+from pole_route.ui.project_info_dialog import ProjectInfoDialog
 from pole_route.ui.route_import_dialog import RouteImportDialog, draw_classified_routes_preview
 from pole_route.ui.scene_lifecycle import clear_scene
 from pole_route.ui.schematic_renderer import render_schematic
@@ -248,6 +255,13 @@ class MainWindow(QMainWindow):
         self.review_pea_order_action.setEnabled(False)
         self.review_pea_order_action.triggered.connect(self._review_pea_pole_order)
         toolbar.addAction(self.review_pea_order_action)
+
+        self.check_google_earth_action = QAction("Check in Google Earth", self)
+        self.check_google_earth_action.setEnabled(False)
+        self.check_google_earth_action.triggered.connect(
+            self._check_pea_qc_in_google_earth
+        )
+        toolbar.addAction(self.check_google_earth_action)
 
         self.build_geometry_action = QAction("Build geometry", self)
         self.build_geometry_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
@@ -429,6 +443,7 @@ class MainWindow(QMainWindow):
                 self.import_poles_action,
                 self.import_pea_gis_action,
                 self.review_pea_order_action,
+                self.check_google_earth_action,
                 self.same_pole_action,
             ]
         )
@@ -1186,6 +1201,7 @@ class MainWindow(QMainWindow):
             sum(route.type is RouteType.MAIN_ROUTE for route in self.current_routes) == 1
             and bool(self.current_pea_poles)
         )
+        self._update_pea_qc_action()
         self.current_geometry = None
         self.undo_stack.clear()
         self.reset_layout_action.setEnabled(False)
@@ -1201,6 +1217,13 @@ class MainWindow(QMainWindow):
         self._set_cad_actions_enabled(self.autocad_connection.connected)
         self.drawing_actions[DrawingMode.SELECT].setChecked(True)
         self.canvas.set_mode(DrawingMode.SELECT)
+
+    def _update_pea_qc_action(self) -> None:
+        self.check_google_earth_action.setEnabled(
+            sum(route.type is RouteType.MAIN_ROUTE for route in self.current_routes) == 1
+            and bool(self.current_pea_poles)
+            and self.current_pea_ordering is not None
+        )
 
     def _select_block(self, block_type) -> None:
         for action in self.drawing_actions.values():
@@ -1279,6 +1302,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "PEA GIS import summary", summary)
         if len(main_routes) == 1:
             self.current_pea_ordering = reference_pea_poles(records, main_routes[0])
+            self._update_pea_qc_action()
             self._review_pea_pole_order()
         elif not main_routes:
             QMessageBox.information(
@@ -1339,6 +1363,54 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"Confirmed PEA pole order: {len(self.current_poles)} included records"
         )
+
+    def _check_pea_qc_in_google_earth(self) -> None:
+        main_routes = [
+            route.route for route in self.current_routes
+            if route.type is RouteType.MAIN_ROUTE
+        ]
+        if len(main_routes) != 1:
+            QMessageBox.warning(
+                self,
+                "Google Earth QC unavailable",
+                "Exactly one Main Route is required before checking poles in Google Earth.",
+            )
+            return
+        if not self.current_pea_poles or self.current_pea_ordering is None:
+            QMessageBox.warning(
+                self,
+                "Google Earth QC unavailable",
+                "Import PEA GIS data and create a pole review order first.",
+            )
+            return
+        if not self.project_path and not self._save_project_as():
+            self.statusBar().showMessage(
+                "Google Earth QC cancelled; save the project first"
+            )
+            return
+
+        try:
+            kml_path = pea_qc_kml_path(self.project_path or "")
+            export_pea_qc_kml(
+                kml_path,
+                main_routes[0],
+                self.current_pea_poles,
+                self.current_pea_ordering,
+            )
+        except KMLQCExportError as error:
+            QMessageBox.warning(self, "Google Earth QC export failed", str(error))
+            self.statusBar().showMessage("Google Earth QC export failed")
+            return
+
+        try:
+            launch_kml(kml_path)
+        except KMLQCLaunchError as error:
+            QMessageBox.warning(self, "Google Earth launch failed", str(error))
+            self.statusBar().showMessage(
+                f"QC KML generated; open it manually: {kml_path}"
+            )
+            return
+        self.statusBar().showMessage(f"Opened Google Earth QC: {kml_path}")
 
     def load_pole_file(self, path: str) -> None:
         """Load a pole file and display validation errors to the user."""
@@ -1498,6 +1570,7 @@ class MainWindow(QMainWindow):
             self.fetch_surroundings_action.setEnabled(False)
             self.review_surroundings_action.setEnabled(False)
             self.review_pea_order_action.setEnabled(False)
+            self.check_google_earth_action.setEnabled(False)
             self._update_geometry_action()
             self.generate_schematic_action.setEnabled(False)
             self.workspace_note.setText(
@@ -1634,6 +1707,7 @@ class MainWindow(QMainWindow):
             self.review_pea_order_action.setEnabled(
                 len(main_routes) == 1 and bool(pea_poles)
             )
+            self._update_pea_qc_action()
             self.generate_schematic_action.setEnabled(bool(geometry and geometry.roads))
             self.reset_layout_action.setEnabled(has_schematic)
             self.edit_canvas_action.setEnabled(has_schematic)
