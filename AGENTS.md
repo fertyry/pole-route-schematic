@@ -59,4 +59,3 @@ These instructions apply to Codex and other AI agents working in this repository
 - Update `CURRENT_WORK.md` after a milestone changes the next work.
 - Update `PROJECT_CONTEXT.md` when an architecture decision, product invariant, approved
   workflow, or significant implemented baseline changes.
-

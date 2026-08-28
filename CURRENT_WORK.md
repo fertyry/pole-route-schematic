@@ -84,4 +84,3 @@ hard-code them in production logic, UI, tests presented as general rules, or def
 - Overture Transportation, land cover/land use, bathymetry, or administrative divisions.
 - A NOSTRA clone, satellite imagery, a full basemap engine, or a GIS field-collection system.
 - Replacing the existing AutoCAD connection, Base CAD, or optional Pole Overlay architecture.
-

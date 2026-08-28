@@ -199,4 +199,3 @@ provenance.
 The current project schema is version 1 and already uses backward-safe defaults in several
 areas. If a future implementation truly requires a schema-version bump, stop and explain
 the reason before implementing it. Generated KML is not the project database.
-
