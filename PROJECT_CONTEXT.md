@@ -9,8 +9,8 @@
 
 - Repository: `https://github.com/fertyry/pole-route-schematic`
 - Primary branch: `main`
-- Last source-code baseline verified on 2026-08-20: `014e18a`
-- Baseline subject: `Fix project save stability and working directory handling`
+- Last source-code baseline verified on 2026-08-28: `eb571fa`
+- Baseline subject: `Separate surrounding candidates from accepted context`
 - Python package version: `0.1.0.dev0`
 - Project file schema: `.prs` version `1`
 - Primary environment: Windows and Python 3.13
@@ -211,14 +211,14 @@ longitude, or run other world-coordinate workflows.
 
 ## Connect AutoCAD Direction
 
-Connect AutoCAD is an important future workflow, but this decision does not implement it.
-The connection must be explicit rather than real-time synchronization:
+The initial Connect AutoCAD foundation and optional pole-overlay readback are implemented.
+The connection is explicit rather than real-time synchronization:
 
 - If multiple drawings are open, require the user to select the target drawing.
 - Lock the selected target and never follow the active AutoCAD tab automatically.
 - Read and update only through explicit user actions.
-- Planned actions include `Read Route`, `Read Pole Offset`, `Update Poles`,
-  `Read Pole Positions`, and `Execute Sheets`.
+- Implemented actions are `Read Route`, `Read Pole Offset`, `Update Poles`, and
+  `Read Pole Positions`. `Execute Sheets` remains planned.
 - Late-arriving pole data must be supportable by updating only the Pole Overlay in an
   already edited drawing, without rebuilding or destroying its Base CAD.
 
@@ -244,9 +244,10 @@ interchange format, and a file-based return from AutoCAD is made by saving the D
 
 ## Phase / Implementation Note
 
-The optional-pole, CAD-file, CAD-route georeferencing, and Connect AutoCAD statements above
-are architecture/workflow decisions only. No corresponding production logic was implemented
-as part of this documentation update.
+The optional-pole base workflow, canonical physical-pole mapping, locked AutoCAD connection,
+and optional pole-overlay readback are implemented. Sheet Plan/Execute, Pole Report, and
+the interactive two-point calibration UI for an arbitrary ungeoreferenced CAD route remain
+future work.
 
 ## Phase 1 stability status
 
@@ -314,7 +315,7 @@ For file-based return to PoleRoute, Save As DXF from that DWG and use Import Edi
 Direct DWG reading is reserved for the future connected-AutoCAD workflow and is not required
 for file-based interchange.
 
-## Approved AutoCAD execution architecture (planned)
+## Approved AutoCAD execution architecture (partially implemented)
 
 ### Responsibilities and CAD target
 
@@ -338,6 +339,26 @@ synchronization.
 - Inspect PRS blocks and project metadata and warn when the chosen drawing may belong to
   another project.
 - Never silently switch to or auto-select a different drawing.
+
+The connection/session contract above is implemented. It is covered by mock/fake tests;
+real AutoCAD COM validation on a user drawing is still required.
+
+### Implemented optional pole overlay
+
+- `Read Route` and `Read Pole Offset` read current geometry from the locked drawing.
+- `Update Poles` validates the complete update plan before replacing only PoleRoute-managed
+  `PRS_POLE` and `PRS_TRANSFORMER_RACK` inserts. It preserves unrelated and manually edited
+  Base CAD entities and is idempotent when rerun.
+- `Read Pole Positions` maps moved inserts back through stable canonical physical-pole IDs;
+  it never promotes accessory work records into independent physical poles.
+- Same-physical-pole rows share one continuous P Label. A transformer rack uses explicit
+  Rack Pole A/B records and consumes two consecutive P Labels.
+- Transformer-rack leg center-to-center spacing is exactly 3.0 m in the managed overlay.
+- Exported pole/rack metadata includes the canonical physical IDs and P Labels needed for
+  auditable readback.
+- Two-point similarity-transform calculation and validation exist at the service layer.
+  The UI does not yet collect Start/End calibration for an arbitrary ungeoreferenced drawing;
+  such a route must not be treated as world-referenced until that UI is implemented.
 
 ### Approved workflow after Generate
 
@@ -482,6 +503,13 @@ attributes and identity. PoleRoute recalculates station and coordinates after Re
   for manual review and de-duplicate split ways at the same junction.
 - Display-length presets are Short 15 m, Medium 20 m, Long 25 m, and Custom.
 - Fetching must be asynchronous and visibly show progress.
+
+Fetched candidates and accepted surroundings are separate states. `Review surroundings`
+reopens the last complete candidate snapshot without a network request, while
+`Refresh surroundings` explicitly fetches a new snapshot. Failed or cancelled refreshes
+leave both the previous candidates and accepted surroundings unchanged. Candidate roads,
+places, features, warnings, metrics, and available provenance persist in `.prs`; older
+projects without this field load with no candidates.
 
 ### OpenStreetMap Surround V2 (planned online phase)
 
@@ -721,7 +749,12 @@ latency remains a known risk; do not describe batching itself as a network speed
 - Metric DXF Master, semantic pole blocks/metadata, sheet markers
 - Edited-DXF validation and persistence
 - A4 CAD Paper Space generation from edited poles with common scale and schedules
-- Automated suite: 236 tests passed at the last verified coding session
+- Canonical physical-pole/P Label mapping and explicit transformer-rack leg assignment
+- Locked AutoCAD target selection plus tested Route/Offset/Pole readback service and managed
+  pole-overlay update path
+- Separate fetched Surround candidates and accepted surroundings, cached review without a
+  network call, explicit refresh, bulk selection actions, and backward-compatible persistence
+- Automated suite: 256 tests passed at the last verified coding session
 
 ### Active visual defects reported after the CAD-sheet baseline
 
@@ -767,16 +800,25 @@ Completed Online OSM work:
 7. Phase 2.7: distance batching, overlap dedupe, partial-source recovery, bounded Overture
    cache, truthful progress/cancellation, and structured fetch metrics.
 
+Completed AutoCAD foundation and Surround finalization:
+
+8. Canonical physical-pole mapping, continuous P Labels, explicit transformer-rack legs,
+   and auditable CAD metadata.
+9. Explicit locked AutoCAD connection plus `Read Route`, `Read Pole Offset`, `Update Poles`,
+   and `Read Pole Positions` service/UI paths. Real AutoCAD COM validation remains required.
+10. Separate fetched Surround candidates from accepted surroundings; persist candidate
+    snapshots; reopen review without network; refresh explicitly; support deterministic
+    Select All, Clear All, and Select Recommended actions.
+
 Later AutoCAD integration work:
 
-8. Implement explicit Connect AutoCAD with drawing selection, target locking, project
-   validation, and disconnected-state handling.
-9. Implement Read Pole Positions, Pole Report preview/export, and Same_Station review.
-10. Calculate/preview/adjust Sheet Plan from the latest pole positions and only then create
+11. Add the interactive two-point calibration UI for arbitrary CAD routes without world
+    coordinates, then implement Pole Report preview/export and Same_Station review.
+12. Calculate/preview/adjust Sheet Plan from the latest pole positions and only then create
    confirmed `PRS_SHEET_BREAK` markers.
-11. Execute Model Space Sheet Copies with strict pole-boundary clipping, generated-object
+13. Execute Model Space Sheet Copies with strict pole-boundary clipping, generated-object
    ownership, final labels, frames, and refreshed layouts.
-12. Apply CAD block/layer specification changes and add `PRSPOLESPACE` as a utility.
+14. Add `PRSPOLESPACE` as a utility and complete remaining visual/plot validation.
 
 No later-phase item is considered implemented merely because it is documented here.
 
