@@ -82,6 +82,17 @@ The current Qt worker executes provider chains sequentially. This avoids uncontr
 on public Overpass endpoints and keeps cancellation/object ownership predictable. Limited
 cross-provider concurrency is a future measured optimization, not a default assumption.
 
+Every completed Refresh surroundings or Retry failed areas network operation is also
+recorded as a bounded, project-local engineering benchmark outside the portable `.prs`:
+`diagnostics/fetch_benchmark.jsonl` beside the project. Review surroundings performs no
+network work and creates no benchmark run. These UTF-8 JSON Lines records are
+non-authoritative diagnostics, retain only the newest 200 runs, and contain aggregate
+provider metrics, structured unresolved coverage, category counts, timings, and lightweight
+process-memory observations rather than raw provider payloads or project contents. Logging
+failure is non-fatal and must never replace or roll back fetched candidates or Accepted
+Surroundings. This history supports performance and reliability comparison across real
+urban, long/mixed, rural, junction-heavy, and water/bridge-heavy route profiles.
+
 Overture Places is implemented for high-value engineering landmarks with stable generic
 source identity, full release/source provenance, Thai-first names, and centralized value
 tier plus metric route-distance filtering. Generic businesses require close proximity and

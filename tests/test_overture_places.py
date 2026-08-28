@@ -179,3 +179,8 @@ def test_retry_places_queries_only_failed_interval_and_preserves_old_features() 
     assert calls == ["Route [0-1000 m]"]
     assert {item.source_id for item in result.features} == {"old", "new"}
     assert result.provider_state("Overture Places") is ProviderFetchState.COMPLETE
+    metrics = dict(result.metrics)
+    assert metrics["overture_places_seconds"] == 0.1
+    assert metrics["overture_places_raw"] == 1
+    assert metrics["overture_places_retained"] == 1
+    assert metrics["overture_places_recommended"] == 1

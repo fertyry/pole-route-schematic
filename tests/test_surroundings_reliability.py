@@ -199,6 +199,11 @@ def test_retry_queries_only_unresolved_interval_and_preserves_candidates() -> No
     assert calls == ["Long [3000-6000 m]"]
     assert {item.osm_id for item in result.features} == {1, 2}
     assert result.provider_state("OpenStreetMap") is ProviderFetchState.COMPLETE
+    metrics = dict(result.metrics)
+    assert metrics["osm_primary_intervals"] == 1
+    assert metrics["osm_network_requests"] == 1
+    assert metrics["osm_retries"] == 0
+    assert metrics["total_seconds"] >= 0
 
 
 def test_provider_partial_state_and_coverage_round_trip(tmp_path) -> None:

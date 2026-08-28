@@ -94,14 +94,28 @@ Implemented foundation:
   failed Places intervals. Overture Transportation and broad consumer-POI clutter remain
   excluded.
 
-### 6. route4 real validation — NEXT
+### 6. Fetch Benchmark / Diagnostics Log — COMPLETE (Milestone C2)
 
-- Run Refresh on the real approximately 10.75 km route and record total/provider timings,
-  OSM request/retry/split counts, unresolved intervals, category counts, and approximate RAM.
+- Automatically record every completed Refresh surroundings and Retry failed areas network
+  operation in a project-local, append-friendly UTF-8 JSONL history outside `.prs`.
+- Capture canonical provider metrics, final structured coverage and unresolved intervals,
+  candidate category inventory, elapsed time, and lightweight Windows process RSS/peak RSS.
+- Keep the newest 200 runs, tolerate malformed interrupted lines, and keep diagnostic write
+  failures non-fatal to candidates and Accepted Surroundings.
+- Provide Data → Diagnostics → View Fetch Diagnostics for a compact summary and safe access
+  to the log file/folder. Review surroundings creates no record because it performs no
+  network fetch.
+
+### 7. Real Surround validation profiles — NEXT
+
+- Run Urban Dense and Long/Mixed routes first; use the automatic C2 records to compare
+  total/provider timings, OSM request/retry/split counts, unresolved intervals, category
+  counts, and process memory.
+- Add Suburban, Rural, Junction-heavy, and Water/Bridge-heavy samples when available.
 - Verify Review visibly reports partial coverage and Retry failed areas does not refetch
   successful intervals.
 
-### 7. Generic PEA Assets — after route4 fetch validation (Milestone B1)
+### 8. Generic PEA Assets — after real fetch validation (Milestone B1)
 
 - Add profile-driven parsing for coordinate-bearing `DS_*` worksheets.
 - Begin with `DS_Transformer` and `DS_Switch`, while using a source-neutral asset record
@@ -114,7 +128,7 @@ Before implementing B1, validate A1–A3 with a real PEA GIS workbook and Google
 confirm route direction, visual pole sequence, high-offset/curve cases, Pole ID metadata,
 excluded records, and regeneration after changing order/inclusion/direction.
 
-### 8. Overture Places design notes
+### 9. Overture Places design notes
 
 - Reuse the existing source-neutral context/provenance architecture.
 - Add useful landmarks such as hospitals, schools, universities, places of worship,
@@ -125,7 +139,7 @@ excluded records, and regeneration after changing order/inclusion/direction.
 - Keep existing OSM roads/sois/bridges/water and supplemental Overture Buildings.
 - Do not add Overture Transportation in this phase.
 
-### 9. Later CAD integration of confirmed PEA data
+### 10. Later CAD integration of confirmed PEA data
 
 - Reuse canonical physical-pole IDs, optional Pole Overlay, locked AutoCAD connection,
   metadata, and readback services.

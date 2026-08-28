@@ -38,6 +38,12 @@ from pole_route.cad import (
     read_managed_pole_positions,
     update_managed_poles,
 )
+from pole_route.diagnostics.fetch_benchmark import (
+    FetchRunStart,
+    append_fetch_record,
+    build_fetch_record,
+    start_fetch_run,
+)
 from pole_route.domain.blocks import BLOCK_CATALOG
 from pole_route.domain.context import (
     ContextFeature,
@@ -125,6 +131,7 @@ from pole_route.ui.editor_commands import (
     editable_scene_items,
 )
 from pole_route.ui.excel_export_dialog import ExcelExportDialog
+from pole_route.ui.fetch_diagnostics_dialog import FetchDiagnosticsDialog
 from pole_route.ui.geometry_renderer import render_road_geometry
 from pole_route.ui.osm_context_dialog import OSMContextDialog
 from pole_route.ui.osm_context_worker import OSMContextWorker
@@ -170,6 +177,7 @@ class MainWindow(QMainWindow):
         self._pending_osm_context = None
         self._pending_osm_error: str | None = None
         self._pending_osm_cancelled = False
+        self._pending_fetch_benchmark: FetchRunStart | None = None
         self.undo_stack.cleanChanged.connect(self._undo_clean_changed)
         self.setWindowTitle("PoleRoute Schematic - V2 Preview")
         self.resize(1100, 720)
@@ -258,6 +266,9 @@ class MainWindow(QMainWindow):
                 "surroundings/use_overture_places", enabled
             )
         )
+
+        self.view_fetch_diagnostics_action = QAction("View Fetch Diagnostics", self)
+        self.view_fetch_diagnostics_action.triggered.connect(self._view_fetch_diagnostics)
 
         self.import_poles_action = QAction("Import poles", self)
         self.import_poles_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
@@ -469,6 +480,8 @@ class MainWindow(QMainWindow):
                 self.same_pole_action,
             ]
         )
+        diagnostics_menu = data_menu.addMenu("Diagnostics")
+        diagnostics_menu.addAction(self.view_fetch_diagnostics_action)
 
         geometry_menu = self.menuBar().addMenu("Geometry")
         geometry_menu.setObjectName("geometryMenu")
@@ -684,6 +697,9 @@ class MainWindow(QMainWindow):
         self._pending_osm_context = None
         self._pending_osm_error = None
         self._pending_osm_cancelled = False
+        self._pending_fetch_benchmark = start_fetch_run(
+            "retry_failed_areas" if retry_context is not None else "refresh"
+        )
 
         thread = QThread(self)
         worker = OSMContextWorker(
@@ -798,14 +814,22 @@ class MainWindow(QMainWindow):
         error = self._pending_osm_error
         context = self._pending_osm_context
         cancelled = self._pending_osm_cancelled
+        benchmark = self._pending_fetch_benchmark
         self._pending_osm_error = None
         self._pending_osm_context = None
         self._pending_osm_cancelled = False
+        self._pending_fetch_benchmark = None
         self.retry_surroundings_action.setEnabled(
             self.surrounding_candidates is not None and any(
                 item.status is FetchCoverageStatus.FAILED
                 for item in getattr(self.surrounding_candidates, "coverage", ())
             )
+        )
+        self._record_fetch_benchmark(
+            benchmark,
+            context,
+            outcome="CANCELLED" if cancelled else ("FAILED" if error is not None else None),
+            error=error or "",
         )
         if cancelled:
             self.statusBar().showMessage("Surroundings fetch cancelled; existing context unchanged")
@@ -823,6 +847,45 @@ class MainWindow(QMainWindow):
             ))
             self._mark_dirty()
             self._review_surroundings(context)
+
+    def _record_fetch_benchmark(
+        self,
+        started: FetchRunStart | None,
+        context: OSMContext | None,
+        *,
+        outcome: str | None = None,
+        error: str = "",
+    ) -> None:
+        """Append diagnostics without changing fetch, candidates, or accepted state."""
+
+        if started is None or self.current_route is None or not self.project_path:
+            return
+        try:
+            record = build_fetch_record(
+                started,
+                route=self.current_route,
+                context=context,
+                project_path=self.project_path,
+                project_title=self.export_settings.project_title,
+                accepted_count=len(self.current_context_routes) + len(self.current_osm_features),
+                outcome=outcome,
+                error=error,
+            )
+            append_fetch_record(self.project_path, record)
+        except (OSError, TypeError, ValueError) as diagnostic_error:
+            self.statusBar().showMessage(
+                f"Surroundings finished; diagnostics could not be written: {diagnostic_error}"
+            )
+
+    def _view_fetch_diagnostics(self) -> None:
+        if not self.project_path:
+            QMessageBox.information(
+                self,
+                "Fetch Diagnostics",
+                "Save the project first. Fetch diagnostics begin once the project has a folder.",
+            )
+            return
+        FetchDiagnosticsDialog(self.project_path, self).exec()
 
     def _close_osm_progress(self) -> None:
         if self._osm_progress is not None:

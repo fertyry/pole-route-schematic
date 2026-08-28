@@ -630,6 +630,7 @@ def retry_failed_surroundings_context(
     osm_policy: OSMAdaptivePolicy = DEFAULT_OSM_ADAPTIVE_POLICY,
 ) -> OSMContext:
     """Retry only unresolved intervals and merge them into the candidate snapshot."""
+    started = time.perf_counter()
     failed_osm = [
         item for item in previous.coverage
         if item.provider == "OpenStreetMap" and item.status is FetchCoverageStatus.FAILED
@@ -714,11 +715,14 @@ def retry_failed_surroundings_context(
             ))
     merged = _merge_osm([previous, recovered_osm], [])
     features = merged.features
+    conflation_seconds = 0.0
     if recovered_overture:
         recovered_features = tuple(
             feature for result in recovered_overture for feature in result.features
         )
+        conflation_started = time.perf_counter()
         features = conflate_buildings(features, recovered_features, route).features
+        conflation_seconds = time.perf_counter() - conflation_started
     if recovered_places:
         by_key = {feature.feature_key: feature for feature in features}
         for result in recovered_places:
@@ -739,7 +743,57 @@ def retry_failed_surroundings_context(
         for item in coverage if item.status is FetchCoverageStatus.FAILED
     )
     _emit(progress_callback, "Preparing review...", total_steps, total_steps)
+    retry_osm_metrics = dict(recovered_osm.metrics)
+    operation_metrics = (
+        ("osm_network_requests", retry_osm_metrics.get("osm_network_requests", 0.0)),
+        ("osm_retries", retry_osm_metrics.get("osm_retries", 0.0)),
+        ("osm_adaptive_splits", retry_osm_metrics.get("osm_adaptive_splits", 0.0)),
+        ("osm_endpoint_fallbacks", retry_osm_metrics.get("osm_endpoint_fallbacks", 0.0)),
+        ("osm_fetch_seconds", retry_osm_metrics.get("osm_fetch_seconds", 0.0)),
+        ("osm_download_seconds", retry_osm_metrics.get("osm_download_seconds", 0.0)),
+        ("osm_parse_filter_seconds", retry_osm_metrics.get(
+            "osm_parse_filter_seconds", 0.0
+        )),
+        ("osm_merge_seconds", retry_osm_metrics.get("osm_merge_seconds", 0.0)),
+        ("osm_candidates", retry_osm_metrics.get("osm_candidates", 0.0)),
+        ("overture_seconds", sum(item.elapsed_seconds for item in recovered_overture)),
+        ("overture_cache_hits", float(sum(item.cache_hit for item in recovered_overture))),
+        ("overture_cache_misses", float(sum(
+            not item.cache_hit for item in recovered_overture
+        ))),
+        ("overture_failed_batches", float(sum(
+            item.provider == "Overture Buildings"
+            and item.status is FetchCoverageStatus.FAILED
+            for item in replacements
+        ))),
+        ("overture_raw", float(sum(item.raw_count for item in recovered_overture))),
+        ("overture_corridor", float(sum(
+            item.intersect_count for item in recovered_overture
+        ))),
+        ("overture_final_buildings", float(sum(
+            feature.category.value == "building" for feature in features
+        ))),
+        ("conflation_seconds", conflation_seconds),
+        ("overture_places_seconds", sum(
+            item.elapsed_seconds for item in recovered_places
+        )),
+        ("overture_places_raw", float(sum(item.raw_count for item in recovered_places))),
+        ("overture_places_retained", float(sum(
+            item.retained_count for item in recovered_places
+        ))),
+        ("overture_places_recommended", float(sum(
+            item.recommended_count for item in recovered_places
+        ))),
+        ("overture_places_failed_batches", float(sum(
+            item.provider == "Overture Places"
+            and item.status is FetchCoverageStatus.FAILED
+            for item in replacements
+        ))),
+        ("osm_primary_intervals", float(len(failed_osm))),
+        ("review_candidates", float(len(merged.roads) + len(merged.places) + len(features))),
+        ("total_seconds", time.perf_counter() - started),
+    )
     return OSMContext(
         merged.roads, merged.places, features, warnings,
-        (*previous.metrics, *recovered_osm.metrics), coverage,
+        (*previous.metrics, *recovered_osm.metrics, *operation_metrics), coverage,
     )
