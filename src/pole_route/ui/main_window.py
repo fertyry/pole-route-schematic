@@ -248,6 +248,17 @@ class MainWindow(QMainWindow):
             )
         )
 
+        self.overture_places_action = QAction("Use Overture Places", self)
+        self.overture_places_action.setCheckable(True)
+        self.overture_places_action.setChecked(
+            QSettings().value("surroundings/use_overture_places", True, type=bool)
+        )
+        self.overture_places_action.toggled.connect(
+            lambda enabled: QSettings().setValue(
+                "surroundings/use_overture_places", enabled
+            )
+        )
+
         self.import_poles_action = QAction("Import poles", self)
         self.import_poles_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
         self.import_poles_action.triggered.connect(self._choose_pole_file)
@@ -450,6 +461,7 @@ class MainWindow(QMainWindow):
                 self.fetch_surroundings_action,
                 self.retry_surroundings_action,
                 self.overture_buildings_action,
+                self.overture_places_action,
                 self.import_poles_action,
                 self.import_pea_gis_action,
                 self.review_pea_order_action,
@@ -677,6 +689,7 @@ class MainWindow(QMainWindow):
         worker = OSMContextWorker(
             self.current_route,
             include_overture=self.overture_buildings_action.isChecked(),
+            include_places=self.overture_places_action.isChecked(),
             retry_context=retry_context,
         )
         worker.moveToThread(thread)

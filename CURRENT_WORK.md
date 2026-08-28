@@ -82,12 +82,26 @@ Implemented foundation:
   ownership and responsible public-provider load; bounded cross-provider concurrency may be
   reconsidered only with measured evidence.
 
-### 5. Overture Places — NEXT (Milestone C1)
+### 5. Overture Places — COMPLETE (Milestone C1)
 
-- Add source-neutral high-value landmarks with strict distance/category filtering and full
-  provenance. Do not add Overture Transportation or broad consumer-POI clutter.
+- Add source-neutral high-value landmarks with stable Overture identity, release/source
+  provenance, Thai-first names, and centralized tier/distance filtering.
+- Tier A covers hospitals, education, worship, and government/public facilities; Tier B
+  covers markets, fuel, malls, stadium/sports, and major attractions; Tier C generic
+  businesses require close distance plus real high-confidence source data and are never
+  selected as recommended automatically.
+- Provider failures remain isolated and structured coverage/metrics support retrying only
+  failed Places intervals. Overture Transportation and broad consumer-POI clutter remain
+  excluded.
 
-### 6. Generic PEA Assets — after route4 fetch validation (Milestone B1)
+### 6. route4 real validation — NEXT
+
+- Run Refresh on the real approximately 10.75 km route and record total/provider timings,
+  OSM request/retry/split counts, unresolved intervals, category counts, and approximate RAM.
+- Verify Review visibly reports partial coverage and Retry failed areas does not refetch
+  successful intervals.
+
+### 7. Generic PEA Assets — after route4 fetch validation (Milestone B1)
 
 - Add profile-driven parsing for coordinate-bearing `DS_*` worksheets.
 - Begin with `DS_Transformer` and `DS_Switch`, while using a source-neutral asset record
@@ -100,7 +114,7 @@ Before implementing B1, validate A1–A3 with a real PEA GIS workbook and Google
 confirm route direction, visual pole sequence, high-offset/curve cases, Pole ID metadata,
 excluded records, and regeneration after changing order/inclusion/direction.
 
-### 7. Overture Places design notes
+### 8. Overture Places design notes
 
 - Reuse the existing source-neutral context/provenance architecture.
 - Add useful landmarks such as hospitals, schools, universities, places of worship,
@@ -111,7 +125,7 @@ excluded records, and regeneration after changing order/inclusion/direction.
 - Keep existing OSM roads/sois/bridges/water and supplemental Overture Buildings.
 - Do not add Overture Transportation in this phase.
 
-### 8. Later CAD integration of confirmed PEA data
+### 9. Later CAD integration of confirmed PEA data
 
 - Reuse canonical physical-pole IDs, optional Pole Overlay, locked AutoCAD connection,
   metadata, and readback services.

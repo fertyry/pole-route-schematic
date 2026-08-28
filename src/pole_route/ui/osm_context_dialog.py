@@ -67,7 +67,7 @@ class OSMContextDialog(QDialog):
 
         intro = QLabel(
             "OpenStreetMap is the primary context source; Overture may supplement missing "
-            "building footprints. Review each category and confirm only the surroundings "
+            "building footprints and useful landmarks. Review each category and confirm only the surroundings "
             "to add. Data © OpenStreetMap contributors and Overture Maps Foundation."
         )
         intro.setWordWrap(True)

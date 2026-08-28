@@ -17,6 +17,10 @@ from pole_route.importers.overture_buildings import (
     conflate_buildings,
     fetch_overture_buildings,
 )
+from pole_route.importers.overture_places import (
+    OverturePlacesResult,
+    fetch_overture_places,
+)
 from pole_route.importers.route_batches import (
     SURROUND_BATCH_METRES,
     SURROUND_BATCH_OVERLAP_METRES,
@@ -417,8 +421,10 @@ def fetch_surroundings_context(
     route: Route,
     *,
     include_overture: bool = True,
+    include_places: bool = False,
     osm_fetcher: Callable[[Route], OSMContext] = fetch_osm_context,
     overture_fetcher: Callable[[Route], OvertureFetchResult] = fetch_overture_buildings,
+    places_fetcher: Callable[[Route], OverturePlacesResult] = fetch_overture_places,
     progress_callback: Callable[[FetchProgress], None] | None = None,
     cancel_event: Event | None = None,
     osm_policy: OSMAdaptivePolicy = DEFAULT_OSM_ADAPTIVE_POLICY,
@@ -430,7 +436,7 @@ def fetch_surroundings_context(
         batch_metres=osm_policy.primary_interval_metres,
         overlap_metres=osm_policy.overlap_metres,
     )
-    total_steps = len(batches) * (2 if include_overture else 1) + 2
+    total_steps = len(batches) * (1 + int(include_overture) + int(include_places)) + 2
     _emit(progress_callback, "Preparing route...", 0, total_steps)
     osm, osm_coverage = _fetch_osm_ranges(
         route,
@@ -441,7 +447,7 @@ def fetch_surroundings_context(
         cancel_event=cancel_event,
         total_steps=total_steps,
     )
-    if not include_overture:
+    if not include_overture and not include_places:
         _emit(progress_callback, "Preparing review...", total_steps - 1, total_steps)
         review_started = time.perf_counter()
         candidate_count = len(osm.roads) + len(osm.places) + len(osm.features)
@@ -465,7 +471,7 @@ def fetch_surroundings_context(
     overture_results: list[OvertureFetchResult] = []
     overture_coverage: list[FetchCoverage] = []
     overture_warnings: list[str] = []
-    for index, batch in enumerate(batches, 1):
+    for index, batch in enumerate(batches, 1) if include_overture else ():
         _cancelled(cancel_event)
         _emit(
             progress_callback,
@@ -506,6 +512,38 @@ def fetch_surroundings_context(
                     total_steps,
                 )
 
+    places_results: list[OverturePlacesResult] = []
+    places_coverage: list[FetchCoverage] = []
+    places_warnings: list[str] = []
+    places_step_start = len(batches) * (1 + int(include_overture))
+    for index, batch in enumerate(batches, 1) if include_places else ():
+        _cancelled(cancel_event)
+        _emit(
+            progress_callback,
+            f"Overture Places: fetching {index}/{len(batches)}",
+            places_step_start + index - 1,
+            total_steps,
+        )
+        try:
+            item = places_fetcher(batch.route)
+        except SurroundFetchCancelled:
+            raise
+        except Exception as error:  # noqa: BLE001 - isolate independent provider
+            places_coverage.append(FetchCoverage(
+                "Overture Places", batch.start_metres, batch.end_metres,
+                FetchCoverageStatus.FAILED, failure_reason=str(error),
+            ))
+            places_warnings.append(
+                f"PARTIAL: Overture Places unresolved {batch.start_metres:.0f}-"
+                f"{batch.end_metres:.0f} m: {error}"
+            )
+        else:
+            places_results.append(item)
+            places_coverage.append(FetchCoverage(
+                "Overture Places", batch.start_metres, batch.end_metres,
+                FetchCoverageStatus.SUCCESS,
+            ))
+
     features = osm.features
     conflation_seconds = 0.0
     conflation_metrics: tuple[tuple[str, float], ...] = ()
@@ -524,6 +562,12 @@ def fetch_surroundings_context(
             ("buildings_unmatched", float(conflated.unmatched)),
             ("buildings_ambiguous", float(conflated.ambiguous)),
         )
+    if places_results:
+        by_key = {feature.feature_key: feature for feature in features}
+        for result in places_results:
+            for feature in result.features:
+                by_key[feature.feature_key] = feature
+        features = tuple(by_key.values())
     _emit(progress_callback, "Preparing review...", total_steps - 1, total_steps)
     review_started = time.perf_counter()
     candidate_count = len(osm.roads) + len(osm.places) + len(features)
@@ -544,6 +588,17 @@ def fetch_surroundings_context(
         ("overture_final_buildings", float(final_buildings)),
         ("conflation_seconds", conflation_seconds),
         *conflation_metrics,
+        ("overture_places_seconds", sum(item.elapsed_seconds for item in places_results)),
+        ("overture_places_raw", float(sum(item.raw_count for item in places_results))),
+        ("overture_places_retained", float(sum(
+            item.retained_count for item in places_results
+        ))),
+        ("overture_places_recommended", float(sum(
+            item.recommended_count for item in places_results
+        ))),
+        ("overture_places_failed_batches", float(sum(
+            item.status is FetchCoverageStatus.FAILED for item in places_coverage
+        ))),
         ("route_length_metres", batches[-1].end_metres),
         ("batch_count", float(len(batches))),
         ("osm_primary_intervals", float(len(batches))),
@@ -556,8 +611,8 @@ def fetch_surroundings_context(
     )
     result = OSMContext(
         osm.roads, osm.places, features,
-        (*osm.warnings, *overture_warnings), metrics,
-        (*osm_coverage, *overture_coverage),
+        (*osm.warnings, *overture_warnings, *places_warnings), metrics,
+        (*osm_coverage, *overture_coverage, *places_coverage),
     )
     _emit(progress_callback, "Surroundings ready", total_steps, total_steps)
     return result
@@ -569,6 +624,7 @@ def retry_failed_surroundings_context(
     *,
     osm_fetcher: Callable[[Route], OSMContext] = fetch_osm_context,
     overture_fetcher: Callable[[Route], OvertureFetchResult] = fetch_overture_buildings,
+    places_fetcher: Callable[[Route], OverturePlacesResult] = fetch_overture_places,
     progress_callback: Callable[[FetchProgress], None] | None = None,
     cancel_event: Event | None = None,
     osm_policy: OSMAdaptivePolicy = DEFAULT_OSM_ADAPTIVE_POLICY,
@@ -582,7 +638,11 @@ def retry_failed_surroundings_context(
         item for item in previous.coverage
         if item.provider == "Overture Buildings" and item.status is FetchCoverageStatus.FAILED
     ]
-    total_steps = max(1, len(failed_osm) + len(failed_overture) + 1)
+    failed_places = [
+        item for item in previous.coverage
+        if item.provider == "Overture Places" and item.status is FetchCoverageStatus.FAILED
+    ]
+    total_steps = max(1, len(failed_osm) + len(failed_overture) + len(failed_places) + 1)
     recovered_osm = OSMContext()
     replacements: list[FetchCoverage] = []
     if failed_osm:
@@ -624,6 +684,34 @@ def retry_failed_surroundings_context(
                 FetchCoverageStatus.SUCCESS, coverage.split_depth,
                 coverage.attempts + 1, coverage.retries + 1,
             ))
+    recovered_places: list[OverturePlacesResult] = []
+    for index, coverage in enumerate(failed_places, 1):
+        _cancelled(cancel_event)
+        _emit(
+            progress_callback,
+            f"Overture Places: retrying {coverage.station_start:.0f}-"
+            f"{coverage.station_end:.0f} m",
+            len(failed_osm) + len(failed_overture) + index - 1,
+            total_steps,
+        )
+        try:
+            item = places_fetcher(route_interval(
+                route, coverage.station_start, coverage.station_end,
+                overlap_metres=osm_policy.overlap_metres,
+            ))
+        except Exception as error:  # noqa: BLE001 - isolate independent provider
+            replacements.append(FetchCoverage(
+                "Overture Places", coverage.station_start, coverage.station_end,
+                FetchCoverageStatus.FAILED, coverage.split_depth,
+                coverage.attempts + 1, coverage.retries + 1, str(error),
+            ))
+        else:
+            recovered_places.append(item)
+            replacements.append(FetchCoverage(
+                "Overture Places", coverage.station_start, coverage.station_end,
+                FetchCoverageStatus.SUCCESS, coverage.split_depth,
+                coverage.attempts + 1, coverage.retries + 1,
+            ))
     merged = _merge_osm([previous, recovered_osm], [])
     features = merged.features
     if recovered_overture:
@@ -631,9 +719,15 @@ def retry_failed_surroundings_context(
             feature for result in recovered_overture for feature in result.features
         )
         features = conflate_buildings(features, recovered_features, route).features
+    if recovered_places:
+        by_key = {feature.feature_key: feature for feature in features}
+        for result in recovered_places:
+            for feature in result.features:
+                by_key[feature.feature_key] = feature
+        features = tuple(by_key.values())
     failed_keys = {
         (item.provider, item.station_start, item.station_end)
-        for item in (*failed_osm, *failed_overture)
+        for item in (*failed_osm, *failed_overture, *failed_places)
     }
     coverage = tuple(
         item for item in previous.coverage

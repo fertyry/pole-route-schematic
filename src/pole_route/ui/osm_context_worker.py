@@ -28,11 +28,13 @@ class OSMContextWorker(QObject):
         self,
         route: Route,
         include_overture: bool = False,
+        include_places: bool = False,
         retry_context: OSMContext | None = None,
     ) -> None:
         super().__init__()
         self._route = route
         self._include_overture = include_overture
+        self._include_places = include_places
         self._retry_context = retry_context
         self._cancel_event = Event()
 
@@ -50,6 +52,7 @@ class OSMContextWorker(QObject):
                 context = fetch_surroundings_context(
                     self._route,
                     include_overture=self._include_overture,
+                    include_places=self._include_places,
                     osm_fetcher=fetch_osm_context,
                     progress_callback=self._report_progress,
                     cancel_event=self._cancel_event,

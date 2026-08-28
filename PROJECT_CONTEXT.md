@@ -82,8 +82,11 @@ The current Qt worker executes provider chains sequentially. This avoids uncontr
 on public Overpass endpoints and keeps cancellation/object ownership predictable. Limited
 cross-provider concurrency is a future measured optimization, not a default assumption.
 
-Overture Places is approved current work for high-value engineering landmarks with strict
-distance/category filtering. Overture Transportation remains deferred.
+Overture Places is implemented for high-value engineering landmarks with stable generic
+source identity, full release/source provenance, Thai-first names, and centralized value
+tier plus metric route-distance filtering. Generic businesses require close proximity and
+real high-confidence provider data and are never recommended automatically. Overture
+Transportation remains deferred.
 
 ## Technology
 
