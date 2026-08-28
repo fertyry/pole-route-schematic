@@ -5,12 +5,27 @@
 > discussing or changing the project. Update it when architecture, workflow, or a
 > product invariant materially changes.
 
+## Project memory contract
+
+GitHub `main` is the source of truth shared by development computers and ChatGPT/Codex
+sessions. Use these documents together:
+
+- [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md) — durable architecture, implemented baseline,
+  approved workflows, decisions, and invariants.
+- [`CURRENT_WORK.md`](CURRENT_WORK.md) — short-lived Next Implementation and milestone order.
+- [`AGENTS.md`](AGENTS.md) — repository rules for Codex and other AI agents.
+- [`docs/architecture/PEA_GIS_FREE_CONTEXT_WORKFLOW.md`](docs/architecture/PEA_GIS_FREE_CONTEXT_WORKFLOW.md)
+  — approved PEA GIS, Pole QC, asset, free-context, Google Earth QC, and later CAD design.
+
+Documentation can describe planned work. Inspect source and tests before claiming that a
+documented feature is implemented.
+
 ## Repository state at this handoff
 
 - Repository: `https://github.com/fertyry/pole-route-schematic`
 - Primary branch: `main`
-- Last source-code baseline verified on 2026-08-28: `eb571fa`
-- Baseline subject: `Separate surrounding candidates from accepted context`
+- Last main baseline verified on 2026-08-28: `769975d`
+- Baseline subject: `Document AutoCAD overlay and surroundings workflow`
 - Python package version: `0.1.0.dev0`
 - Project file schema: `.prs` version `1`
 - Primary environment: Windows and Python 3.13
@@ -29,6 +44,18 @@ workflows, and produces Excel or DXF output.
 
 The final drawing is intentionally **not on scale**, but route order, relative station,
 junctions, sois, structures, pole ownership, and sheet continuity must remain meaningful.
+
+## External-tool product principle
+
+PoleRoute does not need to create every supporting capability itself. When a trustworthy,
+free external tool or service already satisfies a non-core need, use it through a clear,
+replaceable provider boundary.
+
+PoleRoute's core value is data integration, geometry, matching, stationing/ordering,
+review, project persistence, CAD integration/generation, and reports. Satellite imagery,
+a full map/basemap engine, an Earth viewer, and a GIS field-collection system are not
+current core products. Google Earth Pro remains the present Pole QC viewer; a future
+MapLibre + OpenFreeMap viewer remains possible without making the basemap authoritative.
 
 ## Technology
 
@@ -771,6 +798,24 @@ These remain unresolved until a later commit fixes and visually verifies them:
 5. Reconfirm compass direction after each page transformation against geographic north.
 
 ## Planned implementation order
+
+### Approved next product workflow
+
+The next implementation sequence is the PEA GIS and free-context workflow maintained in
+[`CURRENT_WORK.md`](CURRENT_WORK.md) and specified in
+[`docs/architecture/PEA_GIS_FREE_CONTEXT_WORKFLOW.md`](docs/architecture/PEA_GIS_FREE_CONTEXT_WORKFLOW.md):
+
+1. multi-sheet PEA GIS workbook import, beginning with `DS_Pole`;
+2. route-based Pole QC, station/offset ordering, manual review, and Google Earth Pro KML;
+3. generic coordinate-bearing PEA assets, beginning with `DS_Transformer` and `DS_Switch`;
+4. reviewed Overture Places for useful landmarks; and
+5. later CAD integration of the confirmed PEA pole/asset data through the existing
+   canonical identity, optional Pole Overlay, and locked-target foundations.
+
+This approved sequence supersedes using the later AutoCAD items below as the immediate
+next implementation work. Those items remain valid deferred architecture unless a later
+decision explicitly changes them. The validation route measurements documented in the
+architecture file are evidence only and must never become production constants.
 
 Completed stability work:
 
