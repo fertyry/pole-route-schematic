@@ -39,7 +39,8 @@ from pole_route.cad import (
     update_managed_poles,
 )
 from pole_route.domain.context import ContextFeature, OSMContext
-from pole_route.domain.pole import Pole
+from pole_route.domain.pea_gis import PEAPoleRecord
+from pole_route.domain.pole import Pole, PoleSide
 from pole_route.domain.physical_pole import build_physical_pole_mapping
 from pole_route.domain.route import ClassifiedRoute, Route, RouteType
 from pole_route.exporters.dxf_exporter import (
@@ -68,6 +69,11 @@ from pole_route.importers.pole_importer import (
     poles_from_table,
     suggest_column_mapping,
 )
+from pole_route.importers.pea_gis import (
+    PEAGISImportError,
+    discover_pea_workbook,
+    import_ds_poles,
+)
 from pole_route.project.storage import (
     ProjectFileError,
     load_project_file,
@@ -75,6 +81,8 @@ from pole_route.project.storage import (
     osm_context_to_data,
     osm_features_from_data,
     osm_features_to_data,
+    pea_poles_from_data,
+    pea_poles_to_data,
     poles_from_data,
     poles_to_data,
     restore_scene,
@@ -123,6 +131,7 @@ class MainWindow(QMainWindow):
         self.surrounding_candidates: OSMContext | None = None
         self.current_road_width = 6.0
         self.current_poles: list[Pole] = []
+        self.current_pea_poles: list[PEAPoleRecord] = []
         self.current_geometry = None
         self.same_pole_groups: list[frozenset[str]] = []
         self.transformer_rack_groups: list[frozenset[str]] = []
@@ -220,6 +229,13 @@ class MainWindow(QMainWindow):
         self.import_poles_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
         self.import_poles_action.triggered.connect(self._choose_pole_file)
         toolbar.addAction(self.import_poles_action)
+
+        self.import_pea_gis_action = QAction("Import PEA GIS Data", self)
+        self.import_pea_gis_action.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
+        )
+        self.import_pea_gis_action.triggered.connect(self._choose_pea_gis_file)
+        toolbar.addAction(self.import_pea_gis_action)
 
         self.build_geometry_action = QAction("Build geometry", self)
         self.build_geometry_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
@@ -399,6 +415,7 @@ class MainWindow(QMainWindow):
                 self.fetch_surroundings_action,
                 self.overture_buildings_action,
                 self.import_poles_action,
+                self.import_pea_gis_action,
                 self.same_pole_action,
             ]
         )
@@ -1189,6 +1206,61 @@ class MainWindow(QMainWindow):
             self.working_directory.remember_file(path)
             self.load_pole_file(path)
 
+    def _choose_pea_gis_file(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import PEA GIS data",
+            self.working_directory.initial_path(),
+            "PEA GIS workbook (*.xlsx)",
+        )
+        if path:
+            self.working_directory.remember_file(path)
+            self.load_pea_gis_file(path)
+
+    def load_pea_gis_file(self, path: str) -> None:
+        """Import DS_Pole while preserving every reviewed source record."""
+        try:
+            discovery = discover_pea_workbook(path)
+            records = import_ds_poles(path)
+        except PEAGISImportError as error:
+            QMessageBox.warning(self, "PEA GIS import failed", str(error))
+            self.statusBar().showMessage("PEA GIS import failed")
+            return
+
+        included = [record for record in records if record.included_by_default]
+        poles = [
+            Pole(
+                number=record.source_id,
+                latitude=record.latitude,
+                longitude=record.longitude,
+                detail="",
+                side=PoleSide.UNKNOWN,
+            )
+            for record in included
+        ]
+        self.current_pea_poles = records
+        self.current_poles = poles
+        self.same_pole_groups = []
+        self.transformer_rack_groups = []
+        self.transformer_rack_leg_pairs = []
+        self.show_poles(poles)
+        self._show_same_pole_groups()
+        self._update_geometry_action()
+        warning_count = sum(bool(record.qc_warnings) for record in records)
+        unsupported = ", ".join(discovery.unsupported_ds_sheets) or "None"
+        summary = (
+            f"DS_Pole records: {len(records)}\n"
+            f"Included by default: {len(included)}\n"
+            f"Retained for review: {len(records) - len(included)}\n"
+            f"Rows with QC warnings: {warning_count}\n"
+            f"Unsupported DS_* sheets: {unsupported}"
+        )
+        QMessageBox.information(self, "PEA GIS import summary", summary)
+        self.statusBar().showMessage(
+            f"Imported {len(records)} DS_Pole records; {len(included)} included by default"
+        )
+        self._mark_dirty()
+
     def load_pole_file(self, path: str) -> None:
         """Load a pole file and display validation errors to the user."""
         try:
@@ -1331,6 +1403,7 @@ class MainWindow(QMainWindow):
             self.surrounding_candidates = None
             self.current_road_width = 6.0
             self.current_poles = []
+            self.current_pea_poles = []
             self.current_geometry = None
             self.same_pole_groups = []
             self.transformer_rack_groups = []
@@ -1385,6 +1458,7 @@ class MainWindow(QMainWindow):
                         self.surrounding_candidates
                     ),
                     "poles": poles_to_data(self.current_poles),
+                    "pea_poles": pea_poles_to_data(self.current_pea_poles),
                     "same_pole_groups": [sorted(group) for group in self.same_pole_groups],
                     "transformer_rack_groups": [
                         sorted(group) for group in self.transformer_rack_groups
@@ -1414,6 +1488,7 @@ class MainWindow(QMainWindow):
             document = load_project_file(path)
             routes = routes_from_data(document.get("routes", []))
             poles = poles_from_data(document.get("poles", []))
+            pea_poles = pea_poles_from_data(document.get("pea_poles", []))
             osm_features = osm_features_from_data(document.get("osm_features", []))
             surrounding_candidates = osm_context_from_data(
                 document.get("surrounding_candidates")
@@ -1442,6 +1517,7 @@ class MainWindow(QMainWindow):
                 (main_routes[0].width_metres or 6.0) if main_routes else 6.0
             )
             self.current_poles = poles
+            self.current_pea_poles = pea_poles
             self.current_geometry = geometry
             self.same_pole_groups = [
                 frozenset(group) for group in document.get("same_pole_groups", [])

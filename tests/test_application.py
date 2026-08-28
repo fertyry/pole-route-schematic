@@ -57,6 +57,37 @@ def test_v2_ui_groups_commands_by_work_stage(qtbot) -> None:
     ]
     assert all(not action.icon().isNull() for action in drawing_actions)
     assert not window.blocks_button.icon().isNull()
+    assert window.import_poles_action.text() == "Import poles"
+    assert window.import_pea_gis_action.text() == "Import PEA GIS Data"
+
+
+def test_pea_gis_import_keeps_all_source_records_and_displays_default_subset(
+    qtbot, tmp_path, monkeypatch
+) -> None:
+    from openpyxl import Workbook
+    from PySide6.QtWidgets import QMessageBox
+
+    path = tmp_path / "pea-gis.xlsx"
+    workbook = Workbook()
+    workbook.active.title = "Cover"
+    sheet = workbook.create_sheet("DS_Pole")
+    sheet.append(["Pole ID", "Latitude", "Longitude", "Height", "Voltage"])
+    sheet.append(["P-HIGH", 13.1, 100.1, 12, "400 V"])
+    sheet.append(["P-LOW", 13.2, 100.2, 9, "400 V"])
+    workbook.save(path)
+    summaries = []
+    monkeypatch.setattr(
+        QMessageBox, "information", lambda *_args: summaries.append(_args[-1])
+    )
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.load_pea_gis_file(str(path))
+
+    assert len(window.current_pea_poles) == 2
+    assert [pole.number for pole in window.current_poles] == ["P-HIGH"]
+    assert window.pole_table.rowCount() == 1
+    assert "Retained for review: 1" in summaries[0]
 
 
 def test_main_window_can_show_poles(qtbot) -> None:

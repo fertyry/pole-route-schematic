@@ -14,7 +14,7 @@ This document describes **planned work**, not completed features.
 
 ## Next Implementation
 
-### 1. PEA GIS Workbook Import
+### 1. PEA GIS Workbook Import — COMPLETE (Milestone A1)
 
 - Discover supported coordinate-bearing worksheets in a multi-sheet PEA GIS workbook.
 - Implement `DS_Pole` as the first profile without locking the design to that sheet.
@@ -26,7 +26,17 @@ This document describes **planned work**, not completed features.
 - Extend `.prs` only with additive, backward-safe fields unless a schema change is first
   justified and approved.
 
-### 2. Pole QC / Ordering
+Implemented foundation:
+
+- Multi-sheet workbook discovery lists every sheet and recognizes `DS_Pole` even when it
+  is not the active worksheet.
+- Unsupported `DS_*` worksheets remain visible as discovery results for later profiles.
+- `DS_Pole` rows retain source identity, worksheet/row audit data, raw attributes,
+  normalized height/voltage, default inclusion, and QC warnings.
+- The generic Excel/CSV pole importer remains a separate unchanged workflow.
+- `.prs` schema v1 stores optional `pea_poles`; older projects load it as an empty list.
+
+### 2. Pole QC / Ordering — NEXT (Milestone A2)
 
 - Project each geographic pole point onto the confirmed Main Route.
 - Calculate station from START and offset from the route; sort by station rather than

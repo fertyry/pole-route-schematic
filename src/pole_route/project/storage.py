@@ -33,6 +33,7 @@ from pole_route.domain.context import (
     OSMContext,
 )
 from pole_route.domain.pole import Pole, PoleSide
+from pole_route.domain.pea_gis import PEAPoleRecord
 from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
 from pole_route.ui.editor_commands import (
     EditableEllipseItem,
@@ -94,6 +95,7 @@ def load_project_file(path: str | Path) -> dict[str, Any]:
     # remain valid and expose an empty feature collection to callers.
     document.setdefault("osm_features", [])
     document.setdefault("surrounding_candidates", None)
+    document.setdefault("pea_poles", [])
     return document
 
 
@@ -395,6 +397,57 @@ def poles_from_data(data: list[dict[str, Any]]) -> list[Pole]:
             item.get("detail", ""),
             PoleSide(item.get("side", PoleSide.UNKNOWN.value)),
             int(item.get("installed_quantity", 1)),
+        )
+        for item in data
+    ]
+
+
+def pea_poles_to_data(records: list[PEAPoleRecord]) -> list[dict[str, Any]]:
+    """Serialize source-preserving DS_Pole records additively in schema v1."""
+    return [
+        {
+            "source_id": record.source_id,
+            "source_sheet": record.source_sheet,
+            "source_row": record.source_row,
+            "latitude": record.latitude,
+            "longitude": record.longitude,
+            "raw_height": record.raw_height,
+            "height_metres": record.height_metres,
+            "raw_voltage": record.raw_voltage,
+            "voltage_min_kv": record.voltage_min_kv,
+            "voltage_max_kv": record.voltage_max_kv,
+            "raw_attributes": dict(record.raw_attributes),
+            "included_by_default": record.included_by_default,
+            "qc_warnings": list(record.qc_warnings),
+        }
+        for record in records
+    ]
+
+
+def pea_poles_from_data(data: list[dict[str, Any]]) -> list[PEAPoleRecord]:
+    return [
+        PEAPoleRecord(
+            source_id=str(item["source_id"]),
+            source_sheet=str(item["source_sheet"]),
+            source_row=int(item["source_row"]),
+            latitude=float(item["latitude"]),
+            longitude=float(item["longitude"]),
+            raw_height=item.get("raw_height"),
+            height_metres=(
+                float(item["height_metres"]) if item.get("height_metres") is not None else None
+            ),
+            raw_voltage=item.get("raw_voltage"),
+            voltage_min_kv=(
+                float(item["voltage_min_kv"])
+                if item.get("voltage_min_kv") is not None else None
+            ),
+            voltage_max_kv=(
+                float(item["voltage_max_kv"])
+                if item.get("voltage_max_kv") is not None else None
+            ),
+            raw_attributes=dict(item.get("raw_attributes", {})),
+            included_by_default=bool(item.get("included_by_default", False)),
+            qc_warnings=tuple(str(value) for value in item.get("qc_warnings", [])),
         )
         for item in data
     ]

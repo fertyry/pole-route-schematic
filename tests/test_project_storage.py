@@ -14,6 +14,7 @@ from pole_route.domain.context import (
     osm_feature_name,
 )
 from pole_route.domain.pole import Pole, PoleSide
+from pole_route.domain.pea_gis import PEAPoleRecord
 from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
 from pole_route.geometry.road_geometry import build_road_network_geometry
 from pole_route.geometry.schematic_layout import create_schematic_layout
@@ -25,6 +26,8 @@ from pole_route.project.storage import (
     osm_features_to_data,
     poles_from_data,
     poles_to_data,
+    pea_poles_from_data,
+    pea_poles_to_data,
     restore_scene,
     routes_from_data,
     ProjectFileError,
@@ -67,6 +70,40 @@ def test_project_inputs_round_trip_without_source_files(tmp_path) -> None:
 
     assert routes_from_data(document["routes"]) == routes
     assert poles_from_data(document["poles"]) == poles
+
+
+def test_pea_pole_source_record_round_trip_is_additive(tmp_path) -> None:
+    record = PEAPoleRecord(
+        source_id="กฟภ-001",
+        source_sheet="DS_Pole",
+        source_row=17,
+        latitude=13.75,
+        longitude=100.50,
+        raw_height="12 เมตร",
+        height_metres=12.0,
+        raw_voltage="22 kV / 400 V",
+        voltage_min_kv=0.4,
+        voltage_max_kv=22.0,
+        raw_attributes={"เจ้าของ": "กฟภ.", "Status": None},
+        included_by_default=True,
+        qc_warnings=("Review source value",),
+    )
+    path = tmp_path / "pea-source.prs"
+
+    save_project_file(path, {"pea_poles": pea_poles_to_data([record])})
+    restored = pea_poles_from_data(load_project_file(path)["pea_poles"])
+
+    assert restored == [record]
+
+
+def test_old_project_without_pea_poles_loads_empty_collection(tmp_path) -> None:
+    path = tmp_path / "old-before-pea.prs"
+    save_project_file(path, {"poles": []})
+
+    document = load_project_file(path)
+
+    assert document["pea_poles"] == []
+    assert pea_poles_from_data(document["pea_poles"]) == []
 
 
 def _feature(
