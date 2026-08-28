@@ -24,6 +24,11 @@ class PEAPoleRecord:
     included_by_default: bool = False
     qc_warnings: tuple[str, ...] = ()
 
+    @property
+    def source_key(self) -> str:
+        """Stable identity for review, persistence, and deterministic sorting."""
+        return f"{self.source_sheet}:{self.source_row}:{self.source_id}"
+
 
 @dataclass(frozen=True, slots=True)
 class VoltageFilter:

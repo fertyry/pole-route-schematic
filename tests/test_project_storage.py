@@ -489,3 +489,29 @@ def test_failed_serialization_does_not_replace_existing_project(tmp_path) -> Non
         save_project_file(path, {"value": object()})
 
     assert load_project_file(path)["value"] == "original"
+
+
+def test_pea_pole_ordering_round_trip_and_legacy_default(tmp_path) -> None:
+    from pole_route.domain.pea_ordering import (
+        PEAPoleOrdering,
+        PEAPoleReviewEntry,
+        PoleQCStatus,
+    )
+    from pole_route.project.storage import (
+        pea_pole_ordering_from_data,
+        pea_pole_ordering_to_data,
+    )
+
+    entry = PEAPoleReviewEntry(
+        "DS_Pole:2:P-1", "P-1", 12.5, 3.0, 13.0, 100.0,
+        1, 1, 1, True, PoleQCStatus.REVIEW, ("check",),
+    )
+    ordering = PEAPoleOrdering((entry,), True, True, True)
+    path = tmp_path / "ordering.prs"
+    save_project_file(path, {"pea_pole_ordering": pea_pole_ordering_to_data(ordering)})
+    document = load_project_file(path)
+    assert pea_pole_ordering_from_data(document["pea_pole_ordering"]) == ordering
+
+    legacy = tmp_path / "legacy.prs"
+    save_project_file(legacy, {})
+    assert load_project_file(legacy)["pea_pole_ordering"] is None

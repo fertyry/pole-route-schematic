@@ -7,6 +7,7 @@ from PySide6.QtCore import QLocale, QSettings, QSize, Qt, QThread
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QKeySequence, QUndoStack
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QFileDialog,
     QGraphicsScene,
     QHeaderView,
@@ -40,6 +41,7 @@ from pole_route.cad import (
 )
 from pole_route.domain.context import ContextFeature, OSMContext
 from pole_route.domain.pea_gis import PEAPoleRecord
+from pole_route.domain.pea_ordering import PEAPoleOrdering
 from pole_route.domain.pole import Pole, PoleSide
 from pole_route.domain.physical_pole import build_physical_pole_mapping
 from pole_route.domain.route import ClassifiedRoute, Route, RouteType
@@ -55,6 +57,7 @@ from pole_route.exporters.excel_exporter import (
     export_pages_to_excel,
 )
 from pole_route.geometry.road_geometry import RoadGeometryError, build_road_network_geometry
+from pole_route.geometry.pea_linear_reference import reference_pea_poles
 from pole_route.geometry.schematic_layout import create_schematic_layout
 from pole_route.importers.kml_importer import RouteImportError, inspect_route_file
 from pole_route.importers.osm_context import prepare_context_features
@@ -83,6 +86,8 @@ from pole_route.project.storage import (
     osm_features_to_data,
     pea_poles_from_data,
     pea_poles_to_data,
+    pea_pole_ordering_from_data,
+    pea_pole_ordering_to_data,
     poles_from_data,
     poles_to_data,
     restore_scene,
@@ -113,6 +118,7 @@ from pole_route.ui.geometry_renderer import render_road_geometry
 from pole_route.ui.osm_context_dialog import OSMContextDialog
 from pole_route.ui.osm_context_worker import OSMContextWorker
 from pole_route.ui.project_info_dialog import ProjectInfoDialog
+from pole_route.ui.pea_pole_review_dialog import PEAPoleReviewDialog
 from pole_route.ui.route_import_dialog import RouteImportDialog, draw_classified_routes_preview
 from pole_route.ui.scene_lifecycle import clear_scene
 from pole_route.ui.schematic_renderer import render_schematic
@@ -132,6 +138,7 @@ class MainWindow(QMainWindow):
         self.current_road_width = 6.0
         self.current_poles: list[Pole] = []
         self.current_pea_poles: list[PEAPoleRecord] = []
+        self.current_pea_ordering: PEAPoleOrdering | None = None
         self.current_geometry = None
         self.same_pole_groups: list[frozenset[str]] = []
         self.transformer_rack_groups: list[frozenset[str]] = []
@@ -236,6 +243,11 @@ class MainWindow(QMainWindow):
         )
         self.import_pea_gis_action.triggered.connect(self._choose_pea_gis_file)
         toolbar.addAction(self.import_pea_gis_action)
+
+        self.review_pea_order_action = QAction("Review PEA pole order", self)
+        self.review_pea_order_action.setEnabled(False)
+        self.review_pea_order_action.triggered.connect(self._review_pea_pole_order)
+        toolbar.addAction(self.review_pea_order_action)
 
         self.build_geometry_action = QAction("Build geometry", self)
         self.build_geometry_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
@@ -416,6 +428,7 @@ class MainWindow(QMainWindow):
                 self.overture_buildings_action,
                 self.import_poles_action,
                 self.import_pea_gis_action,
+                self.review_pea_order_action,
                 self.same_pole_action,
             ]
         )
@@ -1169,6 +1182,10 @@ class MainWindow(QMainWindow):
         self.build_geometry_action.setEnabled(
             any(route.type is RouteType.MAIN_ROUTE for route in self.current_routes)
         )
+        self.review_pea_order_action.setEnabled(
+            sum(route.type is RouteType.MAIN_ROUTE for route in self.current_routes) == 1
+            and bool(self.current_pea_poles)
+        )
         self.current_geometry = None
         self.undo_stack.clear()
         self.reset_layout_action.setEnabled(False)
@@ -1227,8 +1244,12 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("PEA GIS import failed")
             return
 
+        self.current_pea_poles = records
+        self.current_pea_ordering = None
         included = [record for record in records if record.included_by_default]
-        poles = [
+        # Preserve the A1 compatibility view while route-based review is pending.
+        # This is only the default subset; confirmed A2 ordering replaces it.
+        self.current_poles = [
             Pole(
                 number=record.source_id,
                 latitude=record.latitude,
@@ -1238,14 +1259,14 @@ class MainWindow(QMainWindow):
             )
             for record in included
         ]
-        self.current_pea_poles = records
-        self.current_poles = poles
         self.same_pole_groups = []
         self.transformer_rack_groups = []
         self.transformer_rack_leg_pairs = []
-        self.show_poles(poles)
+        self.show_poles(self.current_poles)
         self._show_same_pole_groups()
         self._update_geometry_action()
+        main_routes = [route.route for route in self.current_routes if route.type is RouteType.MAIN_ROUTE]
+        self.review_pea_order_action.setEnabled(len(main_routes) == 1)
         warning_count = sum(bool(record.qc_warnings) for record in records)
         unsupported = ", ".join(discovery.unsupported_ds_sheets) or "None"
         summary = (
@@ -1256,10 +1277,68 @@ class MainWindow(QMainWindow):
             f"Unsupported DS_* sheets: {unsupported}"
         )
         QMessageBox.information(self, "PEA GIS import summary", summary)
+        if len(main_routes) == 1:
+            self.current_pea_ordering = reference_pea_poles(records, main_routes[0])
+            self._review_pea_pole_order()
+        elif not main_routes:
+            QMessageBox.information(
+                self,
+                "PEA pole review pending",
+                "The DS_Pole records were retained. Import or confirm exactly one Main Route "
+                "before reviewing station, offset, order, and QC.",
+            )
+        else:
+            QMessageBox.warning(
+                self,
+                "PEA pole review blocked",
+                "More than one Main Route is present. Select exactly one authoritative Main Route; "
+                "PoleRoute will not silently concatenate routes.",
+            )
         self.statusBar().showMessage(
             f"Imported {len(records)} DS_Pole records; {len(included)} included by default"
         )
         self._mark_dirty()
+
+    def _review_pea_pole_order(self) -> None:
+        main_routes = [route.route for route in self.current_routes if route.type is RouteType.MAIN_ROUTE]
+        if not self.current_pea_poles or len(main_routes) != 1:
+            QMessageBox.warning(
+                self,
+                "PEA pole review unavailable",
+                "PEA GIS records and exactly one Main Route are required.",
+            )
+            return
+        ordering = self.current_pea_ordering or reference_pea_poles(
+            self.current_pea_poles, main_routes[0]
+        )
+        dialog = PEAPoleReviewDialog(
+            self.current_pea_poles, main_routes[0], ordering, self
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            self.statusBar().showMessage("PEA pole review cancelled; source records retained")
+            return
+        self.current_pea_ordering = dialog.ordering()
+        records_by_key = {record.source_key: record for record in self.current_pea_poles}
+        self.current_poles = [
+            Pole(
+                number=records_by_key[entry.source_key].source_id,
+                latitude=records_by_key[entry.source_key].latitude,
+                longitude=records_by_key[entry.source_key].longitude,
+                detail="",
+                side=PoleSide.UNKNOWN,
+            )
+            for entry in self.current_pea_ordering.ordered_included()
+        ]
+        self.same_pole_groups = []
+        self.transformer_rack_groups = []
+        self.transformer_rack_leg_pairs = []
+        self.show_poles(self.current_poles)
+        self._show_same_pole_groups()
+        self._update_geometry_action()
+        self._mark_dirty()
+        self.statusBar().showMessage(
+            f"Confirmed PEA pole order: {len(self.current_poles)} included records"
+        )
 
     def load_pole_file(self, path: str) -> None:
         """Load a pole file and display validation errors to the user."""
@@ -1404,6 +1483,7 @@ class MainWindow(QMainWindow):
             self.current_road_width = 6.0
             self.current_poles = []
             self.current_pea_poles = []
+            self.current_pea_ordering = None
             self.current_geometry = None
             self.same_pole_groups = []
             self.transformer_rack_groups = []
@@ -1417,6 +1497,7 @@ class MainWindow(QMainWindow):
             self.undo_stack.clear()
             self.fetch_surroundings_action.setEnabled(False)
             self.review_surroundings_action.setEnabled(False)
+            self.review_pea_order_action.setEnabled(False)
             self._update_geometry_action()
             self.generate_schematic_action.setEnabled(False)
             self.workspace_note.setText(
@@ -1459,6 +1540,9 @@ class MainWindow(QMainWindow):
                     ),
                     "poles": poles_to_data(self.current_poles),
                     "pea_poles": pea_poles_to_data(self.current_pea_poles),
+                    "pea_pole_ordering": pea_pole_ordering_to_data(
+                        self.current_pea_ordering
+                    ),
                     "same_pole_groups": [sorted(group) for group in self.same_pole_groups],
                     "transformer_rack_groups": [
                         sorted(group) for group in self.transformer_rack_groups
@@ -1489,6 +1573,9 @@ class MainWindow(QMainWindow):
             routes = routes_from_data(document.get("routes", []))
             poles = poles_from_data(document.get("poles", []))
             pea_poles = pea_poles_from_data(document.get("pea_poles", []))
+            pea_ordering = pea_pole_ordering_from_data(
+                document.get("pea_pole_ordering")
+            )
             osm_features = osm_features_from_data(document.get("osm_features", []))
             surrounding_candidates = osm_context_from_data(
                 document.get("surrounding_candidates")
@@ -1518,6 +1605,7 @@ class MainWindow(QMainWindow):
             )
             self.current_poles = poles
             self.current_pea_poles = pea_poles
+            self.current_pea_ordering = pea_ordering
             self.current_geometry = geometry
             self.same_pole_groups = [
                 frozenset(group) for group in document.get("same_pole_groups", [])
@@ -1543,6 +1631,9 @@ class MainWindow(QMainWindow):
             has_schematic = bool(document.get("has_schematic"))
             self.build_geometry_action.setEnabled(bool(main_routes))
             self.fetch_surroundings_action.setEnabled(bool(main_routes))
+            self.review_pea_order_action.setEnabled(
+                len(main_routes) == 1 and bool(pea_poles)
+            )
             self.generate_schematic_action.setEnabled(bool(geometry and geometry.roads))
             self.reset_layout_action.setEnabled(has_schematic)
             self.edit_canvas_action.setEnabled(has_schematic)

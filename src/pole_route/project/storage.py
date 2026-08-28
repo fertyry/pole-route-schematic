@@ -34,6 +34,11 @@ from pole_route.domain.context import (
 )
 from pole_route.domain.pole import Pole, PoleSide
 from pole_route.domain.pea_gis import PEAPoleRecord
+from pole_route.domain.pea_ordering import (
+    PEAPoleOrdering,
+    PEAPoleReviewEntry,
+    PoleQCStatus,
+)
 from pole_route.domain.route import ClassifiedRoute, GeoPoint, Route, RouteType
 from pole_route.ui.editor_commands import (
     EditableEllipseItem,
@@ -96,6 +101,7 @@ def load_project_file(path: str | Path) -> dict[str, Any]:
     document.setdefault("osm_features", [])
     document.setdefault("surrounding_candidates", None)
     document.setdefault("pea_poles", [])
+    document.setdefault("pea_pole_ordering", None)
     return document
 
 
@@ -451,6 +457,64 @@ def pea_poles_from_data(data: list[dict[str, Any]]) -> list[PEAPoleRecord]:
         )
         for item in data
     ]
+
+
+def pea_pole_ordering_to_data(ordering: PEAPoleOrdering | None) -> dict[str, Any] | None:
+    if ordering is None:
+        return None
+    return {
+        "schema_version": 1,
+        "direction_reversed": ordering.direction_reversed,
+        "manual_override": ordering.manual_override,
+        "confirmed": ordering.confirmed,
+        "entries": [
+            {
+                "source_key": entry.source_key,
+                "source_id": entry.source_id,
+                "station_metres": entry.station_metres,
+                "offset_metres": entry.offset_metres,
+                "projected_latitude": entry.projected_latitude,
+                "projected_longitude": entry.projected_longitude,
+                "auto_order": entry.auto_order,
+                "review_order": entry.review_order,
+                "confirmed_order": entry.confirmed_order,
+                "included": entry.included,
+                "qc_status": entry.qc_status.value,
+                "qc_reasons": list(entry.qc_reasons),
+            }
+            for entry in ordering.entries
+        ],
+    }
+
+
+def pea_pole_ordering_from_data(data: dict[str, Any] | None) -> PEAPoleOrdering | None:
+    if not data:
+        return None
+    return PEAPoleOrdering(
+        entries=tuple(
+            PEAPoleReviewEntry(
+                source_key=str(item["source_key"]),
+                source_id=str(item["source_id"]),
+                station_metres=float(item["station_metres"]),
+                offset_metres=float(item["offset_metres"]),
+                projected_latitude=float(item["projected_latitude"]),
+                projected_longitude=float(item["projected_longitude"]),
+                auto_order=(int(item["auto_order"]) if item.get("auto_order") is not None else None),
+                review_order=(int(item["review_order"]) if item.get("review_order") is not None else None),
+                confirmed_order=(
+                    int(item["confirmed_order"])
+                    if item.get("confirmed_order") is not None else None
+                ),
+                included=bool(item.get("included", False)),
+                qc_status=PoleQCStatus(item.get("qc_status", PoleQCStatus.NORMAL.value)),
+                qc_reasons=tuple(str(value) for value in item.get("qc_reasons", [])),
+            )
+            for item in data.get("entries", [])
+        ),
+        direction_reversed=bool(data.get("direction_reversed", False)),
+        manual_override=bool(data.get("manual_override", False)),
+        confirmed=bool(data.get("confirmed", False)),
+    )
 
 
 def scene_to_data(scene: QGraphicsScene) -> dict[str, Any]:

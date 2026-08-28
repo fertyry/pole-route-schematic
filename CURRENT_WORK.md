@@ -10,7 +10,7 @@
 Build a reviewed PEA GIS data pipeline and useful free geographic context without
 replacing the geometry, persistence, or CAD foundations already implemented.
 
-This document describes **planned work**, not completed features.
+This document separates completed foundations from the next planned milestone.
 
 ## Next Implementation
 
@@ -36,7 +36,7 @@ Implemented foundation:
 - The generic Excel/CSV pole importer remains a separate unchanged workflow.
 - `.prs` schema v1 stores optional `pea_poles`; older projects load it as an empty list.
 
-### 2. Pole QC / Ordering — NEXT (Milestone A2)
+### 2. Pole QC / Ordering — COMPLETE (Milestone A2)
 
 - Project each geographic pole point onto the confirmed Main Route.
 - Calculate station from START and offset from the route; sort by station rather than
@@ -47,10 +47,24 @@ Implemented foundation:
 - Preserve manual ordering as explicit state; auto-sort must never overwrite it silently.
 - Treat offset thresholds as tunable warnings, initially: up to 10 m normal, 10–15 m
   review, above 15 m stronger review.
-- Generate a persistent project-folder KML for Google Earth Pro QC. `.prs`, not KML,
-  remains the source of truth.
+- Project every valid PEA record onto exactly one authoritative Main Route using the
+  existing metric projection infrastructure.
+- Persist proposed/confirmed order, route-direction choice, inclusion state, manual
+  override, station, route offset, projected point, and composed QC reasons additively.
+- Keep excluded records reviewable; only confirmed included records become the active
+  ordered pole overlay.
+- Block route-based review when there is no Main Route or more than one Main Route rather
+  than inventing or concatenating an alignment.
 
-### 3. Generic PEA Assets
+### 3. Google Earth Pro QC — NEXT (Milestone A3)
+
+- Generate a persistent project-folder KML; `.prs`, not KML, remains the source of truth.
+- Include Main Route and proposed/confirmed pole points with Pole ID, height, voltage,
+  station, offset, and order.
+- Support opening the generated KML in Google Earth Pro and regenerating it after the
+  user returns to the Pole Order Review workflow.
+
+### 4. Generic PEA Assets
 
 - Add profile-driven parsing for coordinate-bearing `DS_*` worksheets.
 - Begin with `DS_Transformer` and `DS_Switch`, while using a source-neutral asset record
@@ -59,7 +73,7 @@ Implemented foundation:
 - Require user review and confirmation; never auto-confirm asset-to-pole relationships.
 - Persist raw attributes, normalized essentials, source identity, and confirmed links.
 
-### 4. Overture Places
+### 5. Overture Places
 
 - Reuse the existing source-neutral context/provenance architecture.
 - Add useful landmarks such as hospitals, schools, universities, places of worship,
@@ -70,7 +84,7 @@ Implemented foundation:
 - Keep existing OSM roads/sois/bridges/water and supplemental Overture Buildings.
 - Do not add Overture Transportation in this phase.
 
-### 5. Later CAD integration of confirmed PEA data
+### 6. Later CAD integration of confirmed PEA data
 
 - Reuse canonical physical-pole IDs, optional Pole Overlay, locked AutoCAD connection,
   metadata, and readback services.
