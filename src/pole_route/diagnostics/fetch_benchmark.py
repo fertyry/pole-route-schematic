@@ -8,6 +8,7 @@ import os
 import tempfile
 import time
 import uuid
+from ctypes import wintypes
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,6 +25,23 @@ from pole_route.domain.route import Route
 SCHEMA_VERSION = 1
 MAX_RECORDS = 200
 LOG_RELATIVE_PATH = Path("diagnostics") / "fetch_benchmark.jsonl"
+
+
+class _ProcessMemoryCounters(ctypes.Structure):
+    """64-bit-safe Windows PROCESS_MEMORY_COUNTERS layout."""
+
+    _fields_ = [
+        ("cb", wintypes.DWORD),
+        ("PageFaultCount", wintypes.DWORD),
+        ("PeakWorkingSetSize", ctypes.c_size_t),
+        ("WorkingSetSize", ctypes.c_size_t),
+        ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+        ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+        ("PagefileUsage", ctypes.c_size_t),
+        ("PeakPagefileUsage", ctypes.c_size_t),
+    ]
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +86,11 @@ def build_fetch_record(
     completed_at = datetime.now(UTC).isoformat()
     total_elapsed = max(0.0, time.perf_counter() - started.monotonic_started)
     rss_end, peak_end = process_memory_mb()
+    peak_delta = (
+        max(0.0, peak_end - started.process_peak_rss_start_mb)
+        if peak_end is not None and started.process_peak_rss_start_mb is not None
+        else None
+    )
     metrics = _last_metrics(context)
     unresolved = _unresolved_intervals(context)
     result = outcome or _result_from_context(context)
@@ -107,6 +130,7 @@ def build_fetch_record(
             "process_rss_end_mb": rss_end,
             "process_peak_rss_mb": peak_end,
             "process_peak_rss_at_start_mb": started.process_peak_rss_start_mb,
+            "process_peak_delta_mb": peak_delta,
         },
     }
     if error:
@@ -174,39 +198,55 @@ def read_fetch_records(project_path: str | Path) -> tuple[dict[str, Any], ...]:
     return tuple(records[-MAX_RECORDS:])
 
 
-def process_memory_mb() -> tuple[float | None, float | None]:
+def process_memory_mb(
+    *,
+    _platform: str | None = None,
+    _reader=None,
+) -> tuple[float | None, float | None]:
     """Return current and OS-observed process peak RSS on Windows, else unavailable."""
 
-    if os.name != "nt":
+    if (_platform or os.name) != "nt":
         return None, None
-
-    class ProcessMemoryCounters(ctypes.Structure):
-        _fields_ = [
-            ("cb", ctypes.c_ulong),
-            ("PageFaultCount", ctypes.c_ulong),
-            ("PeakWorkingSetSize", ctypes.c_size_t),
-            ("WorkingSetSize", ctypes.c_size_t),
-            ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
-            ("QuotaPagedPoolUsage", ctypes.c_size_t),
-            ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
-            ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
-            ("PagefileUsage", ctypes.c_size_t),
-            ("PeakPagefileUsage", ctypes.c_size_t),
-        ]
-
-    counters = ProcessMemoryCounters()
-    counters.cb = ctypes.sizeof(counters)
     try:
-        handle = ctypes.windll.kernel32.GetCurrentProcess()
-        ok = ctypes.windll.psapi.GetProcessMemoryInfo(
-            handle, ctypes.byref(counters), counters.cb
-        )
-    except (AttributeError, OSError):
+        values = (_reader or _windows_process_memory_bytes)()
+    except (AttributeError, OSError, TypeError, ValueError):
         return None, None
-    if not ok:
+    if values is None:
         return None, None
     divisor = 1024 * 1024
-    return counters.WorkingSetSize / divisor, counters.PeakWorkingSetSize / divisor
+    rss_bytes, peak_bytes = values
+    return rss_bytes / divisor, peak_bytes / divisor
+
+
+def _windows_process_memory_bytes(
+    kernel32=None,
+    psapi=None,
+) -> tuple[int, int] | None:
+    """Query current/peak working set with explicit 64-bit-safe Windows bindings."""
+
+    kernel32 = kernel32 or ctypes.WinDLL("kernel32", use_last_error=True)
+    get_current_process = kernel32.GetCurrentProcess
+    get_current_process.argtypes = []
+    get_current_process.restype = wintypes.HANDLE
+    handle = get_current_process()
+
+    counters = _ProcessMemoryCounters()
+    counters.cb = ctypes.sizeof(counters)
+    pointer_type = ctypes.POINTER(_ProcessMemoryCounters)
+    get_memory_info = getattr(kernel32, "K32GetProcessMemoryInfo", None)
+    if get_memory_info is not None:
+        get_memory_info.argtypes = [wintypes.HANDLE, pointer_type, wintypes.DWORD]
+        get_memory_info.restype = wintypes.BOOL
+        if get_memory_info(handle, ctypes.byref(counters), counters.cb):
+            return int(counters.WorkingSetSize), int(counters.PeakWorkingSetSize)
+
+    psapi = psapi or ctypes.WinDLL("psapi", use_last_error=True)
+    get_memory_info = psapi.GetProcessMemoryInfo
+    get_memory_info.argtypes = [wintypes.HANDLE, pointer_type, wintypes.DWORD]
+    get_memory_info.restype = wintypes.BOOL
+    if not get_memory_info(handle, ctypes.byref(counters), counters.cb):
+        return None
+    return int(counters.WorkingSetSize), int(counters.PeakWorkingSetSize)
 
 
 def _last_metrics(context: OSMContext | None) -> dict[str, float]:

@@ -26,7 +26,7 @@ class FetchDiagnosticsDialog(QDialog):
     HEADERS = (
         "Time", "Operation", "Route", "Length km", "Result", "Total", "OSM",
         "Buildings", "Places", "Requests", "Retries", "Splits", "Unresolved",
-        "Roads", "Building Count", "Places Count", "RAM",
+        "Roads", "Building Count", "Places Count", "Peak RAM",
     )
 
     def __init__(self, project_path: str | Path, parent=None) -> None:
@@ -88,7 +88,7 @@ class FetchDiagnosticsDialog(QDialog):
                 _number(categories.get("roads_sois")),
                 _number(categories.get("building")),
                 _number(categories.get("poi")),
-                _memory(memory.get("process_rss_end_mb")),
+                _memory(memory.get("process_peak_rss_mb")),
             )
             row = self.table.rowCount()
             self.table.insertRow(row)

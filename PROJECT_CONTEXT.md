@@ -93,6 +93,13 @@ failure is non-fatal and must never replace or roll back fetched candidates or A
 Surroundings. This history supports performance and reliability comparison across real
 urban, long/mixed, rural, junction-heavy, and water/bridge-heavy route profiles.
 
+On Windows, fetch diagnostics use the OS process working-set counters without a third-party
+dependency. `process_peak_rss_mb` and the UI's **Peak RAM** column are the OS-observed
+process-lifetime peak, not an operation-local sampled maximum; a Retry in the same process
+may therefore inherit a peak established by an earlier Refresh. Start/end RSS and the
+non-negative change in the process-lifetime peak baseline remain available in JSON for
+interpretation. Memory measurement failure remains optional and non-fatal.
+
 Overture Places is implemented for high-value engineering landmarks with stable generic
 source identity, full release/source provenance, Thai-first names, and centralized value
 tier plus metric route-distance filtering. Generic businesses require close proximity and
