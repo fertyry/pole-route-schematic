@@ -157,13 +157,27 @@ field evidence.
 - Separate local projects passed manual confirmation, alternate-candidate override,
   save/reopen, same-workbook reimport, no-duplicate, and missing-source audit checks.
 
-### 8B. Recommended next milestone — B2 Asset visual QC
+### 8B. PEA Asset Visual QC — COMPLETE (Milestone B2)
 
-- Add optional Google Earth visualization for reviewed assets and confirmed pole links.
-- Add optional Google Earth visualization for assets, candidate/confirmed pole links, and the
-  real far-switch cases that remained unmatched under the validated distance policy.
-- Do not start CAD symbol writing until users have visually reviewed representative confirmed
-  relationships in Google Earth.
+- `Check PEA Assets in Google Earth` atomically regenerates a deterministic
+  `<project>_PEA_ASSET_QC.kml` beside the saved `.prs` and opens it through the Windows KML
+  association shared with A3.
+- The KML is a read-only, disposable QC view of the effective Main Route, START/END, reviewed
+  poles, Transformer/Switch source points, current match state, canonical distance/side
+  evidence, and candidate/confirmed relationship lines. It never recomputes or confirms a
+  match and never uses projected/CAD/`POLE_OFFSET` coordinates for geographic points.
+- B003 A/B projects generated successfully. A exposed confirmed, suggested, ambiguous, and
+  unmatched evidence (including weak far-switch links); B exposed its three reviewed assets.
+  Google Earth loaded both artifacts and aligned their route/pole/asset overlays at route
+  overview. Fine-grained field acceptance remains a user QC decision, not an automated claim.
+
+### 8C. Recommended next milestone — B3 Confirmed PEA Asset CAD Integration
+
+- Consume only reviewed/confirmed Transformer/Switch relationships.
+- Reuse canonical physical-pole identity, managed optional Pole Overlay, and locked AutoCAD
+  target without rebuilding Base CAD.
+- Do not start B3 automatically; B2.1 visual refinement remains appropriate if field review
+  finds label/style usability problems.
 
 ### 9. Overture Places design notes
 

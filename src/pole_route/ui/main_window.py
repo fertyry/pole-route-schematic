@@ -74,6 +74,10 @@ from pole_route.exporters.kml_qc_exporter import (
     launch_kml,
     pea_qc_kml_path,
 )
+from pole_route.exporters.pea_asset_kml_qc_exporter import (
+    export_pea_asset_qc_kml,
+    pea_asset_qc_kml_path,
+)
 from pole_route.geometry.pea_asset_matching import match_pea_assets
 from pole_route.geometry.pea_linear_reference import reference_pea_poles
 from pole_route.geometry.road_geometry import RoadGeometryError, build_road_network_geometry
@@ -309,6 +313,15 @@ class MainWindow(QMainWindow):
             self._check_pea_qc_in_google_earth
         )
         toolbar.addAction(self.check_google_earth_action)
+
+        self.check_pea_assets_google_earth_action = QAction(
+            "Check PEA Assets in Google Earth", self
+        )
+        self.check_pea_assets_google_earth_action.setEnabled(False)
+        self.check_pea_assets_google_earth_action.triggered.connect(
+            self._check_pea_assets_in_google_earth
+        )
+        toolbar.addAction(self.check_pea_assets_google_earth_action)
 
         self.build_geometry_action = QAction("Build geometry", self)
         self.build_geometry_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
@@ -1350,10 +1363,14 @@ class MainWindow(QMainWindow):
         self.canvas.set_mode(DrawingMode.SELECT)
 
     def _update_pea_qc_action(self) -> None:
-        self.check_google_earth_action.setEnabled(
+        has_reviewed_poles = (
             sum(route.type is RouteType.MAIN_ROUTE for route in self.current_routes) == 1
             and bool(self.current_pea_poles)
             and self.current_pea_ordering is not None
+        )
+        self.check_google_earth_action.setEnabled(has_reviewed_poles)
+        self.check_pea_assets_google_earth_action.setEnabled(
+            has_reviewed_poles and bool(self.current_pea_assets)
         )
 
     def _select_block(self, block_type) -> None:
@@ -1428,6 +1445,7 @@ class MainWindow(QMainWindow):
             )
         )
         self.review_pea_assets_action.setEnabled(bool(self.current_pea_assets))
+        self._update_pea_qc_action()
         if records is None:
             QMessageBox.information(
                 self, "PEA GIS import summary",
@@ -1629,6 +1647,63 @@ class MainWindow(QMainWindow):
             return
         self.statusBar().showMessage(f"Opened Google Earth QC: {kml_path}")
 
+    def _check_pea_assets_in_google_earth(self) -> None:
+        main_routes = [
+            route.route for route in self.current_routes
+            if route.type is RouteType.MAIN_ROUTE
+        ]
+        if len(main_routes) != 1:
+            QMessageBox.warning(
+                self,
+                "PEA asset Google Earth QC unavailable",
+                "Exactly one Main Route is required before checking PEA assets.",
+            )
+            return
+        if not self.current_pea_poles or self.current_pea_ordering is None:
+            QMessageBox.warning(
+                self,
+                "PEA asset Google Earth QC unavailable",
+                "Import PEA GIS poles and create a pole review order first.",
+            )
+            return
+        if not self.current_pea_assets:
+            QMessageBox.warning(
+                self,
+                "PEA asset Google Earth QC unavailable",
+                "Import supported PEA Transformer or Switch data first.",
+            )
+            return
+        if not self.project_path and not self._save_project_as():
+            self.statusBar().showMessage(
+                "PEA asset Google Earth QC cancelled; save the project first"
+            )
+            return
+
+        try:
+            kml_path = pea_asset_qc_kml_path(self.project_path or "")
+            export_pea_asset_qc_kml(
+                kml_path,
+                main_routes[0],
+                self.current_pea_poles,
+                self.current_pea_ordering,
+                self.current_pea_assets,
+                self.current_pea_asset_matches,
+            )
+        except KMLQCExportError as error:
+            QMessageBox.warning(self, "PEA asset Google Earth QC export failed", str(error))
+            self.statusBar().showMessage("PEA asset Google Earth QC export failed")
+            return
+
+        try:
+            launch_kml(kml_path)
+        except KMLQCLaunchError as error:
+            QMessageBox.warning(self, "Google Earth launch failed", str(error))
+            self.statusBar().showMessage(
+                f"Asset QC KML generated; open it manually: {kml_path}"
+            )
+            return
+        self.statusBar().showMessage(f"Opened PEA asset Google Earth QC: {kml_path}")
+
     def load_pole_file(self, path: str) -> None:
         """Load a pole file and display validation errors to the user."""
         try:
@@ -1792,6 +1867,7 @@ class MainWindow(QMainWindow):
             self.review_pea_order_action.setEnabled(False)
             self.review_pea_assets_action.setEnabled(False)
             self.check_google_earth_action.setEnabled(False)
+            self.check_pea_assets_google_earth_action.setEnabled(False)
             self._update_geometry_action()
             self.generate_schematic_action.setEnabled(False)
             self.workspace_note.setText(

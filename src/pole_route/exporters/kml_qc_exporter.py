@@ -42,9 +42,14 @@ def export_pea_qc_kml(
     ordering: PEAPoleOrdering,
 ) -> Path:
     """Atomically replace a persistent KML without mutating project-domain state."""
+    payload = build_pea_qc_kml(main_route, records, ordering)
+    return write_kml_atomically(path, payload)
+
+
+def write_kml_atomically(path: str | Path, payload: bytes) -> Path:
+    """Atomically replace a generated KML artifact and leave no stale temp file."""
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    payload = build_pea_qc_kml(main_route, records, ordering)
     temporary_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(

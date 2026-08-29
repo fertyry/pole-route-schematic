@@ -793,6 +793,13 @@ ambiguous bridge relationships, persistence, and deterministic footbridge orient
 24. Generic PEA Assets currently means reviewed coordinate-bearing point assets, not every
     `DS_*` table. Conductor and Meter datasets are intentionally excluded from the point-asset
     importer/matcher/UI, while remaining visible in workbook discovery.
+25. PEA Asset Google Earth QC is a read-only, reproducible artifact named
+    `<project>_PEA_ASSET_QC.kml`. Geographic pole/asset points always use authoritative source
+    latitude/longitude. Match lines visualize persisted candidate/confirmed evidence only;
+    export/open never recomputes, ranks, confirms, or mutates a relationship.
+26. Google Earth review does not write decisions back to PoleRoute. Later CAD integration may
+    consume only relationships explicitly reviewed/confirmed in PoleRoute; suggested,
+    ambiguous, and unmatched KML links remain QC evidence rather than CAD truth.
 
 ## Current status after Phase 1
 
@@ -848,7 +855,7 @@ latency remains a known risk; do not describe batching itself as a network speed
   pole-overlay update path
 - Separate fetched Surround candidates and accepted surroundings, cached review without a
   network call, explicit refresh, bulk selection actions, and backward-compatible persistence
-- Automated suite: 322 tests passed at the B1 verification session
+- Automated suite: 331 tests passed at the B2 verification session
 - Generic PEA asset foundation for `DS_Transformer` and `DS_Switch`: profile discovery,
   source-neutral/raw-preserving import, coordinate QC, deterministic pole candidates,
   explicit review state, safe reimport merge, review UI, and additive schema-v1 persistence.
@@ -857,6 +864,11 @@ latency remains a known risk; do not describe batching itself as a network speed
   transformer identity, and `รหัสอุปกรณ์` for switch identity. All 24 asset rows retained
   their exact source coordinates; save/reopen, same-workbook reimport, manual override, and
   missing-source audit behavior passed. The initial 5/15/50 m distance policy remains unchanged.
+- B2 PEA Asset Google Earth QC reuses A3's KML namespace, atomic replacement, deterministic
+  project-local naming, and Windows file-association launch. Separate asset/status folders,
+  source-coordinate points, shared pole placemarks, and canonical evidence lines cover
+  confirmed, suggested, ambiguous, and unmatched Transformer/Switch review states without a
+  project-schema change or any CAD asset output.
 
 ### Active visual defects reported after the CAD-sheet baseline
 
