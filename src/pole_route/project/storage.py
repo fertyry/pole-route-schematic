@@ -34,6 +34,13 @@ from pole_route.domain.context import (
     OSMFeatureCategory,
     OSMGeometryKind,
 )
+from pole_route.domain.pea_asset import (
+    AssetMatchState,
+    AssetPoleCandidate,
+    PEAAsset,
+    PEAAssetMatch,
+    PEAAssetType,
+)
 from pole_route.domain.pea_gis import PEAPoleRecord
 from pole_route.domain.pea_ordering import (
     PEAPoleOrdering,
@@ -104,6 +111,8 @@ def load_project_file(path: str | Path) -> dict[str, Any]:
     document.setdefault("surrounding_candidates", None)
     document.setdefault("pea_poles", [])
     document.setdefault("pea_pole_ordering", None)
+    document.setdefault("pea_assets", [])
+    document.setdefault("pea_asset_matches", [])
     return document
 
 
@@ -543,6 +552,88 @@ def pea_pole_ordering_from_data(data: dict[str, Any] | None) -> PEAPoleOrdering 
         manual_override=bool(data.get("manual_override", False)),
         confirmed=bool(data.get("confirmed", False)),
     )
+
+
+def pea_assets_to_data(assets: list[PEAAsset] | tuple[PEAAsset, ...]) -> list[dict[str, Any]]:
+    return [
+        {
+            "stable_id": asset.stable_id,
+            "source_sheet": asset.source_sheet,
+            "source_row": asset.source_row,
+            "asset_type": asset.asset_type.value,
+            "source_asset_id": asset.source_asset_id,
+            "latitude": asset.latitude,
+            "longitude": asset.longitude,
+            "raw_attributes": dict(asset.raw_attributes),
+            "name": asset.name,
+            "raw_voltage": asset.raw_voltage,
+            "voltage_min_kv": asset.voltage_min_kv,
+            "voltage_max_kv": asset.voltage_max_kv,
+            "rating": asset.rating,
+            "phase": asset.phase,
+            "equipment_subtype": asset.equipment_subtype,
+            "status": asset.status,
+            "feeder_reference": asset.feeder_reference,
+            "qc_warnings": list(asset.qc_warnings),
+            "source_present": asset.source_present,
+        }
+        for asset in assets
+    ]
+
+
+def pea_assets_from_data(data: list[dict[str, Any]]) -> list[PEAAsset]:
+    return [PEAAsset(
+        stable_id=str(item["stable_id"]),
+        source_sheet=str(item["source_sheet"]),
+        source_row=int(item["source_row"]),
+        asset_type=PEAAssetType(item["asset_type"]),
+        source_asset_id=str(item.get("source_asset_id", "")),
+        latitude=float(item["latitude"]) if item.get("latitude") is not None else None,
+        longitude=float(item["longitude"]) if item.get("longitude") is not None else None,
+        raw_attributes=dict(item.get("raw_attributes", {})),
+        name=item.get("name"), raw_voltage=item.get("raw_voltage"),
+        voltage_min_kv=float(item["voltage_min_kv"]) if item.get("voltage_min_kv") is not None else None,
+        voltage_max_kv=float(item["voltage_max_kv"]) if item.get("voltage_max_kv") is not None else None,
+        rating=item.get("rating"), phase=item.get("phase"),
+        equipment_subtype=item.get("equipment_subtype"), status=item.get("status"),
+        feeder_reference=item.get("feeder_reference"),
+        qc_warnings=tuple(str(value) for value in item.get("qc_warnings", [])),
+        source_present=bool(item.get("source_present", True)),
+    ) for item in data]
+
+
+def pea_asset_matches_to_data(matches: list[PEAAssetMatch] | tuple[PEAAssetMatch, ...]) -> list[dict[str, Any]]:
+    return [{
+        "asset_id": match.asset_id, "state": match.state.value,
+        "suggested_pole_key": match.suggested_pole_key,
+        "confirmed_pole_key": match.confirmed_pole_key,
+        "manual_override": match.manual_override, "included": match.included,
+        "candidates": [{
+            "pole_source_key": item.pole_source_key, "pole_id": item.pole_id,
+            "distance_metres": item.distance_metres, "pole_order": item.pole_order,
+            "pole_included": item.pole_included, "pole_qc": item.pole_qc,
+            "strength": item.strength,
+        } for item in match.candidates],
+    } for match in matches]
+
+
+def pea_asset_matches_from_data(data: list[dict[str, Any]]) -> list[PEAAssetMatch]:
+    return [PEAAssetMatch(
+        asset_id=str(item["asset_id"]),
+        state=AssetMatchState(item.get("state", AssetMatchState.UNMATCHED.value)),
+        candidates=tuple(AssetPoleCandidate(
+            pole_source_key=str(candidate["pole_source_key"]),
+            pole_id=str(candidate["pole_id"]),
+            distance_metres=float(candidate["distance_metres"]),
+            pole_order=int(candidate["pole_order"]) if candidate.get("pole_order") is not None else None,
+            pole_included=candidate.get("pole_included"), pole_qc=str(candidate.get("pole_qc", "")),
+            strength=str(candidate.get("strength", "weak")),
+        ) for candidate in item.get("candidates", [])),
+        suggested_pole_key=item.get("suggested_pole_key"),
+        confirmed_pole_key=item.get("confirmed_pole_key"),
+        manual_override=bool(item.get("manual_override", False)),
+        included=bool(item.get("included", True)),
+    ) for item in data]
 
 
 def scene_to_data(scene: QGraphicsScene) -> dict[str, Any]:

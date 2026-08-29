@@ -775,6 +775,12 @@ ambiguous bridge relationships, persistence, and deterministic footbridge orient
 15. Do not clone/copy identity-bearing pole blocks in spacing tools; move the originals.
 16. Do not destroy or rewrite the CAD Master when Execute refreshes generated sheets.
 17. Do not invent OSM names or silently delete surroundings accepted by the user.
+18. PEA equipment assets use the source-neutral `PEAAsset` model; new `DS_*` types extend
+    the profile registry rather than creating separate end-to-end workflows.
+19. Asset-to-pole matching is a proposal/review/confirm workflow. Suggestions are never
+    confirmations, and ordinary reimport/recalculation must preserve manual confirmation.
+20. Later CAD asset work may consume only reviewed/confirmed relationships; B1 does not
+    create CAD symbols or modify Base CAD.
 
 ## Current status after Phase 1
 
@@ -830,7 +836,10 @@ latency remains a known risk; do not describe batching itself as a network speed
   pole-overlay update path
 - Separate fetched Surround candidates and accepted surroundings, cached review without a
   network call, explicit refresh, bulk selection actions, and backward-compatible persistence
-- Automated suite: 256 tests passed at the last verified coding session
+- Automated suite: 322 tests passed at the B1 verification session
+- Generic PEA asset foundation for `DS_Transformer` and `DS_Switch`: profile discovery,
+  source-neutral/raw-preserving import, coordinate QC, deterministic pole candidates,
+  explicit review state, safe reimport merge, review UI, and additive schema-v1 persistence.
 
 ### Active visual defects reported after the CAD-sheet baseline
 

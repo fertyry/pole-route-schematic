@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from openpyxl import load_workbook
 
@@ -49,6 +50,8 @@ class PEAWorkbookDiscovery:
 
 
 DS_POLE_PROFILE = "DS_Pole"
+DS_TRANSFORMER_PROFILE = "DS_Transformer"
+DS_SWITCH_PROFILE = "DS_Switch"
 HEADER_SCAN_LIMIT = 30
 THAI_DIGITS = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
 
@@ -71,8 +74,13 @@ def discover_pea_workbook(path: str | Path) -> PEAWorkbookDiscovery:
     except Exception as error:
         raise PEAGISImportError(f"Could not open PEA GIS workbook: {error}") from error
     try:
+        profiles = {
+            "ds_pole": DS_POLE_PROFILE,
+            "ds_transformer": DS_TRANSFORMER_PROFILE,
+            "ds_switch": DS_SWITCH_PROFILE,
+        }
         sheets = tuple(
-            PEASheetDiscovery(name, DS_POLE_PROFILE if name.casefold() == "ds_pole" else None)
+            PEASheetDiscovery(name, profiles.get(name.casefold()))
             for name in workbook.sheetnames
         )
     finally:

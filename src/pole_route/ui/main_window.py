@@ -50,6 +50,7 @@ from pole_route.domain.context import (
     FetchCoverageStatus,
     OSMContext,
 )
+from pole_route.domain.pea_asset import PEAAsset, PEAAssetMatch, merge_pea_assets
 from pole_route.domain.pea_gis import PEAPoleRecord
 from pole_route.domain.pea_ordering import PEAPoleOrdering
 from pole_route.domain.physical_pole import build_physical_pole_mapping
@@ -73,6 +74,7 @@ from pole_route.exporters.kml_qc_exporter import (
     launch_kml,
     pea_qc_kml_path,
 )
+from pole_route.geometry.pea_asset_matching import match_pea_assets
 from pole_route.geometry.pea_linear_reference import reference_pea_poles
 from pole_route.geometry.road_geometry import RoadGeometryError, build_road_network_geometry
 from pole_route.geometry.schematic_layout import create_schematic_layout
@@ -82,7 +84,9 @@ from pole_route.importers.edited_dxf_importer import (
 )
 from pole_route.importers.kml_importer import RouteImportError, inspect_route_file
 from pole_route.importers.osm_context import prepare_context_features
+from pole_route.importers.pea_assets import import_pea_assets
 from pole_route.importers.pea_gis import (
+    DS_POLE_PROFILE,
     PEAGISImportError,
     discover_pea_workbook,
     import_ds_poles,
@@ -101,6 +105,10 @@ from pole_route.project.storage import (
     osm_context_to_data,
     osm_features_from_data,
     osm_features_to_data,
+    pea_asset_matches_from_data,
+    pea_asset_matches_to_data,
+    pea_assets_from_data,
+    pea_assets_to_data,
     pea_pole_ordering_from_data,
     pea_pole_ordering_to_data,
     pea_poles_from_data,
@@ -135,6 +143,7 @@ from pole_route.ui.fetch_diagnostics_dialog import FetchDiagnosticsDialog
 from pole_route.ui.geometry_renderer import render_road_geometry
 from pole_route.ui.osm_context_dialog import OSMContextDialog
 from pole_route.ui.osm_context_worker import OSMContextWorker
+from pole_route.ui.pea_asset_review_dialog import PEAAssetReviewDialog
 from pole_route.ui.pea_pole_review_dialog import PEAPoleReviewDialog
 from pole_route.ui.project_info_dialog import ProjectInfoDialog
 from pole_route.ui.route_import_dialog import RouteImportDialog, draw_classified_routes_preview
@@ -157,6 +166,8 @@ class MainWindow(QMainWindow):
         self.current_poles: list[Pole] = []
         self.current_pea_poles: list[PEAPoleRecord] = []
         self.current_pea_ordering: PEAPoleOrdering | None = None
+        self.current_pea_assets: list[PEAAsset] = []
+        self.current_pea_asset_matches: list[PEAAssetMatch] = []
         self.current_geometry = None
         self.same_pole_groups: list[frozenset[str]] = []
         self.transformer_rack_groups: list[frozenset[str]] = []
@@ -286,6 +297,11 @@ class MainWindow(QMainWindow):
         self.review_pea_order_action.setEnabled(False)
         self.review_pea_order_action.triggered.connect(self._review_pea_pole_order)
         toolbar.addAction(self.review_pea_order_action)
+
+        self.review_pea_assets_action = QAction("Review PEA Assets", self)
+        self.review_pea_assets_action.setEnabled(False)
+        self.review_pea_assets_action.triggered.connect(self._review_pea_assets)
+        toolbar.addAction(self.review_pea_assets_action)
 
         self.check_google_earth_action = QAction("Check in Google Earth", self)
         self.check_google_earth_action.setEnabled(False)
@@ -1373,17 +1389,45 @@ class MainWindow(QMainWindow):
             self.load_pea_gis_file(path)
 
     def load_pea_gis_file(self, path: str) -> None:
-        """Import DS_Pole while preserving every reviewed source record."""
+        """Import supported PEA GIS sheets through one coherent entry point."""
         try:
             discovery = discover_pea_workbook(path)
-            records = import_ds_poles(path)
+            has_poles = any(item.profile == DS_POLE_PROFILE for item in discovery.supported_sheets)
+            records = import_ds_poles(path) if has_poles else None
+            imported_assets = import_pea_assets(path)
         except PEAGISImportError as error:
             QMessageBox.warning(self, "PEA GIS import failed", str(error))
             self.statusBar().showMessage("PEA GIS import failed")
             return
 
-        self.current_pea_poles = records
-        self.current_pea_ordering = None
+        if records is not None:
+            self.current_pea_poles = records
+            self.current_pea_ordering = None
+        merge = merge_pea_assets(
+            self.current_pea_assets,
+            self.current_pea_asset_matches,
+            imported_assets,
+            imported_sheets={
+                sheet.name
+                for sheet in discovery.supported_sheets
+                if sheet.profile != DS_POLE_PROFILE
+            },
+        )
+        self.current_pea_assets = list(merge.assets)
+        self.current_pea_asset_matches = list(match_pea_assets(
+            self.current_pea_assets, self.current_pea_poles,
+            self.current_pea_ordering, merge.matches,
+        ))
+        self.review_pea_assets_action.setEnabled(bool(self.current_pea_assets))
+        if records is None:
+            QMessageBox.information(
+                self, "PEA GIS import summary",
+                self._pea_asset_summary() + "\n\nDS_Pole: not present",
+            )
+            self.statusBar().showMessage(f"Imported {len(imported_assets)} PEA assets")
+            self._mark_dirty()
+            return
+        assert records is not None
         included = [record for record in records if record.included_by_default]
         # Preserve the A1 compatibility view while route-based review is pending.
         # This is only the default subset; confirmed A2 ordering replaces it.
@@ -1412,6 +1456,7 @@ class MainWindow(QMainWindow):
             f"Included by default: {len(included)}\n"
             f"Retained for review: {len(records) - len(included)}\n"
             f"Rows with QC warnings: {warning_count}\n"
+            f"\n{self._pea_asset_summary()}\n"
             f"Unsupported DS_* sheets: {unsupported}"
         )
         QMessageBox.information(self, "PEA GIS import summary", summary)
@@ -1437,6 +1482,43 @@ class MainWindow(QMainWindow):
             f"Imported {len(records)} DS_Pole records; {len(included)} included by default"
         )
         self._mark_dirty()
+
+    def _review_pea_assets(self) -> None:
+        if not self.current_pea_assets:
+            QMessageBox.warning(self, "PEA asset review unavailable", "Import supported PEA GIS asset sheets first.")
+            return
+        self.current_pea_asset_matches = list(match_pea_assets(
+            self.current_pea_assets, self.current_pea_poles,
+            self.current_pea_ordering, self.current_pea_asset_matches,
+        ))
+        dialog = PEAAssetReviewDialog(
+            self.current_pea_assets, self.current_pea_asset_matches,
+            self.current_pea_poles, self.current_pea_ordering, self,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.current_pea_asset_matches = list(dialog.matches())
+            confirmed = sum(item.state.value == "confirmed" for item in self.current_pea_asset_matches)
+            self.statusBar().showMessage(f"PEA asset review saved; {confirmed} confirmed")
+            QMessageBox.information(self, "PEA asset review summary", self._pea_asset_summary())
+            self._mark_dirty()
+
+    def _pea_asset_summary(self) -> str:
+        matches = {item.asset_id: item for item in self.current_pea_asset_matches}
+        lines: list[str] = []
+        for asset_type in sorted({asset.asset_type for asset in self.current_pea_assets}, key=str):
+            assets = [asset for asset in self.current_pea_assets if asset.asset_type is asset_type]
+            states = [matches[asset.stable_id].state.value for asset in assets if asset.stable_id in matches]
+            lines.extend((
+                asset_type.value.replace("_", " ").title(),
+                f"- rows found: {len(assets)}",
+                f"- coordinate-valid: {sum(asset.coordinate_valid for asset in assets)}",
+                f"- warnings: {sum(bool(asset.qc_warnings) for asset in assets)}",
+                f"- suggested: {states.count('suggested')}",
+                f"- ambiguous: {states.count('ambiguous')}",
+                f"- confirmed: {states.count('confirmed')}",
+                f"- unmatched: {states.count('unmatched')}",
+            ))
+        return "\n".join(lines) if lines else "No supported PEA asset rows found"
 
     def _review_pea_pole_order(self) -> None:
         main_routes = [route.route for route in self.current_routes if route.type is RouteType.MAIN_ROUTE]
@@ -1671,6 +1753,8 @@ class MainWindow(QMainWindow):
             self.current_poles = []
             self.current_pea_poles = []
             self.current_pea_ordering = None
+            self.current_pea_assets = []
+            self.current_pea_asset_matches = []
             self.current_geometry = None
             self.same_pole_groups = []
             self.transformer_rack_groups = []
@@ -1686,6 +1770,7 @@ class MainWindow(QMainWindow):
             self.review_surroundings_action.setEnabled(False)
             self.retry_surroundings_action.setEnabled(False)
             self.review_pea_order_action.setEnabled(False)
+            self.review_pea_assets_action.setEnabled(False)
             self.check_google_earth_action.setEnabled(False)
             self._update_geometry_action()
             self.generate_schematic_action.setEnabled(False)
@@ -1732,6 +1817,8 @@ class MainWindow(QMainWindow):
                     "pea_pole_ordering": pea_pole_ordering_to_data(
                         self.current_pea_ordering
                     ),
+                    "pea_assets": pea_assets_to_data(self.current_pea_assets),
+                    "pea_asset_matches": pea_asset_matches_to_data(self.current_pea_asset_matches),
                     "same_pole_groups": [sorted(group) for group in self.same_pole_groups],
                     "transformer_rack_groups": [
                         sorted(group) for group in self.transformer_rack_groups
@@ -1765,6 +1852,8 @@ class MainWindow(QMainWindow):
             pea_ordering = pea_pole_ordering_from_data(
                 document.get("pea_pole_ordering")
             )
+            pea_assets = pea_assets_from_data(document.get("pea_assets", []))
+            pea_asset_matches = pea_asset_matches_from_data(document.get("pea_asset_matches", []))
             osm_features = osm_features_from_data(document.get("osm_features", []))
             surrounding_candidates = osm_context_from_data(
                 document.get("surrounding_candidates")
@@ -1801,6 +1890,8 @@ class MainWindow(QMainWindow):
             self.current_poles = poles
             self.current_pea_poles = pea_poles
             self.current_pea_ordering = pea_ordering
+            self.current_pea_assets = pea_assets
+            self.current_pea_asset_matches = pea_asset_matches
             self.current_geometry = geometry
             self.same_pole_groups = [
                 frozenset(group) for group in document.get("same_pole_groups", [])
@@ -1829,6 +1920,7 @@ class MainWindow(QMainWindow):
             self.review_pea_order_action.setEnabled(
                 len(main_routes) == 1 and bool(pea_poles)
             )
+            self.review_pea_assets_action.setEnabled(bool(pea_assets))
             self._update_pea_qc_action()
             self.generate_schematic_action.setEnabled(bool(geometry and geometry.roads))
             self.reset_layout_action.setEnabled(has_schematic)

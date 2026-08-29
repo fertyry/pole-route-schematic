@@ -106,7 +106,7 @@ Implemented foundation:
   to the log file/folder. Review surroundings creates no record because it performs no
   network fetch.
 
-### 7. Real Surround validation profiles — NEXT
+### 7. Real Surround validation profiles — IN PROGRESS
 
 - Run Urban Dense and Long/Mixed routes first; use the automatic C2 records to compare
   total/provider timings, OSM request/retry/split counts, unresolved intervals, category
@@ -115,18 +115,35 @@ Implemented foundation:
 - Verify Review visibly reports partial coverage and Retry failed areas does not refetch
   successful intervals.
 
-### 8. Generic PEA Assets — after real fetch validation (Milestone B1)
+Urban Dense validation has real evidence in the project history. Long/Mixed and the other
+profiles still require explicit completion evidence; do not mark them complete from B1 work.
 
-- Add profile-driven parsing for coordinate-bearing `DS_*` worksheets.
-- Begin with `DS_Transformer` and `DS_Switch`, while using a source-neutral asset record
-  that permits later worksheet types.
-- Suggest nearby pole matches using distance and other evidence.
-- Require user review and confirmation; never auto-confirm asset-to-pole relationships.
-- Persist raw attributes, normalized essentials, source identity, and confirmed links.
+### 8. Generic PEA Assets — COMPLETE (Milestone B1)
 
-Before implementing B1, validate A1–A3 with a real PEA GIS workbook and Google Earth Pro:
-confirm route direction, visual pole sequence, high-offset/curve cases, Pole ID metadata,
-excluded records, and regeneration after changing order/inclusion/direction.
+- Profile-driven parsing recognizes `DS_Transformer` and `DS_Switch`; unsupported `DS_*`
+  sheets remain visible for later profiles.
+- Source-neutral `PEAAsset` records retain raw attributes, audit row, optional normalized
+  values, coordinate QC, and source-ID-based stable identity with a deterministic content
+  fingerprint fallback when the source ID is absent.
+- Asset-to-pole matching is deterministic and proposal-only. It keeps multiple candidates,
+  distinguishes unmatched/suggested/ambiguous/confirmed states, and never auto-confirms.
+- Excluded A2 poles remain visible as audit/manual candidates but are not silently suggested.
+- Manual confirmations survive ordinary recalculation and stable reimport. Missing source
+  assets remain auditable rather than being deleted.
+- `.prs` schema v1 stores assets, candidates, and explicit review state additively. Old
+  projects load empty collections.
+- No asset CAD symbols or synchronization are part of B1.
+
+No local workbook containing real `DS_Transformer` / `DS_Switch` data was available during
+B1 implementation. Real header coverage, counts, distance distributions, ambiguity, reopen,
+and reimport must therefore be validated separately before treating the profiles as complete
+field evidence.
+
+### 8A. Recommended next milestone — B2 Asset visual QC
+
+- Add optional Google Earth visualization for reviewed assets and confirmed pole links.
+- First validate B1 against a real PEA GIS workbook and extend only evidence-backed aliases.
+- Do not start CAD symbol writing until reviewed/confirmed relationships have field evidence.
 
 ### 9. Overture Places design notes
 

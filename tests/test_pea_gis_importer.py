@@ -11,7 +11,6 @@ from pole_route.importers.pea_gis import (
     parse_voltage_kv,
 )
 
-
 HEADERS = ["Pole ID", "Latitude", "Longitude", "Height", "Voltage", "Owner"]
 
 
@@ -37,8 +36,10 @@ def test_discovery_lists_all_sheets_and_finds_inactive_ds_pole(tmp_path) -> None
     discovery = discover_pea_workbook(path)
 
     assert discovery.sheet_names == ("Cover", "DS_Pole", "DS_Transformer")
-    assert tuple(sheet.name for sheet in discovery.supported_sheets) == ("DS_Pole",)
-    assert discovery.unsupported_ds_sheets == ("DS_Transformer",)
+    assert tuple(sheet.name for sheet in discovery.supported_sheets) == (
+        "DS_Pole", "DS_Transformer",
+    )
+    assert discovery.unsupported_ds_sheets == ()
     assert import_ds_poles(path)[0].source_sheet == "DS_Pole"
 
 
