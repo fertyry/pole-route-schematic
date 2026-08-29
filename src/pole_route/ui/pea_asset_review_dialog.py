@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
+    QLabel,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -20,25 +21,38 @@ from PySide6.QtWidgets import (
 from pole_route.domain.pea_asset import PEAAsset, PEAAssetMatch
 from pole_route.domain.pea_gis import PEAPoleRecord
 from pole_route.domain.pea_ordering import PEAPoleOrdering
+from pole_route.domain.route import Route
 from pole_route.geometry.pea_asset_matching import match_pea_assets
 
 
 class PEAAssetReviewDialog(QDialog):
     COLUMNS = (
         "Use", "Asset Type", "Asset ID", "Latitude", "Longitude", "Nearest Pole",
-        "Distance (m)", "Pole Order", "Match Status", "QC", "Confirmed Pole",
+        "Distance (m)", "Pole Order", "Match Status", "Side Evidence", "QC",
+        "Confirmed Pole",
     )
 
-    def __init__(self, assets, matches, poles, ordering=None, parent=None):
+    def __init__(self, assets, matches, poles, ordering=None, main_route=None, parent=None):
         super().__init__(parent)
         self._assets: tuple[PEAAsset, ...] = tuple(assets)
         self._matches: dict[str, PEAAssetMatch] = {item.asset_id: item for item in matches}
         self._poles: tuple[PEAPoleRecord, ...] = tuple(poles)
         self._ordering: PEAPoleOrdering | None = ordering
+        self._main_route: Route | None = main_route
         self._selectors: dict[str, QComboBox] = {}
         self.setWindowTitle("Review PEA Assets")
         self.resize(1250, 620)
         layout = QVBoxLayout(self)
+        filter_row = QHBoxLayout()
+        filter_row.addWidget(QLabel("Asset type:"))
+        self.type_filter = QComboBox()
+        self.type_filter.addItem("All", None)
+        for asset_type in sorted({asset.asset_type for asset in self._assets}, key=str):
+            self.type_filter.addItem(asset_type.value.replace("_", " ").title(), asset_type.value)
+        self.type_filter.currentIndexChanged.connect(self._refresh)
+        filter_row.addWidget(self.type_filter)
+        filter_row.addStretch()
+        layout.addLayout(filter_row)
         self.table = QTableWidget(0, len(self.COLUMNS))
         self.table.setHorizontalHeaderLabels(self.COLUMNS)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -68,8 +82,14 @@ class PEAAssetReviewDialog(QDialog):
         return self.table.item(row, 2).data(Qt.ItemDataRole.UserRole) if row >= 0 else None
 
     def _refresh(self):
-        self.table.setRowCount(len(self._assets)); self._selectors.clear()
-        for row, asset in enumerate(self._assets):
+        selected_type = self.type_filter.currentData()
+        displayed = [
+            asset
+            for asset in self._assets
+            if selected_type is None or asset.asset_type.value == selected_type
+        ]
+        self.table.setRowCount(len(displayed)); self._selectors.clear()
+        for row, asset in enumerate(displayed):
             match = self._matches.get(asset.stable_id, PEAAssetMatch(asset.stable_id))
             nearest = match.candidates[0] if match.candidates else None
             values = (
@@ -78,14 +98,16 @@ class PEAAssetReviewDialog(QDialog):
                 "" if asset.longitude is None else f"{asset.longitude:.7f}",
                 nearest.pole_id if nearest else "", f"{nearest.distance_metres:.2f}" if nearest else "",
                 nearest.pole_order if nearest and nearest.pole_order is not None else "",
-                match.state.value, "; ".join(asset.qc_warnings), "",
+                match.state.value,
+                nearest.side_relation.value.replace("_", " ") if nearest else "uncertain",
+                "; ".join(asset.qc_warnings), "",
             )
             for column, value in enumerate(values):
                 if column == 0:
                     checkbox = QCheckBox(); checkbox.setChecked(match.included)
                     checkbox.toggled.connect(lambda enabled, key=asset.stable_id: self._set_included(key, enabled))
                     self.table.setCellWidget(row, column, checkbox)
-                elif column != 10:
+                elif column != 11:
                     item = QTableWidgetItem(str(value))
                     if column == 2: item.setData(Qt.ItemDataRole.UserRole, asset.stable_id)
                     self.table.setItem(row, column, item)
@@ -100,7 +122,7 @@ class PEAAssetReviewDialog(QDialog):
             selected = match.confirmed_pole_key or match.suggested_pole_key
             index = selector.findData(selected)
             selector.setCurrentIndex(max(0, index))
-            self.table.setCellWidget(row, 10, selector); self._selectors[asset.stable_id] = selector
+            self.table.setCellWidget(row, 11, selector); self._selectors[asset.stable_id] = selector
         self.table.resizeColumnsToContents()
 
     def _set_included(self, key, enabled):
@@ -121,6 +143,10 @@ class PEAAssetReviewDialog(QDialog):
 
     def _recompute(self):
         computed = match_pea_assets(
-            self._assets, self._poles, self._ordering, tuple(self._matches.values())
+            self._assets,
+            self._poles,
+            self._ordering,
+            tuple(self._matches.values()),
+            main_route=self._main_route,
         )
         self._matches = {item.asset_id: item for item in computed}; self._refresh()

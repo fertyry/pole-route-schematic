@@ -38,9 +38,11 @@ COMMON_ALIASES = {
     "longitude": frozenset({"longitude", "long", "lon", "lng", "ลองจิจูด"}),
     "name": frozenset({"name", "label", "ชื่อ", "ชื่ออุปกรณ์"}),
     "voltage": frozenset({"voltage", "volt", "voltagelevel", "แรงดัน", "ระดับแรงดัน"}),
-    "phase": frozenset({"phase", "เฟส"}),
-    "status": frozenset({"status", "สถานะ"}),
-    "feeder": frozenset({"feeder", "feederid", "circuit", "วงจร", "ฟีดเดอร์"}),
+    "phase": frozenset({"phase", "เฟส", "เฟสที่ติดตั้ง"}),
+    "status": frozenset({"status", "สถานะ", "สถานะปัจจุบัน", "สถานะการก่อสร้าง"}),
+    "feeder": frozenset({
+        "feeder", "feederid", "circuit", "วงจร", "ฟีดเดอร์", "รหัสสายป้อนที่ 1",
+    }),
 }
 
 
@@ -53,9 +55,16 @@ DS_TRANSFORMER_PROFILE = PEAAssetProfile(
         "source_id": frozenset({
             "transformerid", "transformer_id", "equipmentid", "equipment_id",
             "assetid", "asset_id", "รหัสหม้อแปลง", "หมายเลขหม้อแปลง", "รหัสทรัพย์สิน",
+            "PEANO หม้อแปลง", "PEANO (ADS)",
         }),
-        "rating": frozenset({"rating", "capacity", "kva", "ขนาด", "พิกัด", "กำลัง"}),
-        "subtype": frozenset({"type", "transformertype", "equipmenttype", "ชนิด", "ประเภท"}),
+        "rating": frozenset({
+            "rating", "capacity", "kva", "ขนาด", "พิกัด", "กำลัง",
+            "ค่าพิกัด kVA หม้อแปลง",
+        }),
+        "subtype": frozenset({
+            "type", "transformertype", "equipmenttype", "ชนิด", "ประเภท",
+            "ประเภทการติดตั้ง",
+        }),
     },
 )
 
@@ -70,7 +79,10 @@ DS_SWITCH_PROFILE = PEAAssetProfile(
             "asset_id", "รหัสสวิตช์", "หมายเลขสวิตช์", "รหัสอุปกรณ์", "รหัสทรัพย์สิน",
         }),
         "rating": frozenset({"rating", "capacity", "ampere", "amp", "พิกัด", "กระแส"}),
-        "subtype": frozenset({"type", "switchtype", "equipmenttype", "ชนิด", "ประเภท"}),
+        "subtype": frozenset({
+            "type", "switchtype", "equipmenttype", "ชนิด", "ประเภท",
+            "ประเภทย่อยของสวิตช์",
+        }),
     },
 )
 

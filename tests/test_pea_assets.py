@@ -4,12 +4,19 @@ from dataclasses import replace
 
 from openpyxl import Workbook
 
-from pole_route.domain.pea_asset import AssetMatchState, PEAAsset, PEAAssetType, merge_pea_assets
+from pole_route.domain.pea_asset import (
+    AssetMatchState,
+    AssetSideRelation,
+    PEAAsset,
+    PEAAssetType,
+    merge_pea_assets,
+)
 from pole_route.domain.pea_gis import PEAPoleRecord
 from pole_route.domain.pea_ordering import PEAPoleOrdering, PEAPoleReviewEntry, PoleQCStatus
+from pole_route.domain.route import GeoPoint, Route
 from pole_route.geometry.pea_asset_matching import match_pea_assets
 from pole_route.importers.pea_assets import import_pea_assets
-from pole_route.importers.pea_gis import discover_pea_workbook
+from pole_route.importers.pea_gis import discover_pea_workbook, import_ds_poles
 from pole_route.project.storage import (
     load_project_file,
     pea_asset_matches_from_data,
@@ -43,6 +50,11 @@ def _asset(stable_id="DS_Transformer:tx-1", longitude=100.0):
                     "TX-1", 13.0, longitude, {"Custom": "เก็บไว้"})
 
 
+def _route(reverse=False):
+    points = (GeoPoint(100.0, 13.0), GeoPoint(100.01, 13.0))
+    return Route("Main", "test", tuple(reversed(points)) if reverse else points)
+
+
 def test_asset_profiles_discovery_parse_qc_and_raw_attributes(tmp_path):
     path = tmp_path / "pea.xlsx"
     _workbook(path)
@@ -61,6 +73,44 @@ def test_asset_profiles_discovery_parse_qc_and_raw_attributes(tmp_path):
     switch = assets[2]
     assert switch.asset_type is PEAAssetType.SWITCH
     assert switch.equipment_subtype == "LBS" and switch.status == "Active"
+
+
+def test_real_schema_aliases_are_source_neutral_and_preserve_coordinates(tmp_path):
+    path = tmp_path / "real-schema.xlsx"
+    workbook = Workbook()
+    pole = workbook.active
+    pole.title = "DS_Pole"
+    pole.append(["รหัส TAG", "LATITUDE", "LONGITUDE", "ความสูงเสา", "ระดับแรงดัน"])
+    pole.append(["22PL-1", 16.7, 103.3, "12 เมตร", "22 kV"])
+    transformer = workbook.create_sheet("DS_Transformer")
+    transformer.append([
+        "PEANO หม้อแปลง", "LATITUDE", "LONGITUDE", "ระดับแรงดัน",
+        "ค่าพิกัด kVA หม้อแปลง", "เฟสที่ติดตั้ง", "ประเภทการติดตั้ง",
+        "สถานะการก่อสร้าง", "รหัสสายป้อนที่ 1",
+    ])
+    transformer.append([
+        "68-001", 16.700001234567, 103.300001234567, "22 kV", 100,
+        "ABC", "บนเสา", "Installed/Existing", "KRA01",
+    ])
+    switch = workbook.create_sheet("DS_Switch")
+    switch.append([
+        "รหัสอุปกรณ์", "LATITUDE", "LONGITUDE", "ระดับแรงดัน",
+        "ประเภทย่อยของสวิตช์", "เฟสที่ติดตั้ง", "สถานะปัจจุบัน",
+    ])
+    switch.append(["KRA-SW-1", 16.71, 103.31, "22 kV", "Fuse Dropout", "ABC", "Close"])
+    workbook.save(path)
+
+    poles = import_ds_poles(path)
+    assets = import_pea_assets(path)
+
+    assert poles[0].source_id == "22PL-1"
+    tx, switch_asset = assets
+    assert tx.source_asset_id == "68-001"
+    assert (tx.latitude, tx.longitude) == (16.700001234567, 103.300001234567)
+    assert tx.rating == "100" and tx.phase == "ABC"
+    assert tx.equipment_subtype == "บนเสา" and tx.feeder_reference == "KRA01"
+    assert switch_asset.source_asset_id == "KRA-SW-1"
+    assert switch_asset.equipment_subtype == "Fuse Dropout"
 
 
 def test_asset_identity_survives_row_order_change(tmp_path):
@@ -96,6 +146,34 @@ def test_matcher_invalid_no_poles_and_excluded_pole_handling():
     assert match_pea_assets([_asset()], [])[0].state is AssetMatchState.UNMATCHED
 
 
+def test_side_evidence_is_supporting_only_and_route_reversal_invariant():
+    asset = replace(_asset(), latitude=13.00005, longitude=100.005)
+    same_pole = replace(_pole("SAME", 100.005), latitude=13.00006)
+    opposite_pole = replace(_pole("OPPOSITE", 100.005, row=3), latitude=12.99998)
+
+    forward = match_pea_assets(
+        [asset], [same_pole, opposite_pole], main_route=_route()
+    )[0]
+    reverse = match_pea_assets(
+        [asset], [same_pole, opposite_pole], main_route=_route(True)
+    )[0]
+
+    by_id = {candidate.pole_id: candidate for candidate in forward.candidates}
+    reversed_by_id = {candidate.pole_id: candidate for candidate in reverse.candidates}
+    assert by_id["SAME"].side_relation is AssetSideRelation.SAME_SIDE
+    assert by_id["OPPOSITE"].side_relation is AssetSideRelation.OPPOSITE_SIDE
+    assert reversed_by_id["SAME"].side_relation is AssetSideRelation.SAME_SIDE
+    assert reversed_by_id["OPPOSITE"].side_relation is AssetSideRelation.OPPOSITE_SIDE
+    assert forward.state is not AssetMatchState.CONFIRMED
+
+
+def test_side_evidence_uses_centerline_dead_band():
+    asset = replace(_asset(), latitude=13.000001, longitude=100.005)
+    pole = replace(_pole("A", 100.005), latitude=13.00005)
+    match = match_pea_assets([asset], [pole], main_route=_route())[0]
+    assert match.candidates[0].side_relation is AssetSideRelation.UNCERTAIN
+
+
 def test_manual_confirmation_survives_recompute_and_reimport():
     poles = [_pole("A", 100.0, row=2), _pole("B", 100.0001, row=3)]
     suggested = match_pea_assets([_asset()], poles)[0]
@@ -119,8 +197,12 @@ def test_reimport_marks_missing_and_adds_new_without_duplicate():
 
 
 def test_asset_and_match_project_round_trip_and_legacy_default(tmp_path):
-    asset = _asset(); pole = _pole("A", 100.0)
-    match = match_pea_assets([asset], [pole])[0].confirm(pole.source_key)
+    asset = replace(_asset(), latitude=13.00005)
+    pole = replace(_pole("A", 100.0), latitude=13.00006)
+    match = match_pea_assets([asset], [pole], main_route=_route())[0].confirm(
+        pole.source_key
+    )
+    assert match.candidates[0].side_relation is AssetSideRelation.SAME_SIDE
     path = tmp_path / "new.prs"
     save_project_file(path, {"pea_assets": pea_assets_to_data([asset]),
                              "pea_asset_matches": pea_asset_matches_to_data([match])})

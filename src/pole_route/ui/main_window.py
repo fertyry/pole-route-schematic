@@ -1414,10 +1414,19 @@ class MainWindow(QMainWindow):
             },
         )
         self.current_pea_assets = list(merge.assets)
-        self.current_pea_asset_matches = list(match_pea_assets(
-            self.current_pea_assets, self.current_pea_poles,
-            self.current_pea_ordering, merge.matches,
-        ))
+        analysis_routes = [
+            route.route for route in self.current_routes if route.type is RouteType.MAIN_ROUTE
+        ]
+        analysis_route = analysis_routes[0] if len(analysis_routes) == 1 else None
+        self.current_pea_asset_matches = list(
+            match_pea_assets(
+                self.current_pea_assets,
+                self.current_pea_poles,
+                self.current_pea_ordering,
+                merge.matches,
+                main_route=analysis_route,
+            )
+        )
         self.review_pea_assets_action.setEnabled(bool(self.current_pea_assets))
         if records is None:
             QMessageBox.information(
@@ -1451,12 +1460,14 @@ class MainWindow(QMainWindow):
         self.review_pea_order_action.setEnabled(len(main_routes) == 1)
         warning_count = sum(bool(record.qc_warnings) for record in records)
         unsupported = ", ".join(discovery.unsupported_ds_sheets) or "None"
+        excluded = ", ".join(discovery.intentionally_excluded_ds_sheets) or "None"
         summary = (
             f"DS_Pole records: {len(records)}\n"
             f"Included by default: {len(included)}\n"
             f"Retained for review: {len(records) - len(included)}\n"
             f"Rows with QC warnings: {warning_count}\n"
             f"\n{self._pea_asset_summary()}\n"
+            f"Intentionally excluded DS_* sheets: {excluded}\n"
             f"Unsupported DS_* sheets: {unsupported}"
         )
         QMessageBox.information(self, "PEA GIS import summary", summary)
@@ -1487,13 +1498,22 @@ class MainWindow(QMainWindow):
         if not self.current_pea_assets:
             QMessageBox.warning(self, "PEA asset review unavailable", "Import supported PEA GIS asset sheets first.")
             return
-        self.current_pea_asset_matches = list(match_pea_assets(
-            self.current_pea_assets, self.current_pea_poles,
-            self.current_pea_ordering, self.current_pea_asset_matches,
-        ))
+        main_routes = [
+            route for route in self.current_routes if route.type is RouteType.MAIN_ROUTE
+        ]
+        analysis_route = main_routes[0].route if len(main_routes) == 1 else None
+        self.current_pea_asset_matches = list(
+            match_pea_assets(
+                self.current_pea_assets,
+                self.current_pea_poles,
+                self.current_pea_ordering,
+                self.current_pea_asset_matches,
+                main_route=analysis_route,
+            )
+        )
         dialog = PEAAssetReviewDialog(
             self.current_pea_assets, self.current_pea_asset_matches,
-            self.current_pea_poles, self.current_pea_ordering, self,
+            self.current_pea_poles, self.current_pea_ordering, analysis_route, self,
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.current_pea_asset_matches = list(dialog.matches())

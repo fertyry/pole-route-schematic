@@ -106,7 +106,7 @@ Implemented foundation:
   to the log file/folder. Review surroundings creates no record because it performs no
   network fetch.
 
-### 7. Real Surround validation profiles — IN PROGRESS
+### 7. Real Surround validation profiles — COMPLETE for Urban Dense and Long/Mixed
 
 - Run Urban Dense and Long/Mixed routes first; use the automatic C2 records to compare
   total/provider timings, OSM request/retry/split counts, unresolved intervals, category
@@ -115,8 +115,9 @@ Implemented foundation:
 - Verify Review visibly reports partial coverage and Retry failed areas does not refetch
   successful intervals.
 
-Urban Dense validation has real evidence in the project history. Long/Mixed and the other
-profiles still require explicit completion evidence; do not mark them complete from B1 work.
+Urban Dense and Long/Mixed have real evidence in the project history. Suburban, Rural,
+Junction-heavy, and Water/Bridge-heavy remain optional future coverage profiles rather than
+blocking B1/B1.1.
 
 ### 8. Generic PEA Assets — COMPLETE (Milestone B1)
 
@@ -139,11 +140,30 @@ B1 implementation. Real header coverage, counts, distance distributions, ambigui
 and reimport must therefore be validated separately before treating the profiles as complete
 field evidence.
 
-### 8A. Recommended next milestone — B2 Asset visual QC
+### 8A. Real PEA Asset Validation — COMPLETE (Milestone B1.1)
+
+- Both B003 workbooks were validated independently through the normal MainWindow import path.
+- Real PEA GIS aliases were added for pole TAG, transformer PEANO, switch equipment code,
+  rating, phase, subtype, status, and feeder fields while all raw attributes remain available.
+- Conductor and Meter sheets are explicitly classified as intentionally excluded; they do not
+  create point assets or enter matching/review counts.
+- Exact source coordinates remain unchanged. Route projections and same/opposite/uncertain
+  side evidence are derived separately; `POLE_OFFSET` is never a coordinate correction.
+- The 0.5 m route-centerline dead band and persisted side evidence do not affect ranking or
+  confirmation. All B003 nearest candidates were same-side, so the evidence is useful for
+  review but did not justify a ranking rule.
+- The initial 5/15/50 m distance policy remains unchanged. Four real switches between roughly
+  15 and 45 m remain unmatched instead of widening policy merely to increase match rate.
+- Separate local projects passed manual confirmation, alternate-candidate override,
+  save/reopen, same-workbook reimport, no-duplicate, and missing-source audit checks.
+
+### 8B. Recommended next milestone — B2 Asset visual QC
 
 - Add optional Google Earth visualization for reviewed assets and confirmed pole links.
-- First validate B1 against a real PEA GIS workbook and extend only evidence-backed aliases.
-- Do not start CAD symbol writing until reviewed/confirmed relationships have field evidence.
+- Add optional Google Earth visualization for assets, candidate/confirmed pole links, and the
+  real far-switch cases that remained unmatched under the validated distance policy.
+- Do not start CAD symbol writing until users have visually reviewed representative confirmed
+  relationships in Google Earth.
 
 ### 9. Overture Places design notes
 

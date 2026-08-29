@@ -37,6 +37,7 @@ from pole_route.domain.context import (
 from pole_route.domain.pea_asset import (
     AssetMatchState,
     AssetPoleCandidate,
+    AssetSideRelation,
     PEAAsset,
     PEAAssetMatch,
     PEAAssetType,
@@ -613,6 +614,9 @@ def pea_asset_matches_to_data(matches: list[PEAAssetMatch] | tuple[PEAAssetMatch
             "distance_metres": item.distance_metres, "pole_order": item.pole_order,
             "pole_included": item.pole_included, "pole_qc": item.pole_qc,
             "strength": item.strength,
+            "side_relation": item.side_relation.value,
+            "asset_route_offset_metres": item.asset_route_offset_metres,
+            "pole_route_offset_metres": item.pole_route_offset_metres,
         } for item in match.candidates],
     } for match in matches]
 
@@ -628,6 +632,19 @@ def pea_asset_matches_from_data(data: list[dict[str, Any]]) -> list[PEAAssetMatc
             pole_order=int(candidate["pole_order"]) if candidate.get("pole_order") is not None else None,
             pole_included=candidate.get("pole_included"), pole_qc=str(candidate.get("pole_qc", "")),
             strength=str(candidate.get("strength", "weak")),
+            side_relation=AssetSideRelation(
+                candidate.get("side_relation", AssetSideRelation.UNCERTAIN.value)
+            ),
+            asset_route_offset_metres=(
+                float(candidate["asset_route_offset_metres"])
+                if candidate.get("asset_route_offset_metres") is not None
+                else None
+            ),
+            pole_route_offset_metres=(
+                float(candidate["pole_route_offset_metres"])
+                if candidate.get("pole_route_offset_metres") is not None
+                else None
+            ),
         ) for candidate in item.get("candidates", [])),
         suggested_pole_key=item.get("suggested_pole_key"),
         confirmed_pole_key=item.get("confirmed_pole_key"),

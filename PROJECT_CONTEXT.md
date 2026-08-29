@@ -781,6 +781,18 @@ ambiguous bridge relationships, persistence, and deterministic footbridge orient
     confirmations, and ordinary reimport/recalculation must preserve manual confirmation.
 20. Later CAD asset work may consume only reviewed/confirmed relationships; B1 does not
     create CAD symbols or modify Base CAD.
+21. PEA geographic latitude/longitude is authoritative immutable source truth for poles,
+    transformers, switches, and future point assets. Route station, route offset, projected
+    route point, and route-side evidence are derived analysis and must be stored separately.
+22. `POLE_OFFSET` is schematic/CAD display geometry only. It must never snap, correct, or
+    replace a PEA source coordinate. Asset matching uses the authoritative source coordinates.
+23. Side-of-route is supporting review evidence only. It may report same side, opposite side,
+    or uncertain using the centralized 0.5 m centerline dead band; it never changes candidate
+    distance ranking, rejects a candidate, or confirms a relationship. Literal left/right is
+    direction-dependent and is not used as project truth.
+24. Generic PEA Assets currently means reviewed coordinate-bearing point assets, not every
+    `DS_*` table. Conductor and Meter datasets are intentionally excluded from the point-asset
+    importer/matcher/UI, while remaining visible in workbook discovery.
 
 ## Current status after Phase 1
 
@@ -840,6 +852,11 @@ latency remains a known risk; do not describe batching itself as a network speed
 - Generic PEA asset foundation for `DS_Transformer` and `DS_Switch`: profile discovery,
   source-neutral/raw-preserving import, coordinate QC, deterministic pole candidates,
   explicit review state, safe reimport merge, review UI, and additive schema-v1 persistence.
+- B1.1 real validation used both independent B003 workbooks through the normal MainWindow
+  import path. Evidence-backed aliases cover `รหัส TAG` for poles, `PEANO หม้อแปลง` for
+  transformer identity, and `รหัสอุปกรณ์` for switch identity. All 24 asset rows retained
+  their exact source coordinates; save/reopen, same-workbook reimport, manual override, and
+  missing-source audit behavior passed. The initial 5/15/50 m distance policy remains unchanged.
 
 ### Active visual defects reported after the CAD-sheet baseline
 

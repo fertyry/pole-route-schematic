@@ -43,6 +43,27 @@ def test_discovery_lists_all_sheets_and_finds_inactive_ds_pole(tmp_path) -> None
     assert import_ds_poles(path)[0].source_sheet == "DS_Pole"
 
 
+def test_discovery_classifies_conductor_and_meter_sheets_as_intentionally_excluded(
+    tmp_path,
+) -> None:
+    path = tmp_path / "excluded.xlsx"
+    workbook = Workbook()
+    workbook.active.title = "DS_MVConductor"
+    workbook.create_sheet("DS_LVConductor")
+    workbook.create_sheet("DS_LowVoltageMeter")
+    workbook.create_sheet("DS_Unknown")
+    workbook.save(path)
+
+    discovery = discover_pea_workbook(path)
+
+    assert discovery.intentionally_excluded_ds_sheets == (
+        "DS_MVConductor",
+        "DS_LVConductor",
+        "DS_LowVoltageMeter",
+    )
+    assert discovery.unsupported_ds_sheets == ("DS_Unknown",)
+
+
 def test_missing_ds_pole_reports_visible_sheets(tmp_path) -> None:
     path = tmp_path / "missing.xlsx"
     _save_workbook(path, include_ds_pole=False)

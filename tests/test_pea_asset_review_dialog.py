@@ -37,3 +37,21 @@ def test_review_confirms_changes_and_clears_candidate(qtbot):
     assert confirmed.manual_override
     dialog.table.selectRow(0); dialog._clear_selected()
     assert dialog.matches()[0].state is AssetMatchState.UNMATCHED
+
+
+def test_review_filters_asset_types_without_losing_review_state(qtbot):
+    asset, poles = _data()
+    transformer = PEAAsset(
+        "DS_Transformer:tx-1", "DS_Transformer", 3,
+        PEAAssetType.TRANSFORMER, "TX-1", 13.0, 100.0,
+    )
+    assets = [asset, transformer]
+    matches = match_pea_assets(assets, poles)
+    dialog = PEAAssetReviewDialog(assets, matches, poles)
+    qtbot.addWidget(dialog)
+
+    assert dialog.table.rowCount() == 2
+    dialog.type_filter.setCurrentIndex(dialog.type_filter.findData("switch"))
+    assert dialog.table.rowCount() == 1
+    assert dialog.table.item(0, 1).text() == "switch"
+    assert len(dialog.matches()) == 2

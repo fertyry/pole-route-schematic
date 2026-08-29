@@ -22,10 +22,15 @@ class PEAGISImportError(ValueError):
 class PEASheetDiscovery:
     name: str
     profile: str | None
+    exclusion_reason: str | None = None
 
     @property
     def supported(self) -> bool:
         return self.profile is not None
+
+    @property
+    def intentionally_excluded(self) -> bool:
+        return self.exclusion_reason is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,8 +50,14 @@ class PEAWorkbookDiscovery:
         return tuple(
             sheet.name
             for sheet in self.sheets
-            if sheet.name.casefold().startswith("ds_") and not sheet.supported
+            if sheet.name.casefold().startswith("ds_")
+            and not sheet.supported
+            and not sheet.intentionally_excluded
         )
+
+    @property
+    def intentionally_excluded_ds_sheets(self) -> tuple[str, ...]:
+        return tuple(sheet.name for sheet in self.sheets if sheet.intentionally_excluded)
 
 
 DS_POLE_PROFILE = "DS_Pole"
@@ -58,7 +69,7 @@ THAI_DIGITS = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
 DS_POLE_ALIASES = {
     "source_id": {
         "poleid", "pole_id", "poleno", "pole_no", "peano", "pea_no",
-        "หมายเลขเสา", "เลขเสา", "รหัสเสา", "รหัสทรัพย์สิน",
+        "หมายเลขเสา", "เลขเสา", "รหัสเสา", "รหัสทรัพย์สิน", "รหัส TAG",
     },
     "latitude": {"latitude", "lat", "ละติจูด"},
     "longitude": {"longitude", "long", "lon", "lng", "ลองจิจูด"},
@@ -80,12 +91,27 @@ def discover_pea_workbook(path: str | Path) -> PEAWorkbookDiscovery:
             "ds_switch": DS_SWITCH_PROFILE,
         }
         sheets = tuple(
-            PEASheetDiscovery(name, profiles.get(name.casefold()))
+            PEASheetDiscovery(
+                name,
+                profiles.get(name.casefold()),
+                _intentional_exclusion(name),
+            )
             for name in workbook.sheetnames
         )
     finally:
         workbook.close()
     return PEAWorkbookDiscovery(sheets)
+
+
+def _intentional_exclusion(sheet_name: str) -> str | None:
+    normalized = sheet_name.casefold()
+    if not normalized.startswith("ds_"):
+        return None
+    if "conductor" in normalized:
+        return "Conductor datasets are outside the current point-asset workflow"
+    if "meter" in normalized:
+        return "Meter datasets are outside the current point-asset workflow"
+    return None
 
 
 def import_ds_poles(path: str | Path) -> list[PEAPoleRecord]:

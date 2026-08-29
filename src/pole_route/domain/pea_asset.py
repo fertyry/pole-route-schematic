@@ -20,6 +20,12 @@ class AssetMatchState(StrEnum):
     CONFIRMED = "confirmed"
 
 
+class AssetSideRelation(StrEnum):
+    SAME_SIDE = "same_side"
+    OPPOSITE_SIDE = "opposite_side"
+    UNCERTAIN = "uncertain"
+
+
 @dataclass(frozen=True, slots=True)
 class PEAAsset:
     """One auditable source asset; normalized fields remain optional."""
@@ -62,6 +68,9 @@ class AssetPoleCandidate:
     pole_included: bool | None = None
     pole_qc: str = ""
     strength: str = "weak"
+    side_relation: AssetSideRelation = AssetSideRelation.UNCERTAIN
+    asset_route_offset_metres: float | None = None
+    pole_route_offset_metres: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
