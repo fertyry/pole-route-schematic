@@ -7,8 +7,9 @@
 
 ## Current objective
 
-Build a reviewed PEA GIS data pipeline and useful free geographic context without
-replacing the geometry, persistence, or CAD foundations already implemented.
+Maintain a source-neutral reviewed pole and GIS point-asset pipeline without replacing the
+geometry, persistence, or CAD foundations already implemented. PEA GIS remains a supported
+provider rather than the core application architecture.
 
 This document separates completed foundations from the next planned milestone.
 
@@ -178,6 +179,26 @@ field evidence.
   target without rebuilding Base CAD.
 - Do not start B3 automatically; B2.1 visual refinement remains appropriate if field review
   finds label/style usability problems.
+
+### 8D. Generic GIS Asset Import — COMPLETE (Milestone G1)
+
+- Add mapped XLSX/CSV **Import assets** without requiring PEA worksheet names.
+- Retain the compatible `PEAAsset` symbol while adding provider/file provenance and
+  provider-neutral semantics additively.
+- Normalize Transformer and Switch aliases; retain unknown types and invalid coordinates
+  as auditable warnings rather than dropping or misclassifying them.
+- Reuse B1 matching, review, reimport, persistence, and B2 Google Earth QC for generic and
+  PEA sources.
+- Match generic assets against generic poles or reviewed PEA poles through one canonical
+  candidate bridge without duplicating pole records or changing the 5/15/50 m policy.
+- Generalize the review label and add source/type/state filters. Preserve source coordinates
+  and manual confirmations across save/reopen and stable reimport.
+- Keep Power Utility Toolkit photo coordinates and photo workflow outside PoleRoute.
+- No CAD asset symbol or synchronization is implemented in G1.
+
+Recommended next milestone: **G2 — Unified Asset Review / workflow polish** if real user
+validation identifies mapping or review usability gaps; otherwise plan **G3 — Confirmed
+Asset CAD Integration**. Do not start either automatically.
 
 ### 9. Overture Places design notes
 

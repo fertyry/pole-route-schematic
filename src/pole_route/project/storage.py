@@ -577,6 +577,8 @@ def pea_assets_to_data(assets: list[PEAAsset] | tuple[PEAAsset, ...]) -> list[di
             "feeder_reference": asset.feeder_reference,
             "qc_warnings": list(asset.qc_warnings),
             "source_present": asset.source_present,
+            "source_provider": asset.source_provider,
+            "source_file": asset.source_file,
         }
         for asset in assets
     ]
@@ -600,6 +602,8 @@ def pea_assets_from_data(data: list[dict[str, Any]]) -> list[PEAAsset]:
         feeder_reference=item.get("feeder_reference"),
         qc_warnings=tuple(str(value) for value in item.get("qc_warnings", [])),
         source_present=bool(item.get("source_present", True)),
+        source_provider=str(item.get("source_provider", "PEA_GIS")),
+        source_file=str(item.get("source_file", "")),
     ) for item in data]
 
 

@@ -53,5 +53,5 @@ def test_review_filters_asset_types_without_losing_review_state(qtbot):
     assert dialog.table.rowCount() == 2
     dialog.type_filter.setCurrentIndex(dialog.type_filter.findData("switch"))
     assert dialog.table.rowCount() == 1
-    assert dialog.table.item(0, 1).text() == "switch"
+    assert dialog.table.item(0, 2).text() == "switch"
     assert len(dialog.matches()) == 2

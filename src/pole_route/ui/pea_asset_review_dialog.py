@@ -27,9 +27,9 @@ from pole_route.geometry.pea_asset_matching import match_pea_assets
 
 class PEAAssetReviewDialog(QDialog):
     COLUMNS = (
-        "Use", "Asset Type", "Asset ID", "Latitude", "Longitude", "Nearest Pole",
-        "Distance (m)", "Pole Order", "Match Status", "Side Evidence", "QC",
-        "Confirmed Pole",
+        "Use", "Source", "Asset Type", "Asset ID", "Description", "Latitude",
+        "Longitude", "Nearest Pole", "Distance (m)", "Pole Order", "Match Status",
+        "Side Evidence", "QC", "Confirmed Pole",
     )
 
     def __init__(self, assets, matches, poles, ordering=None, main_route=None, parent=None):
@@ -40,10 +40,17 @@ class PEAAssetReviewDialog(QDialog):
         self._ordering: PEAPoleOrdering | None = ordering
         self._main_route: Route | None = main_route
         self._selectors: dict[str, QComboBox] = {}
-        self.setWindowTitle("Review PEA Assets")
+        self.setWindowTitle("Review Assets")
         self.resize(1250, 620)
         layout = QVBoxLayout(self)
         filter_row = QHBoxLayout()
+        filter_row.addWidget(QLabel("Source:"))
+        self.source_filter = QComboBox()
+        self.source_filter.addItem("All", None)
+        for source in sorted({asset.source_provider for asset in self._assets}):
+            self.source_filter.addItem(source, source)
+        self.source_filter.currentIndexChanged.connect(self._refresh)
+        filter_row.addWidget(self.source_filter)
         filter_row.addWidget(QLabel("Asset type:"))
         self.type_filter = QComboBox()
         self.type_filter.addItem("All", None)
@@ -51,6 +58,13 @@ class PEAAssetReviewDialog(QDialog):
             self.type_filter.addItem(asset_type.value.replace("_", " ").title(), asset_type.value)
         self.type_filter.currentIndexChanged.connect(self._refresh)
         filter_row.addWidget(self.type_filter)
+        filter_row.addWidget(QLabel("Match state:"))
+        self.state_filter = QComboBox()
+        self.state_filter.addItem("All", None)
+        for state in ("unmatched", "suggested", "ambiguous", "confirmed"):
+            self.state_filter.addItem(state.title(), state)
+        self.state_filter.currentIndexChanged.connect(self._refresh)
+        filter_row.addWidget(self.state_filter)
         filter_row.addStretch()
         layout.addLayout(filter_row)
         self.table = QTableWidget(0, len(self.COLUMNS))
@@ -79,21 +93,30 @@ class PEAAssetReviewDialog(QDialog):
 
     def _selected_asset_id(self):
         row = self.table.currentRow()
-        return self.table.item(row, 2).data(Qt.ItemDataRole.UserRole) if row >= 0 else None
+        return self.table.item(row, 3).data(Qt.ItemDataRole.UserRole) if row >= 0 else None
 
     def _refresh(self):
         selected_type = self.type_filter.currentData()
+        selected_source = self.source_filter.currentData()
+        selected_state = self.state_filter.currentData()
         displayed = [
             asset
             for asset in self._assets
-            if selected_type is None or asset.asset_type.value == selected_type
+            if (selected_type is None or asset.asset_type.value == selected_type)
+            and (selected_source is None or asset.source_provider == selected_source)
+            and (
+                selected_state is None
+                or self._matches.get(asset.stable_id, PEAAssetMatch(asset.stable_id)).state.value
+                == selected_state
+            )
         ]
         self.table.setRowCount(len(displayed)); self._selectors.clear()
         for row, asset in enumerate(displayed):
             match = self._matches.get(asset.stable_id, PEAAssetMatch(asset.stable_id))
             nearest = match.candidates[0] if match.candidates else None
             values = (
-                "", asset.asset_type.value, asset.source_asset_id or "(missing)",
+                "", asset.source_provider, asset.asset_type.value,
+                asset.source_asset_id or "(missing)", asset.name or "",
                 "" if asset.latitude is None else f"{asset.latitude:.7f}",
                 "" if asset.longitude is None else f"{asset.longitude:.7f}",
                 nearest.pole_id if nearest else "", f"{nearest.distance_metres:.2f}" if nearest else "",
@@ -107,9 +130,9 @@ class PEAAssetReviewDialog(QDialog):
                     checkbox = QCheckBox(); checkbox.setChecked(match.included)
                     checkbox.toggled.connect(lambda enabled, key=asset.stable_id: self._set_included(key, enabled))
                     self.table.setCellWidget(row, column, checkbox)
-                elif column != 11:
+                elif column != 13:
                     item = QTableWidgetItem(str(value))
-                    if column == 2: item.setData(Qt.ItemDataRole.UserRole, asset.stable_id)
+                    if column == 3: item.setData(Qt.ItemDataRole.UserRole, asset.stable_id)
                     self.table.setItem(row, column, item)
             selector = QComboBox(); selector.addItem("Unmatched", None)
             for candidate in match.candidates:
@@ -122,7 +145,7 @@ class PEAAssetReviewDialog(QDialog):
             selected = match.confirmed_pole_key or match.suggested_pole_key
             index = selector.findData(selected)
             selector.setCurrentIndex(max(0, index))
-            self.table.setCellWidget(row, 11, selector); self._selectors[asset.stable_id] = selector
+            self.table.setCellWidget(row, 13, selector); self._selectors[asset.stable_id] = selector
         self.table.resizeColumnsToContents()
 
     def _set_included(self, key, enabled):

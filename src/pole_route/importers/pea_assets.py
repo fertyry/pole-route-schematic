@@ -118,6 +118,7 @@ def import_pea_assets(
                         headers, row, mapping, profile,
                         source_sheet=actual_name,
                         source_row=header_index + offset + 1,
+                        source_file=source.name,
                     ))
     finally:
         workbook.close()
@@ -168,7 +169,7 @@ def _optional_coordinate(value: Any, label: str) -> tuple[float | None, str | No
     return numeric, None
 
 
-def _parse_row(headers, row, mapping, profile, *, source_sheet, source_row):
+def _parse_row(headers, row, mapping, profile, *, source_sheet, source_row, source_file=""):
     padded = tuple(row[index] if index < len(row) else None for index in range(len(headers)))
     raw = {headers[index]: _json_safe(value) for index, value in enumerate(padded)}
     value = lambda field: padded[mapping[field]] if field in mapping else None
@@ -208,4 +209,6 @@ def _parse_row(headers, row, mapping, profile, *, source_sheet, source_row):
         status=_text(value("status")),
         feeder_reference=_text(value("feeder")),
         qc_warnings=tuple(warnings),
+        source_provider="PEA_GIS",
+        source_file=source_file,
     )

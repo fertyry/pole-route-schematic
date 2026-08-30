@@ -16,6 +16,7 @@ from pole_route.domain.pea_asset import (
 )
 from pole_route.domain.pea_gis import PEAPoleRecord
 from pole_route.domain.pea_ordering import PEAPoleOrdering
+from pole_route.domain.pole import Pole
 from pole_route.domain.route import GeoPoint, Route
 from pole_route.geometry.projection import MetricProjection
 
@@ -36,7 +37,7 @@ DEFAULT_ASSET_MATCH_POLICY = AssetMatchPolicy()
 
 def match_pea_assets(
     assets: list[PEAAsset] | tuple[PEAAsset, ...],
-    poles: list[PEAPoleRecord] | tuple[PEAPoleRecord, ...],
+    poles: list[PEAPoleRecord | Pole] | tuple[PEAPoleRecord | Pole, ...],
     ordering: PEAPoleOrdering | None = None,
     previous: list[PEAAssetMatch] | tuple[PEAAssetMatch, ...] = (),
     policy: AssetMatchPolicy = DEFAULT_ASSET_MATCH_POLICY,
@@ -54,7 +55,7 @@ def match_pea_assets(
         if prior and prior.state is AssetMatchState.CONFIRMED and not reset_confirmed:
             keys = {item.pole_source_key for item in candidates}
             if prior.confirmed_pole_key and prior.confirmed_pole_key not in keys:
-                pole = next((p for p in poles if p.source_key == prior.confirmed_pole_key), None)
+                pole = next((p for p in poles if _pole_key(p) == prior.confirmed_pole_key), None)
                 if pole is not None and asset.coordinate_valid:
                     candidates = tuple(
                         sorted(
@@ -90,7 +91,8 @@ def _candidates(asset, poles, entries, policy, side_analyzer):
 
 
 def _candidate(asset, pole, entries, policy, side_analyzer):
-    entry = entries.get(pole.source_key)
+    pole_key = _pole_key(pole)
+    entry = entries.get(pole_key)
     distance = _distance(asset.latitude, asset.longitude, pole.latitude, pole.longitude)
     strength = (
         "strong" if distance <= policy.strong_metres
@@ -101,8 +103,8 @@ def _candidate(asset, pole, entries, policy, side_analyzer):
     pole_offset = side_analyzer.signed_offset(pole.latitude, pole.longitude) if side_analyzer else None
     relation = _side_relation(asset_offset, pole_offset)
     return AssetPoleCandidate(
-        pole_source_key=pole.source_key,
-        pole_id=pole.source_id,
+        pole_source_key=pole_key,
+        pole_id=_pole_id(pole),
         distance_metres=distance,
         pole_order=(entry.confirmed_order or entry.review_order) if entry else None,
         pole_included=entry.included if entry else None,
@@ -116,6 +118,14 @@ def _candidate(asset, pole, entries, policy, side_analyzer):
 
 def _rank(item):
     return item.distance_metres, item.pole_source_key
+
+
+def _pole_key(pole: PEAPoleRecord | Pole) -> str:
+    return pole.source_key if isinstance(pole, PEAPoleRecord) else f"GENERIC_POLE:{pole.number}"
+
+
+def _pole_id(pole: PEAPoleRecord | Pole) -> str:
+    return pole.source_id if isinstance(pole, PEAPoleRecord) else pole.number
 
 
 def _distance(lat1, lon1, lat2, lon2):

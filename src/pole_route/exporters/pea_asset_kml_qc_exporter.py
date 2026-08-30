@@ -15,6 +15,7 @@ from pole_route.domain.pea_asset import (
 )
 from pole_route.domain.pea_gis import PEAPoleRecord
 from pole_route.domain.pea_ordering import PEAPoleOrdering, PEAPoleReviewEntry
+from pole_route.domain.pole import Pole
 from pole_route.domain.route import GeoPoint, Route
 from pole_route.exporters.kml_qc_exporter import (
     KML_NAMESPACE,
@@ -34,8 +35,8 @@ def pea_asset_qc_kml_path(project_path: str | Path) -> Path:
 def export_pea_asset_qc_kml(
     path: str | Path,
     main_route: Route,
-    poles: list[PEAPoleRecord] | tuple[PEAPoleRecord, ...],
-    ordering: PEAPoleOrdering,
+    poles: list[PEAPoleRecord | Pole] | tuple[PEAPoleRecord | Pole, ...],
+    ordering: PEAPoleOrdering | None,
     assets: list[PEAAsset] | tuple[PEAAsset, ...],
     matches: list[PEAAssetMatch] | tuple[PEAAssetMatch, ...],
 ) -> Path:
@@ -48,18 +49,18 @@ def export_pea_asset_qc_kml(
 
 def build_pea_asset_qc_kml(
     main_route: Route,
-    poles: list[PEAPoleRecord] | tuple[PEAPoleRecord, ...],
-    ordering: PEAPoleOrdering,
+    poles: list[PEAPoleRecord | Pole] | tuple[PEAPoleRecord | Pole, ...],
+    ordering: PEAPoleOrdering | None,
     assets: list[PEAAsset] | tuple[PEAAsset, ...],
     matches: list[PEAAssetMatch] | tuple[PEAAssetMatch, ...],
 ) -> bytes:
     """Build deterministic KML exclusively from persisted review evidence."""
-    if not ordering.entries:
-        raise KMLQCExportError("No reviewed PEA pole records are available for asset QC.")
+    if not poles:
+        raise KMLQCExportError("No pole records are available for asset QC.")
     if not assets:
-        raise KMLQCExportError("No supported PEA assets are available for asset QC.")
-    records_by_key = {record.source_key: record for record in poles}
-    entries_by_key = {entry.source_key: entry for entry in ordering.entries}
+        raise KMLQCExportError("No GIS assets are available for asset QC.")
+    records_by_key = {_pole_key(record): record for record in poles}
+    entries_by_key = {entry.source_key: entry for entry in ordering.entries} if ordering else {}
     missing = [key for key in entries_by_key if key not in records_by_key]
     if missing:
         raise KMLQCExportError(
@@ -69,25 +70,32 @@ def build_pea_asset_qc_kml(
 
     kml = ET.Element(_tag("kml"))
     document = ET.SubElement(kml, _tag("Document"))
-    _text(document, "name", f"{main_route.name or 'Main Route'} — PEA Asset QC")
+    _text(document, "name", f"{main_route.name or 'Main Route'} — Asset QC")
     _text(document, "description", _summary(assets, matches_by_asset))
     _add_styles(document)
 
     route_folder = _folder(document, "Main Route")
     effective_points = (
-        tuple(reversed(main_route.points)) if ordering.direction_reversed else main_route.points
+        tuple(reversed(main_route.points))
+        if ordering is not None and ordering.direction_reversed
+        else main_route.points
     )
     _add_route(route_folder, main_route, effective_points)
     _add_endpoint(route_folder, "START", effective_points[0])
     _add_endpoint(route_folder, "END", effective_points[-1])
 
     pole_folder = _folder(document, "Poles")
-    for entry in sorted(ordering.entries, key=_pole_sort_key):
-        _add_pole(pole_folder, records_by_key[entry.source_key], entry, ordering)
+    if ordering is not None:
+        for entry in sorted(ordering.entries, key=_pole_sort_key):
+            _add_pole(pole_folder, records_by_key[entry.source_key], entry, ordering)
+    else:
+        for pole in sorted(poles, key=_pole_key):
+            _add_generic_pole(pole_folder, pole)
 
     type_folders = {
         PEAAssetType.TRANSFORMER: _status_folders(_folder(document, "Transformers")),
         PEAAssetType.SWITCH: _status_folders(_folder(document, "Switches")),
+        PEAAssetType.OTHER: _status_folders(_folder(document, "Unsupported / Other")),
     }
     evidence_folder = _folder(document, "Match Evidence")
     for asset in sorted(assets, key=lambda item: (item.asset_type.value, item.stable_id)):
@@ -139,6 +147,7 @@ def _add_styles(document: ET.Element) -> None:
     icons = {
         PEAAssetType.TRANSFORMER: "http://maps.google.com/mapfiles/kml/shapes/lightning.png",
         PEAAssetType.SWITCH: "http://maps.google.com/mapfiles/kml/shapes/caution.png",
+        PEAAssetType.OTHER: "http://maps.google.com/mapfiles/kml/shapes/info.png",
     }
     for asset_type, icon_href in icons.items():
         for state, color in colors.items():
@@ -237,6 +246,8 @@ def _add_asset(
     values = {
         "Asset Type": type_name,
         "Asset ID": asset_id,
+        "Source": asset.source_provider,
+        "Source File": asset.source_file,
         "Source Sheet": asset.source_sheet,
         "Source Row": asset.source_row,
         "Source Latitude": _optional_coordinate(asset.latitude),
@@ -268,7 +279,7 @@ def _add_evidence(
     parent: ET.Element,
     asset: PEAAsset,
     match: PEAAssetMatch,
-    poles: dict[str, PEAPoleRecord],
+    poles: dict[str, PEAPoleRecord | Pole],
 ) -> None:
     if not asset.coordinate_valid:
         return
@@ -341,7 +352,7 @@ def _summary(assets: list[PEAAsset] | tuple[PEAAsset, ...], matches) -> str:
         for asset in assets
     )
     lines = ["Read-only QC artifact. Suggested and ambiguous links are evidence, not truth."]
-    for asset_type in (PEAAssetType.TRANSFORMER, PEAAssetType.SWITCH):
+    for asset_type in PEAAssetType:
         parts = [
             f"{state.value}={counts[(asset_type, state)]}"
             for state in AssetMatchState
@@ -353,6 +364,24 @@ def _summary(assets: list[PEAAsset] | tuple[PEAAsset, ...], matches) -> str:
 def _pole_sort_key(entry: PEAPoleReviewEntry) -> tuple[int, int, str]:
     order = entry.confirmed_order or entry.review_order
     return (0 if entry.included else 1, order if order is not None else 10**9, entry.source_key)
+
+
+def _pole_key(pole: PEAPoleRecord | Pole) -> str:
+    return pole.source_key if isinstance(pole, PEAPoleRecord) else f"GENERIC_POLE:{pole.number}"
+
+
+def _add_generic_pole(parent: ET.Element, pole: PEAPoleRecord | Pole) -> None:
+    pole_id = pole.source_id if isinstance(pole, PEAPoleRecord) else pole.number
+    placemark = ET.SubElement(parent, _tag("Placemark"))
+    _text(placemark, "name", f"Pole — {pole_id}")
+    _text(placemark, "styleUrl", "#pole")
+    _extended(placemark, {
+        "Pole ID": pole_id,
+        "Source Latitude": _coordinate_number(pole.latitude),
+        "Source Longitude": _coordinate_number(pole.longitude),
+    })
+    point = ET.SubElement(placemark, _tag("Point"))
+    _text(point, "coordinates", _coordinate(pole.longitude, pole.latitude))
 
 
 def _coordinate(longitude: float, latitude: float) -> str:

@@ -82,6 +82,12 @@ from pole_route.geometry.pea_asset_matching import match_pea_assets
 from pole_route.geometry.pea_linear_reference import reference_pea_poles
 from pole_route.geometry.road_geometry import RoadGeometryError, build_road_network_geometry
 from pole_route.geometry.schematic_layout import create_schematic_layout
+from pole_route.importers.asset_importer import (
+    AssetImportError,
+    assets_from_table,
+    inspect_asset_file,
+    suggest_asset_mapping,
+)
 from pole_route.importers.edited_dxf_importer import (
     EditedDxfImportError,
     inspect_edited_dxf,
@@ -126,6 +132,7 @@ from pole_route.project.storage import (
     scene_to_data,
 )
 from pole_route.project.working_directory import WorkingDirectory
+from pole_route.ui.asset_column_mapping_dialog import AssetColumnMappingDialog
 from pole_route.ui.column_mapping_dialog import ColumnMappingDialog
 from pole_route.ui.drawing_view import DrawingMode, DrawingView
 from pole_route.ui.duplicate_pole_dialog import (
@@ -290,6 +297,13 @@ class MainWindow(QMainWindow):
         self.import_poles_action.triggered.connect(self._choose_pole_file)
         toolbar.addAction(self.import_poles_action)
 
+        self.import_assets_action = QAction("Import assets", self)
+        self.import_assets_action.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
+        )
+        self.import_assets_action.triggered.connect(self._choose_asset_file)
+        toolbar.addAction(self.import_assets_action)
+
         self.import_pea_gis_action = QAction("Import PEA GIS Data", self)
         self.import_pea_gis_action.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
@@ -302,7 +316,7 @@ class MainWindow(QMainWindow):
         self.review_pea_order_action.triggered.connect(self._review_pea_pole_order)
         toolbar.addAction(self.review_pea_order_action)
 
-        self.review_pea_assets_action = QAction("Review PEA Assets", self)
+        self.review_pea_assets_action = QAction("Review Assets", self)
         self.review_pea_assets_action.setEnabled(False)
         self.review_pea_assets_action.triggered.connect(self._review_pea_assets)
         toolbar.addAction(self.review_pea_assets_action)
@@ -315,7 +329,7 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self.check_google_earth_action)
 
         self.check_pea_assets_google_earth_action = QAction(
-            "Check PEA Assets in Google Earth", self
+            "Check Assets in Google Earth", self
         )
         self.check_pea_assets_google_earth_action.setEnabled(False)
         self.check_pea_assets_google_earth_action.triggered.connect(
@@ -1369,8 +1383,11 @@ class MainWindow(QMainWindow):
             and self.current_pea_ordering is not None
         )
         self.check_google_earth_action.setEnabled(has_reviewed_poles)
+        has_asset_qc_poles = bool(self._asset_match_poles()[0])
         self.check_pea_assets_google_earth_action.setEnabled(
-            has_reviewed_poles and bool(self.current_pea_assets)
+            sum(route.type is RouteType.MAIN_ROUTE for route in self.current_routes) == 1
+            and has_asset_qc_poles
+            and bool(self.current_pea_assets)
         )
 
     def _select_block(self, block_type) -> None:
@@ -1404,6 +1421,60 @@ class MainWindow(QMainWindow):
         if path:
             self.working_directory.remember_file(path)
             self.load_pea_gis_file(path)
+
+    def _choose_asset_file(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import GIS assets",
+            self.working_directory.initial_path(),
+            "Asset data (*.xlsx *.csv)",
+        )
+        if path:
+            self.working_directory.remember_file(path)
+            self.load_asset_file(path)
+
+    def load_asset_file(self, path: str) -> None:
+        """Import a normal mapped CSV/XLSX into the canonical asset review pipeline."""
+        try:
+            table = inspect_asset_file(path)
+            dialog = AssetColumnMappingDialog(
+                table, suggest_asset_mapping(table.headers), self
+            )
+            if dialog.exec() != QDialog.DialogCode.Accepted:
+                self.statusBar().showMessage("Asset import cancelled")
+                return
+            imported = assets_from_table(table, dialog.mapping())
+        except AssetImportError as error:
+            QMessageBox.warning(self, "Asset import failed", str(error))
+            self.statusBar().showMessage("Asset import failed")
+            return
+
+        merge = merge_pea_assets(
+            self.current_pea_assets,
+            self.current_pea_asset_matches,
+            imported,
+            imported_sheets={table.source_path.name},
+        )
+        self.current_pea_assets = list(merge.assets)
+        poles, ordering = self._asset_match_poles()
+        main_routes = [
+            route.route for route in self.current_routes if route.type is RouteType.MAIN_ROUTE
+        ]
+        main_route = main_routes[0] if len(main_routes) == 1 else None
+        self.current_pea_asset_matches = list(match_pea_assets(
+            self.current_pea_assets,
+            poles,
+            ordering,
+            merge.matches,
+            main_route=main_route,
+        ))
+        self.review_pea_assets_action.setEnabled(bool(self.current_pea_assets))
+        self._update_pea_qc_action()
+        self.statusBar().showMessage(
+            f"Imported {len(imported)} assets; {merge.added} added, "
+            f"{merge.updated} updated, {merge.missing_from_source} missing from source"
+        )
+        self._mark_dirty()
 
     def load_pea_gis_file(self, path: str) -> None:
         """Import supported PEA GIS sheets through one coherent entry point."""
@@ -1514,31 +1585,44 @@ class MainWindow(QMainWindow):
 
     def _review_pea_assets(self) -> None:
         if not self.current_pea_assets:
-            QMessageBox.warning(self, "PEA asset review unavailable", "Import supported PEA GIS asset sheets first.")
+            QMessageBox.warning(self, "Asset review unavailable", "Import GIS asset data first.")
             return
         main_routes = [
             route for route in self.current_routes if route.type is RouteType.MAIN_ROUTE
         ]
         analysis_route = main_routes[0].route if len(main_routes) == 1 else None
+        poles, ordering = self._asset_match_poles()
         self.current_pea_asset_matches = list(
             match_pea_assets(
                 self.current_pea_assets,
-                self.current_pea_poles,
-                self.current_pea_ordering,
+                poles,
+                ordering,
                 self.current_pea_asset_matches,
                 main_route=analysis_route,
             )
         )
         dialog = PEAAssetReviewDialog(
             self.current_pea_assets, self.current_pea_asset_matches,
-            self.current_pea_poles, self.current_pea_ordering, analysis_route, self,
+            poles, ordering, analysis_route, self,
         )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.current_pea_asset_matches = list(dialog.matches())
             confirmed = sum(item.state.value == "confirmed" for item in self.current_pea_asset_matches)
-            self.statusBar().showMessage(f"PEA asset review saved; {confirmed} confirmed")
-            QMessageBox.information(self, "PEA asset review summary", self._pea_asset_summary())
+            self.statusBar().showMessage(f"Asset review saved; {confirmed} confirmed")
+            QMessageBox.information(self, "Asset review summary", self._pea_asset_summary())
             self._mark_dirty()
+
+    def _asset_match_poles(self):
+        """Return the active canonical pole set without duplicating source records."""
+        active_numbers = {pole.number for pole in self.current_poles}
+        pea_ids = {pole.source_id for pole in self.current_pea_poles}
+        if (
+            self.current_pea_ordering is not None
+            and self.current_pea_poles
+            and (not active_numbers or active_numbers <= pea_ids)
+        ):
+            return self.current_pea_poles, self.current_pea_ordering
+        return self.current_poles, None
 
     def _pea_asset_summary(self) -> str:
         matches = {item.asset_id: item for item in self.current_pea_asset_matches}
@@ -1556,7 +1640,7 @@ class MainWindow(QMainWindow):
                 f"- confirmed: {states.count('confirmed')}",
                 f"- unmatched: {states.count('unmatched')}",
             ))
-        return "\n".join(lines) if lines else "No supported PEA asset rows found"
+        return "\n".join(lines) if lines else "No supported asset rows found"
 
     def _review_pea_pole_order(self) -> None:
         main_routes = [route.route for route in self.current_routes if route.type is RouteType.MAIN_ROUTE]
@@ -1655,27 +1739,28 @@ class MainWindow(QMainWindow):
         if len(main_routes) != 1:
             QMessageBox.warning(
                 self,
-                "PEA asset Google Earth QC unavailable",
-                "Exactly one Main Route is required before checking PEA assets.",
+                "Asset Google Earth QC unavailable",
+                "Exactly one Main Route is required before checking assets.",
             )
             return
-        if not self.current_pea_poles or self.current_pea_ordering is None:
+        poles, ordering = self._asset_match_poles()
+        if not poles:
             QMessageBox.warning(
                 self,
-                "PEA asset Google Earth QC unavailable",
-                "Import PEA GIS poles and create a pole review order first.",
+                "Asset Google Earth QC unavailable",
+                "Import pole data before checking asset relationships.",
             )
             return
         if not self.current_pea_assets:
             QMessageBox.warning(
                 self,
-                "PEA asset Google Earth QC unavailable",
-                "Import supported PEA Transformer or Switch data first.",
+                "Asset Google Earth QC unavailable",
+                "Import Transformer or Switch asset data first.",
             )
             return
         if not self.project_path and not self._save_project_as():
             self.statusBar().showMessage(
-                "PEA asset Google Earth QC cancelled; save the project first"
+                "Asset Google Earth QC cancelled; save the project first"
             )
             return
 
@@ -1684,14 +1769,14 @@ class MainWindow(QMainWindow):
             export_pea_asset_qc_kml(
                 kml_path,
                 main_routes[0],
-                self.current_pea_poles,
-                self.current_pea_ordering,
+                poles,
+                ordering,
                 self.current_pea_assets,
                 self.current_pea_asset_matches,
             )
         except KMLQCExportError as error:
-            QMessageBox.warning(self, "PEA asset Google Earth QC export failed", str(error))
-            self.statusBar().showMessage("PEA asset Google Earth QC export failed")
+            QMessageBox.warning(self, "Asset Google Earth QC export failed", str(error))
+            self.statusBar().showMessage("Asset Google Earth QC export failed")
             return
 
         try:
@@ -1702,7 +1787,7 @@ class MainWindow(QMainWindow):
                 f"Asset QC KML generated; open it manually: {kml_path}"
             )
             return
-        self.statusBar().showMessage(f"Opened PEA asset Google Earth QC: {kml_path}")
+        self.statusBar().showMessage(f"Opened asset Google Earth QC: {kml_path}")
 
     def load_pole_file(self, path: str) -> None:
         """Load a pole file and display validation errors to the user."""

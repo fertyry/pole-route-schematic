@@ -870,6 +870,42 @@ latency remains a known risk; do not describe batching itself as a network speed
   confirmed, suggested, ambiguous, and unmatched Transformer/Switch review states without a
   project-schema change or any CAD asset output.
 
+### G1 — Generic GIS Asset Import: COMPLETE
+
+PEA and future MEA/GIS files are providers, not the core asset architecture. The existing
+`PEAAsset` symbol is retained for source and `.prs` compatibility, while its implemented
+semantics are provider-neutral and now preserve `source_provider` and `source_file`
+additively. Existing schema-v1 projects default missing provenance to `PEA_GIS` and continue
+to load without migration.
+
+The user-facing **Import assets** workflow accepts mapped UTF-8 CSV or XLSX files without
+requiring PEA worksheet names. Required mappings are Asset ID, Asset Type, Latitude, and
+Longitude; description, voltage, rating/capacity, phase, subtype, status, feeder/circuit,
+and source ID are optional. Transformer/TX/หม้อแปลง and Switch/SW/สวิตช์ normalize to the
+two initially supported design types. Unknown types and invalid coordinates remain as
+auditable `OTHER` records with QC warnings and are never silently rendered as supported
+equipment.
+
+Generic and PEA imports feed the same domain, deterministic 5/15/50 m proposal matcher,
+review state, additive persistence, and Google Earth QC exporter. Generic assets can match
+either generic `Pole` records or reviewed `PEAPoleRecord` records; matching never creates a
+duplicate pole or auto-confirms a relationship. Source coordinates stay immutable while
+distance, station, offset, and side are derived evidence. Reimport uses provider/file plus
+real source ID when available, otherwise a content fingerprint; it updates source data,
+preserves manual confirmation, retains disappeared assets for audit, and does not use row
+number as identity.
+
+The source-neutral **Review Assets** table filters by Source, Type, and Match State. Google
+Earth QC keeps the existing deterministic `_PEA_ASSET_QC.kml` artifact name for backward
+compatibility, but supports generic source assets and generic poles and exposes source
+provenance without mutating source coordinates or review state. Only explicitly confirmed
+asset-to-pole relationships are eligible for a later CAD milestone. G1 adds no CAD asset
+symbol or synchronization behavior.
+
+Power Utility Toolkit remains responsible for field-photo storage, renaming, OCR, photo
+coordinates, and photo KML. Photo/camera coordinates are not physical pole or GIS asset
+coordinates and must not be imported automatically as either.
+
 ### Active visual defects reported after the CAD-sheet baseline
 
 These remain unresolved until a later commit fixes and visually verifies them:

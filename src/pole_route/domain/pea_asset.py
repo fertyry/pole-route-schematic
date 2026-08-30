@@ -11,6 +11,7 @@ from typing import Any
 class PEAAssetType(StrEnum):
     TRANSFORMER = "transformer"
     SWITCH = "switch"
+    OTHER = "other"
 
 
 class AssetMatchState(StrEnum):
@@ -49,6 +50,8 @@ class PEAAsset:
     feeder_reference: str | None = None
     qc_warnings: tuple[str, ...] = ()
     source_present: bool = True
+    source_provider: str = "PEA_GIS"
+    source_file: str = ""
 
     @property
     def coordinate_valid(self) -> bool:
