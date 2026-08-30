@@ -114,10 +114,10 @@ def _intentional_exclusion(sheet_name: str) -> str | None:
     return None
 
 
-def import_ds_poles(path: str | Path) -> list[PEAPoleRecord]:
+def import_ds_poles(path: str | Path, sheet_name: str | None = None) -> list[PEAPoleRecord]:
     source = _validated_source(path)
     discovery = discover_pea_workbook(source)
-    sheet_name = next(
+    sheet_name = sheet_name or next(
         (sheet.name for sheet in discovery.supported_sheets if sheet.profile == DS_POLE_PROFILE),
         None,
     )
@@ -204,8 +204,8 @@ def default_pole_inclusion(height_metres: float | None, voltage_max_kv: float | 
 
 def _validated_source(path: str | Path) -> Path:
     source = Path(path)
-    if source.suffix.casefold() != ".xlsx":
-        raise PEAGISImportError("Choose a .xlsx PEA GIS workbook")
+    if source.suffix.casefold() not in {".xlsx", ".xlsm"}:
+        raise PEAGISImportError("Choose a .xlsx or .xlsm PEA GIS workbook")
     if not source.is_file():
         raise PEAGISImportError(f"File not found: {source}")
     return source

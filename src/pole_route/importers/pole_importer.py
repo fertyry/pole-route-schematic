@@ -1,13 +1,11 @@
 """Inspect, map, import, and validate pole data from CSV and Excel."""
 
-import csv
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from openpyxl import load_workbook
-
 from pole_route.domain.pole import Pole, PoleSide
+from pole_route.importers.tabular_source import detect_header, read_rows, unique_headers
 
 FIELD_LABELS = {
     "number": "Pole No.",
@@ -19,8 +17,7 @@ FIELD_LABELS = {
 }
 REQUIRED_FIELDS = ("number", "latitude", "longitude")
 OPTIONAL_FIELDS = ("detail", "installed_quantity", "side")
-SUPPORTED_SUFFIXES = {".csv", ".xlsx"}
-HEADER_SCAN_LIMIT = 20
+SUPPORTED_SUFFIXES = {".csv", ".xlsx", ".xlsm"}
 THAI_DIGITS = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
 COORDINATE_PATTERN = re.compile(
     r"^\s*([+-]?\d+(?:\.\d+)?)\s*(?:[°º]|deg)?\s*"
@@ -39,9 +36,10 @@ HEADER_ALIASES = {
         "number",
         "หมายเลขเสา",
         "เลขเสา",
+        "ลำดับ",
     },
-    "latitude": {"latitude", "lat", "ละติจูด"},
-    "longitude": {"longitude", "long", "lon", "lng", "ลองจิจูด"},
+    "latitude": {"latitude", "lat", "ละติจูด", "พิกัดละติจูด"},
+    "longitude": {"longitude", "long", "lon", "lng", "ลองจิจูด", "พิกัดลองจิจูด"},
     "detail": {"detail", "details", "description", "remark", "remarks", "รายละเอียด"},
     "installed_quantity": {
         "installedquantity",
@@ -66,28 +64,42 @@ class PoleTable:
     headers: tuple[str, ...]
     rows: tuple[tuple[object, ...], ...]
     header_row: int
+    sheet_name: str | None = None
+    confidence: str = "High"
 
 
-def inspect_pole_file(path: str | Path) -> PoleTable:
+def inspect_pole_file(
+    path: str | Path,
+    *,
+    sheet_name: str | None = None,
+    header_row: int | None = None,
+) -> PoleTable:
     """Read a supported source and detect the most likely header row."""
     source = Path(path)
     suffix = source.suffix.casefold()
     if suffix not in SUPPORTED_SUFFIXES:
-        raise PoleImportError("Choose a .csv or .xlsx pole-data file")
+        raise PoleImportError("Choose a .csv, .xlsx, or .xlsm pole-data file")
     if not source.is_file():
         raise PoleImportError(f"File not found: {source}")
 
-    raw_rows = _read_csv_rows(source) if suffix == ".csv" else _read_xlsx_rows(source)
+    try:
+        raw_rows = read_rows(source, sheet_name)
+    except ValueError as error:
+        raise PoleImportError(str(error)) from error
     if not raw_rows:
         raise PoleImportError("The file is empty")
-    header_index = _detect_header_index(raw_rows)
-    headers = _unique_headers(raw_rows[header_index])
+    detection = detect_header(raw_rows, HEADER_ALIASES, REQUIRED_FIELDS)
+    header_index = detection.row_index if header_row is None else header_row - 1
+    if not 0 <= header_index < len(raw_rows):
+        raise PoleImportError("Header row is outside the selected worksheet")
+    headers = unique_headers(raw_rows[header_index])
     data_rows = tuple(
         tuple(row[index] if index < len(row) else None for index in range(len(headers)))
         for row in raw_rows[header_index + 1 :]
         if any(value not in (None, "") for value in row)
     )
-    return PoleTable(headers, data_rows, header_index + 1)
+    confidence = detection.confidence if header_row is None else "Manual"
+    return PoleTable(headers, data_rows, header_index + 1, sheet_name, confidence)
 
 
 def suggest_column_mapping(headers: tuple[str, ...]) -> dict[str, str | None]:
@@ -130,64 +142,8 @@ def poles_from_table(table: PoleTable, mapping: dict[str, str | None]) -> list[P
     return poles
 
 
-def _read_csv_rows(path: Path) -> list[tuple[object, ...]]:
-    try:
-        with path.open("r", encoding="utf-8-sig", newline="") as handle:
-            return [tuple(row) for row in csv.reader(handle)]
-    except UnicodeDecodeError as error:
-        raise PoleImportError("CSV must be saved with UTF-8 encoding") from error
-
-
-def _read_xlsx_rows(path: Path) -> list[tuple[object, ...]]:
-    try:
-        workbook = load_workbook(path, read_only=True, data_only=True)
-    except Exception as error:
-        raise PoleImportError(f"Could not open Excel file: {error}") from error
-    try:
-        return [tuple(row) for row in workbook.active.iter_rows(values_only=True)]
-    finally:
-        workbook.close()
-
-
-def _detect_header_index(rows: list[tuple[object, ...]]) -> int:
-    candidates = rows[:HEADER_SCAN_LIMIT]
-    scores = [sum(_recognized_field(value) is not None for value in row) for row in candidates]
-    best_index = max(range(len(candidates)), key=scores.__getitem__)
-    if scores[best_index] == 0:
-        return next(
-            (index for index, row in enumerate(candidates) if any(value not in (None, "") for value in row)),
-            0,
-        )
-    return best_index
-
-
-def _recognized_field(value: object) -> str | None:
-    normalized = _normalize_header(value)
-    return next(
-        (
-            field
-            for field, aliases in HEADER_ALIASES.items()
-            if normalized in {_normalize_header(alias) for alias in aliases}
-        ),
-        None,
-    )
-
-
 def _normalize_header(value: object) -> str:
     return re.sub(r"[\W_]+", "", str(value or "").strip().casefold(), flags=re.UNICODE)
-
-
-def _unique_headers(row: tuple[object, ...]) -> tuple[str, ...]:
-    headers: list[str] = []
-    for index, value in enumerate(row, start=1):
-        base = str(value).strip() if value not in (None, "") else f"Column {index}"
-        header = base
-        suffix = 2
-        while header in headers:
-            header = f"{base} ({suffix})"
-            suffix += 1
-        headers.append(header)
-    return tuple(headers)
 
 
 def _row_to_pole(

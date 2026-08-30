@@ -142,6 +142,8 @@ def test_asset_qc_contains_route_poles_assets_statuses_and_source_coordinates() 
     assert values["Side Evidence"] == "SAME_SIDE"
     assert values["Rating / Capacity"] == "100 kVA"
     assert values["QC Warnings"] == "ตรวจสอบ"
+    scales = [item.text for item in root.findall(".//kml:scale", NS)]
+    assert {"1.35", "1.45", "1.5"}.issubset(scales)
     assert (tuple(poles), ordering, tuple(assets), tuple(matches)) == before
 
 

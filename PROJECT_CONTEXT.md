@@ -906,6 +906,36 @@ Power Utility Toolkit remains responsible for field-photo storage, renaming, OCR
 coordinates, and photo KML. Photo/camera coordinates are not physical pole or GIS asset
 coordinates and must not be imported automatically as either.
 
+### G2 — Import and QC Workflow Polish: COMPLETE
+
+Generic pole and asset tabular import now supports CSV, XLSX, and XLSM without assuming the
+active Excel worksheet or header row 1. Excel import first exposes worksheet selection,
+evidence-based header detection with confidence, a numeric header override, detected mapping,
+and a five-row preview. The existing column-mapping dialog remains the authoritative required-
+field gate. Consequently, an explicit header selection with unfamiliar labels may proceed to
+manual mapping; low-confidence detection never silently imports data.
+
+PEA GIS import exposes all discovered workbook sheets before reading records. Supported
+`DS_Pole`, `DS_Transformer`, and `DS_Switch` sheets are enabled and selected by default.
+Intentionally excluded coordinate-bearing sheets and unsupported sheets stay visible but
+disabled. Only the sheets confirmed by the user are imported. Real read-only B003 validation
+confirmed 209 poles and 21 assets in `PEA_20260828_120004R.xlsx`, and 358 poles and 3 assets in
+`PEA_20260828_121518L.xlsx`; these filenames and counts are validation evidence, never product
+constants.
+
+The main window uses a second **Import and QC** toolbar row for the seven related actions:
+Import poles, Import assets, Import PEA GIS, Review pole order, Review Assets, Check Pole QC,
+and Check Asset QC. User-facing review/QC labels are source-neutral. The underlying pole-order
+review still consumes PEA GIS ordering records, so its tooltip documents that current
+limitation rather than implying support that does not exist.
+
+Pole QC and Asset QC remain separate deterministic KML artifacts with their established names
+and read-only semantics. G2 increases icon and label scales, with stronger endpoints and warning
+states. Google Earth Pro visual validation confirmed both generated artifacts open and align to
+the route with ordered pole/status and asset evidence visible. Dense labels may overlap at a
+whole-route overview and require zooming for individual identifiers. G2 does not add or alter
+CAD asset entities, synchronization, or G3 behavior.
+
 ### Active visual defects reported after the CAD-sheet baseline
 
 These remain unresolved until a later commit fixes and visually verifies them:

@@ -156,12 +156,20 @@ def _add_styles(document: ET.Element) -> None:
             )
             icon_style = ET.SubElement(style, _tag("IconStyle"))
             _text(icon_style, "color", color)
-            _text(icon_style, "scale", "1.0" if state is not AssetMatchState.UNMATCHED else "1.2")
+            _text(
+                icon_style,
+                "scale",
+                "1.45" if state is AssetMatchState.UNMATCHED else "1.35",
+            )
             icon = ET.SubElement(icon_style, _tag("Icon"))
             _text(icon, "href", icon_href)
             label = ET.SubElement(style, _tag("LabelStyle"))
             _text(label, "color", color)
-            _text(label, "scale", "0.9")
+            _text(
+                label,
+                "scale",
+                "1.3" if state is AssetMatchState.UNMATCHED else "1.2",
+            )
     _line_style(document, "confirmed_line", "ff00aa00", 4)
     _line_style(document, "suggested_line", "ffff9900", 2)
     _line_style(document, "ambiguous_line", "ff00aaff", 2)
@@ -175,8 +183,12 @@ def _add_styles(document: ET.Element) -> None:
         style = ET.SubElement(document, _tag("Style"), id=style_id)
         icon_style = ET.SubElement(style, _tag("IconStyle"))
         _text(icon_style, "color", color)
+        _text(icon_style, "scale", "1.5" if style_id == "endpoint" else "1.2")
         icon = ET.SubElement(icon_style, _tag("Icon"))
         _text(icon, "href", icon_href)
+        label_style = ET.SubElement(style, _tag("LabelStyle"))
+        _text(label_style, "color", color)
+        _text(label_style, "scale", "1.4" if style_id == "endpoint" else "1.1")
 
 
 def _line_style(document: ET.Element, style_id: str, color: str, width: int) -> None:

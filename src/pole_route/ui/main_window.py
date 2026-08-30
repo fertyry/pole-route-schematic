@@ -83,6 +83,15 @@ from pole_route.geometry.pea_linear_reference import reference_pea_poles
 from pole_route.geometry.road_geometry import RoadGeometryError, build_road_network_geometry
 from pole_route.geometry.schematic_layout import create_schematic_layout
 from pole_route.importers.asset_importer import (
+    FIELD_LABELS as ASSET_FIELD_LABELS,
+)
+from pole_route.importers.asset_importer import (
+    HEADER_ALIASES as ASSET_HEADER_ALIASES,
+)
+from pole_route.importers.asset_importer import (
+    REQUIRED_FIELDS as ASSET_REQUIRED_FIELDS,
+)
+from pole_route.importers.asset_importer import (
     AssetImportError,
     assets_from_table,
     inspect_asset_file,
@@ -94,7 +103,7 @@ from pole_route.importers.edited_dxf_importer import (
 )
 from pole_route.importers.kml_importer import RouteImportError, inspect_route_file
 from pole_route.importers.osm_context import prepare_context_features
-from pole_route.importers.pea_assets import import_pea_assets
+from pole_route.importers.pea_assets import ASSET_PROFILES, import_pea_assets
 from pole_route.importers.pea_gis import (
     DS_POLE_PROFILE,
     PEAGISImportError,
@@ -102,11 +111,20 @@ from pole_route.importers.pea_gis import (
     import_ds_poles,
 )
 from pole_route.importers.pole_importer import (
+    FIELD_LABELS as POLE_FIELD_LABELS,
+)
+from pole_route.importers.pole_importer import (
+    HEADER_ALIASES as POLE_HEADER_ALIASES,
+)
+from pole_route.importers.pole_importer import (
     OPTIONAL_FIELDS,
     PoleImportError,
     inspect_pole_file,
     poles_from_table,
     suggest_column_mapping,
+)
+from pole_route.importers.pole_importer import (
+    REQUIRED_FIELDS as POLE_REQUIRED_FIELDS,
 )
 from pole_route.project.storage import (
     ProjectFileError,
@@ -156,11 +174,13 @@ from pole_route.ui.osm_context_dialog import OSMContextDialog
 from pole_route.ui.osm_context_worker import OSMContextWorker
 from pole_route.ui.pea_asset_review_dialog import PEAAssetReviewDialog
 from pole_route.ui.pea_pole_review_dialog import PEAPoleReviewDialog
+from pole_route.ui.pea_sheet_selection_dialog import PEASheetSelectionDialog
 from pole_route.ui.project_info_dialog import ProjectInfoDialog
 from pole_route.ui.route_import_dialog import RouteImportDialog, draw_classified_routes_preview
 from pole_route.ui.scene_lifecycle import clear_scene
 from pole_route.ui.schematic_renderer import render_schematic
 from pole_route.ui.schematic_settings_dialog import SchematicSettingsDialog
+from pole_route.ui.tabular_source_dialog import TabularSourceDialog
 
 
 class MainWindow(QMainWindow):
@@ -292,50 +312,61 @@ class MainWindow(QMainWindow):
         self.view_fetch_diagnostics_action = QAction("View Fetch Diagnostics", self)
         self.view_fetch_diagnostics_action.triggered.connect(self._view_fetch_diagnostics)
 
+        primary_toolbar = QToolBar("Import and QC")
+        primary_toolbar.setObjectName("importQcToolbar")
+        primary_toolbar.setMovable(False)
+        primary_toolbar.setIconSize(QSize(20, 20))
+        primary_toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.addToolBarBreak()
+        self.addToolBar(primary_toolbar)
+
         self.import_poles_action = QAction("Import poles", self)
         self.import_poles_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
         self.import_poles_action.triggered.connect(self._choose_pole_file)
-        toolbar.addAction(self.import_poles_action)
+        primary_toolbar.addAction(self.import_poles_action)
 
         self.import_assets_action = QAction("Import assets", self)
         self.import_assets_action.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
         )
         self.import_assets_action.triggered.connect(self._choose_asset_file)
-        toolbar.addAction(self.import_assets_action)
+        primary_toolbar.addAction(self.import_assets_action)
 
         self.import_pea_gis_action = QAction("Import PEA GIS Data", self)
         self.import_pea_gis_action.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
         )
         self.import_pea_gis_action.triggered.connect(self._choose_pea_gis_file)
-        toolbar.addAction(self.import_pea_gis_action)
+        primary_toolbar.addAction(self.import_pea_gis_action)
 
-        self.review_pea_order_action = QAction("Review PEA pole order", self)
+        self.review_pea_order_action = QAction("Review pole order", self)
+        self.review_pea_order_action.setToolTip(
+            "Review station/order for the current PEA GIS pole dataset"
+        )
         self.review_pea_order_action.setEnabled(False)
         self.review_pea_order_action.triggered.connect(self._review_pea_pole_order)
-        toolbar.addAction(self.review_pea_order_action)
+        primary_toolbar.addAction(self.review_pea_order_action)
 
         self.review_pea_assets_action = QAction("Review Assets", self)
         self.review_pea_assets_action.setEnabled(False)
         self.review_pea_assets_action.triggered.connect(self._review_pea_assets)
-        toolbar.addAction(self.review_pea_assets_action)
+        primary_toolbar.addAction(self.review_pea_assets_action)
 
-        self.check_google_earth_action = QAction("Check in Google Earth", self)
+        self.check_google_earth_action = QAction("Check Pole QC", self)
         self.check_google_earth_action.setEnabled(False)
         self.check_google_earth_action.triggered.connect(
             self._check_pea_qc_in_google_earth
         )
-        toolbar.addAction(self.check_google_earth_action)
+        primary_toolbar.addAction(self.check_google_earth_action)
 
         self.check_pea_assets_google_earth_action = QAction(
-            "Check Assets in Google Earth", self
+            "Check Asset QC", self
         )
         self.check_pea_assets_google_earth_action.setEnabled(False)
         self.check_pea_assets_google_earth_action.triggered.connect(
             self._check_pea_assets_in_google_earth
         )
-        toolbar.addAction(self.check_pea_assets_google_earth_action)
+        primary_toolbar.addAction(self.check_pea_assets_google_earth_action)
 
         self.build_geometry_action = QAction("Build geometry", self)
         self.build_geometry_action.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
@@ -1405,7 +1436,7 @@ class MainWindow(QMainWindow):
             self,
             "Import pole data",
             self.working_directory.initial_path(),
-            "Pole data (*.xlsx *.csv)",
+            "Pole data (*.xlsx *.xlsm *.csv)",
         )
         if path:
             self.working_directory.remember_file(path)
@@ -1416,18 +1447,29 @@ class MainWindow(QMainWindow):
             self,
             "Import PEA GIS data",
             self.working_directory.initial_path(),
-            "PEA GIS workbook (*.xlsx)",
+            "PEA GIS workbook (*.xlsx *.xlsm)",
         )
         if path:
             self.working_directory.remember_file(path)
-            self.load_pea_gis_file(path)
+            try:
+                discovery = discover_pea_workbook(path)
+            except PEAGISImportError as error:
+                QMessageBox.warning(self, "PEA GIS import failed", str(error))
+                return
+            selector = PEASheetSelectionDialog(discovery, self)
+            if selector.exec() == QDialog.DialogCode.Accepted:
+                selected = selector.selected_sheet_names()
+                if selected:
+                    self.load_pea_gis_file(path, selected_sheets=selected)
+                else:
+                    self.statusBar().showMessage("PEA GIS import cancelled; no sheets selected")
 
     def _choose_asset_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Import GIS assets",
             self.working_directory.initial_path(),
-            "Asset data (*.xlsx *.csv)",
+            "Asset data (*.xlsx *.xlsm *.csv)",
         )
         if path:
             self.working_directory.remember_file(path)
@@ -1436,7 +1478,21 @@ class MainWindow(QMainWindow):
     def load_asset_file(self, path: str) -> None:
         """Import a normal mapped CSV/XLSX into the canonical asset review pipeline."""
         try:
-            table = inspect_asset_file(path)
+            source_dialog = TabularSourceDialog(
+                path,
+                ASSET_HEADER_ALIASES,
+                ASSET_REQUIRED_FIELDS,
+                ASSET_FIELD_LABELS,
+                self,
+            )
+            if source_dialog.exec() != QDialog.DialogCode.Accepted:
+                self.statusBar().showMessage("Asset import cancelled")
+                return
+            table = inspect_asset_file(
+                path,
+                sheet_name=source_dialog.sheet_name(),
+                header_row=source_dialog.header_row_number(),
+            )
             dialog = AssetColumnMappingDialog(
                 table, suggest_asset_mapping(table.headers), self
             )
@@ -1476,13 +1532,21 @@ class MainWindow(QMainWindow):
         )
         self._mark_dirty()
 
-    def load_pea_gis_file(self, path: str) -> None:
+    def load_pea_gis_file(self, path: str, selected_sheets: set[str] | None = None) -> None:
         """Import supported PEA GIS sheets through one coherent entry point."""
         try:
             discovery = discover_pea_workbook(path)
-            has_poles = any(item.profile == DS_POLE_PROFILE for item in discovery.supported_sheets)
-            records = import_ds_poles(path) if has_poles else None
-            imported_assets = import_pea_assets(path)
+            selected = selected_sheets or {item.name for item in discovery.supported_sheets}
+            pole_sheet = next(
+                (item.name for item in discovery.supported_sheets
+                 if item.profile == DS_POLE_PROFILE and item.name in selected),
+                None,
+            )
+            records = import_ds_poles(path, pole_sheet) if pole_sheet else None
+            asset_profiles = tuple(
+                profile for profile in ASSET_PROFILES if profile.sheet_name in selected
+            )
+            imported_assets = import_pea_assets(path, asset_profiles) if asset_profiles else []
         except PEAGISImportError as error:
             QMessageBox.warning(self, "PEA GIS import failed", str(error))
             self.statusBar().showMessage("PEA GIS import failed")
@@ -1498,7 +1562,7 @@ class MainWindow(QMainWindow):
             imported_sheets={
                 sheet.name
                 for sheet in discovery.supported_sheets
-                if sheet.profile != DS_POLE_PROFILE
+                if sheet.profile != DS_POLE_PROFILE and sheet.name in selected
             },
         )
         self.current_pea_assets = list(merge.assets)
@@ -1792,7 +1856,21 @@ class MainWindow(QMainWindow):
     def load_pole_file(self, path: str) -> None:
         """Load a pole file and display validation errors to the user."""
         try:
-            table = inspect_pole_file(path)
+            source_dialog = TabularSourceDialog(
+                path,
+                POLE_HEADER_ALIASES,
+                POLE_REQUIRED_FIELDS,
+                POLE_FIELD_LABELS,
+                self,
+            )
+            if source_dialog.exec() != QDialog.DialogCode.Accepted:
+                self.statusBar().showMessage("Pole import cancelled")
+                return
+            table = inspect_pole_file(
+                path,
+                sheet_name=source_dialog.sheet_name(),
+                header_row=source_dialog.header_row_number(),
+            )
             mapping = suggest_column_mapping(table.headers)
             dialog = ColumnMappingDialog(table, mapping, self)
             if dialog.exec() != ColumnMappingDialog.DialogCode.Accepted:

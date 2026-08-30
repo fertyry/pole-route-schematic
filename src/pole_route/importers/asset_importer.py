@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-import csv
 import hashlib
 import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from openpyxl import load_workbook
-
 from pole_route.domain.pea_asset import PEAAsset, PEAAssetType
 from pole_route.importers.pea_assets import _optional_coordinate, _text
 from pole_route.importers.pea_gis import _json_safe, parse_voltage_kv
+from pole_route.importers.tabular_source import detect_header, read_rows, unique_headers
 
 FIELD_LABELS = {
     "asset_id": "Asset ID",
@@ -34,13 +32,12 @@ OPTIONAL_FIELDS = (
     "description", "voltage", "rating", "phase", "subtype", "status", "feeder",
     "source_id",
 )
-SUPPORTED_SUFFIXES = {".csv", ".xlsx"}
-HEADER_SCAN_LIMIT = 20
+SUPPORTED_SUFFIXES = {".csv", ".xlsx", ".xlsm"}
 HEADER_ALIASES = {
     "asset_id": {"assetid", "asset id", "equipmentid", "equipment id", "id", "รหัสอุปกรณ์", "รหัสทรัพย์สิน"},
     "asset_type": {"assettype", "asset type", "equipmenttype", "equipment type", "type", "ประเภท", "ชนิดอุปกรณ์"},
-    "latitude": {"latitude", "lat", "ละติจูด"},
-    "longitude": {"longitude", "long", "lon", "lng", "ลองจิจูด"},
+    "latitude": {"latitude", "lat", "ละติจูด", "พิกัดละติจูด"},
+    "longitude": {"longitude", "long", "lon", "lng", "ลองจิจูด", "พิกัดลองจิจูด"},
     "description": {"description", "name", "detail", "รายละเอียด", "ชื่อ", "ชื่ออุปกรณ์"},
     "voltage": {"voltage", "volt", "แรงดัน", "ระดับแรงดัน"},
     "rating": {"rating", "capacity", "kva", "amp", "พิกัด", "ขนาด", "กำลัง"},
@@ -62,25 +59,39 @@ class AssetTable:
     rows: tuple[tuple[object, ...], ...]
     header_row: int
     source_path: Path
+    sheet_name: str | None = None
+    confidence: str = "High"
 
 
-def inspect_asset_file(path: str | Path) -> AssetTable:
+def inspect_asset_file(
+    path: str | Path,
+    *,
+    sheet_name: str | None = None,
+    header_row: int | None = None,
+) -> AssetTable:
     source = Path(path)
     if source.suffix.casefold() not in SUPPORTED_SUFFIXES:
-        raise AssetImportError("Choose a .csv or .xlsx asset-data file")
+        raise AssetImportError("Choose a .csv, .xlsx, or .xlsm asset-data file")
     if not source.is_file():
         raise AssetImportError(f"File not found: {source}")
-    rows = _read_csv(source) if source.suffix.casefold() == ".csv" else _read_xlsx(source)
+    try:
+        rows = read_rows(source, sheet_name)
+    except ValueError as error:
+        raise AssetImportError(str(error)) from error
     if not rows:
         raise AssetImportError("The file is empty")
-    header_index = _detect_header(rows)
-    headers = _unique_headers(rows[header_index])
+    detection = detect_header(rows, HEADER_ALIASES, REQUIRED_FIELDS)
+    header_index = detection.row_index if header_row is None else header_row - 1
+    if not 0 <= header_index < len(rows):
+        raise AssetImportError("Header row is outside the selected worksheet")
+    headers = unique_headers(rows[header_index])
     values = tuple(
         tuple(row[index] if index < len(row) else None for index in range(len(headers)))
         for row in rows[header_index + 1:]
         if any(value not in (None, "") for value in row)
     )
-    return AssetTable(headers, values, header_index + 1, source)
+    confidence = detection.confidence if header_row is None else "Manual"
+    return AssetTable(headers, values, header_index + 1, source, sheet_name, confidence)
 
 
 def suggest_asset_mapping(headers: tuple[str, ...]) -> dict[str, str | None]:
@@ -175,51 +186,6 @@ def _row_to_asset(row, row_number, table, mapping, indexes, provider):
         source_provider=provider,
         source_file=source_file,
     )
-
-
-def _read_csv(path: Path) -> list[tuple[object, ...]]:
-    try:
-        with path.open("r", encoding="utf-8-sig", newline="") as handle:
-            return [tuple(row) for row in csv.reader(handle)]
-    except UnicodeDecodeError as error:
-        raise AssetImportError("CSV must be saved with UTF-8 encoding") from error
-
-
-def _read_xlsx(path: Path) -> list[tuple[object, ...]]:
-    try:
-        workbook = load_workbook(path, read_only=True, data_only=True)
-    except Exception as error:
-        raise AssetImportError(f"Could not open Excel file: {error}") from error
-    try:
-        return [tuple(row) for row in workbook.active.iter_rows(values_only=True)]
-    finally:
-        workbook.close()
-
-
-def _detect_header(rows: list[tuple[object, ...]]) -> int:
-    candidates = rows[:HEADER_SCAN_LIMIT]
-    aliases = {
-        alias
-        for values in HEADER_ALIASES.values()
-        for alias in (_normalize(value) for value in values)
-    }
-    scores = [sum(_normalize(value) in aliases for value in row) for row in candidates]
-    best = max(range(len(candidates)), key=scores.__getitem__)
-    if scores[best]:
-        return best
-    return next((i for i, row in enumerate(candidates) if any(v not in (None, "") for v in row)), 0)
-
-
-def _unique_headers(row: tuple[object, ...]) -> tuple[str, ...]:
-    headers: list[str] = []
-    for index, value in enumerate(row, start=1):
-        base = str(value).strip() if value not in (None, "") else f"Column {index}"
-        candidate, suffix = base, 2
-        while candidate in headers:
-            candidate = f"{base} ({suffix})"
-            suffix += 1
-        headers.append(candidate)
-    return tuple(headers)
 
 
 def _normalize(value: object) -> str:

@@ -157,12 +157,18 @@ def _add_styles(document: ET.Element) -> None:
         style = ET.SubElement(document, _tag("Style"), id=style_id)
         icon_style = ET.SubElement(style, _tag("IconStyle"))
         _text(icon_style, "color", colors[style_id])
-        _text(icon_style, "scale", "0.9")
+        icon_scale = "1.5" if style_id == "endpoint" else (
+            "1.35" if style_id in {"strong_review", "excluded"} else "1.25"
+        )
+        _text(icon_style, "scale", icon_scale)
         icon = ET.SubElement(icon_style, _tag("Icon"))
         _text(icon, "href", "http://maps.google.com/mapfiles/kml/shapes/placemark_circle.png")
         label_style = ET.SubElement(style, _tag("LabelStyle"))
         _text(label_style, "color", colors[style_id])
-        _text(label_style, "scale", "0.9")
+        label_scale = "1.4" if style_id == "endpoint" else (
+            "1.25" if style_id in {"strong_review", "excluded"} else "1.15"
+        )
+        _text(label_style, "scale", label_scale)
     route_style = ET.SubElement(document, _tag("Style"), id="route")
     line_style = ET.SubElement(route_style, _tag("LineStyle"))
     _text(line_style, "color", colors["route"])

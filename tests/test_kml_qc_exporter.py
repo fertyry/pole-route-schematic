@@ -100,6 +100,8 @@ def test_kml_is_valid_contains_route_endpoints_and_unicode_audit_fields() -> Non
     assert audit["QC Status"] == PoleQCStatus.REVIEW.value
     assert audit["Included"] == "Yes"
     assert audit["Review State"] == "Proposed / Unconfirmed"
+    scales = [item.text for item in root.findall(".//kml:scale", NS)]
+    assert {"1.25", "1.5", "1.4"}.issubset(scales)
 
 
 def test_manual_order_is_used_without_exporter_station_resort_and_state_is_not_mutated() -> None:

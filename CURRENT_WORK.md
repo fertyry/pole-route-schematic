@@ -196,9 +196,30 @@ field evidence.
 - Keep Power Utility Toolkit photo coordinates and photo workflow outside PoleRoute.
 - No CAD asset symbol or synchronization is implemented in G1.
 
-Recommended next milestone: **G2 — Unified Asset Review / workflow polish** if real user
-validation identifies mapping or review usability gaps; otherwise plan **G3 — Confirmed
-Asset CAD Integration**. Do not start either automatically.
+### 8E. Import and QC Workflow Polish — COMPLETE (Milestone G2)
+
+- Generic pole and asset import accepts CSV, XLSX, and XLSM sources. Excel users choose a
+  worksheet, review the detected header row and confidence, may override the header row, and
+  see a five-row preview before the existing required-field mapping confirmation.
+- Auto-detection is evidence-based rather than tied to the active worksheet or row 1. An
+  explicit user-selected header may continue to manual column mapping even when its labels are
+  unknown; required mappings are still enforced before import.
+- PEA GIS workbook import presents every discovered worksheet. Supported `DS_Pole`,
+  `DS_Transformer`, and `DS_Switch` sheets are selected by default; intentionally excluded or
+  unsupported sheets remain visible and disabled rather than being silently imported.
+- The primary toolbar is split into two rows. **Import and QC** contains Import poles, Import
+  assets, Import PEA GIS, Review pole order, Review Assets, Check Pole QC, and Check Asset QC.
+  Pole-order review has a source-neutral user label, while its current implementation remains
+  limited to reviewed PEA GIS pole records.
+- Pole and asset KML artifacts keep their established filenames and semantics. Marker and label
+  scales are larger for route-overview review, with stronger endpoint and warning emphasis.
+- Read-only B003 validation found 209 poles/21 assets in the R workbook and 358 poles/3 assets
+  in the L workbook. Google Earth Pro opened both generated G2 QC artifacts and displayed their
+  route, ordered poles, endpoints, asset evidence, and status styling. Dense overview labels can
+  still overlap; users should zoom for individual ID review.
+
+Recommended next milestone: **G3 — Confirmed Asset CAD Integration**. Do not start it
+automatically; no CAD asset block, CAD writeback, or asset synchronization is part of G2.
 
 ### 9. Overture Places design notes
 
