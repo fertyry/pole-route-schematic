@@ -218,8 +218,31 @@ field evidence.
   route, ordered poles, endpoints, asset evidence, and status styling. Dense overview labels can
   still overlap; users should zoom for individual ID review.
 
-Recommended next milestone: **G3 — Confirmed Asset CAD Integration**. Do not start it
-automatically; no CAD asset block, CAD writeback, or asset synchronization is part of G2.
+### 8F. Confirmed Asset CAD Integration — COMPLETE (Milestone G3)
+
+- **Update Assets** is a separate explicit connected-AutoCAD action. It consumes only included,
+  source-present Transformer/Switch relationships that the user explicitly confirmed.
+- Each asset resolves to the confirmed canonical physical pole and uses that managed pole's CAD
+  position/tangent. Source GIS coordinates stay authoritative and unchanged; there is no nearest-
+  pole fallback, rematch, or auto-confirm during CAD execution.
+- `PRS_ASSET_TRANSFORMER` and `PRS_ASSET_SWITCH` are stable managed equipment blocks with asset,
+  type, canonical pole, provider, and provider-ID attributes. Transformer equipment is not the
+  structural `PRS_TRANSFORMER_RACK`; explicit A/B pairing and 3.0 m rack-leg spacing are unchanged.
+- Reconciliation is incremental and idempotent: create, update/move, unchanged, and stale removal
+  operate by stable asset ID. Only managed asset blocks are enumerated, preserving Base CAD,
+  surroundings, pole/rack objects, and manual entities.
+- Automated coverage includes all match states, unsupported/missing/excluded cases, save/reopen,
+  repeated updates, relationship movement/removal, deterministic shared-pole placement, COM
+  metadata, locked-target retry, and UI action availability.
+- Real AutoCAD 2027 validation on a temporary B003-derived DXF confirmed Transformer create,
+  unchanged rerun, move, removal, Switch create, source-coordinate preservation, and a manual
+  line surviving reconciliation. A scratch drawing was activated while the selected target still
+  accepted/read its controlled canonical pole fixture.
+- AutoCAD 2027 COM points are marshaled as explicit SAFEARRAY values. Brief busy-state retry is
+  limited to idempotent document/entity/attribute reads.
+
+G1-G3 complete the current GIS Asset subsystem slice. Do not start a new milestone automatically;
+the next product priority requires an explicit user decision.
 
 ### 9. Overture Places design notes
 
@@ -232,15 +255,15 @@ automatically; no CAD asset block, CAD writeback, or asset synchronization is pa
 - Keep existing OSM roads/sois/bridges/water and supplemental Overture Buildings.
 - Do not add Overture Transportation in this phase.
 
-### 10. Later CAD integration of confirmed PEA data
+### 10. Confirmed GIS asset CAD integration — IMPLEMENTED IN G3
 
-- Reuse canonical physical-pole IDs, optional Pole Overlay, locked AutoCAD connection,
+- G3 reuses canonical physical-pole IDs, optional Pole Overlay, the locked AutoCAD connection,
   metadata, and readback services.
-- Update confirmed poles/assets without rebuilding Base CAD or destroying manual edits
-  and accepted surroundings.
-- Carry confirmed stationing, coordinates, PEA asset relationships, and stable identity
-  into CAD metadata, symbols, reports, and the later sheet workflow.
-- Do not create a competing CAD synchronization architecture.
+- Confirmed Transformer/Switch equipment is updated without rebuilding Base CAD or destroying
+  manual edits and accepted surroundings.
+- Stable asset/pole/source identity is present in managed CAD metadata. Asset report and final
+  sheet presentation remain later work; they must reuse this contract rather than create a
+  competing synchronization architecture.
 
 ## Validation evidence, not product constants
 

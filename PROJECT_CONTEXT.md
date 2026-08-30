@@ -416,8 +416,10 @@ synchronization.
   another project.
 - Never silently switch to or auto-select a different drawing.
 
-The connection/session contract above is implemented. It is covered by mock/fake tests;
-real AutoCAD COM validation on a user drawing is still required.
+The connection/session contract above is implemented. It is covered by mock/fake tests and
+was exercised with a safe temporary B003-derived DXF while another scratch drawing was active.
+Production-drawing validation remains a user acceptance step; validation must never modify a
+user drawing merely to prove the connection.
 
 ### Implemented optional pole overlay
 
@@ -935,6 +937,39 @@ states. Google Earth Pro visual validation confirmed both generated artifacts op
 the route with ordered pole/status and asset evidence visible. Dense labels may overlap at a
 whole-route overview and require zooming for individual identifiers. G2 does not add or alter
 CAD asset entities, synchronization, or G3 behavior.
+
+### G3 — Confirmed Asset CAD Integration: COMPLETE
+
+The explicit **Update Assets** action reconciles reviewed equipment into the drawing locked by
+Connect AutoCAD. Only `CONFIRMED`, included, source-present Transformer and Switch records are
+eligible. Suggested, ambiguous, unmatched, unsupported `OTHER`, missing-source, excluded-pole,
+and unresolved-pole records remain auditable diagnostics and never become CAD equipment.
+
+Each eligible relationship resolves through the confirmed pole key to the canonical physical
+pole already represented in CAD. The equipment insertion is derived from that managed pole's
+CAD position and tangent; the authoritative GIS asset coordinate remains unchanged and is not
+used as a CAD fallback. Transformer and Switch use separate managed blocks
+`PRS_ASSET_TRANSFORMER` and `PRS_ASSET_SWITCH`. A transformer equipment block is distinct from
+the structural two-leg `PRS_TRANSFORMER_RACK`; rack A/B pairing and exact 3.0 m leg spacing are
+unchanged.
+
+Managed equipment carries stable metadata: `MANAGED_KIND=ASSET`, stable `ASSET_ID`, normalized
+`ASSET_TYPE`, canonical `POLE_ID`, `SOURCE`, and `SOURCE_ID`. Reconciliation is incremental and
+idempotent by stable asset ID: create missing entities, update a changed confirmed relationship,
+leave unchanged entities untouched, and remove stale PoleRoute-managed equipment when its
+confirmation is removed. Multiple supported assets may intentionally share one canonical pole;
+deterministic presentation offsets keep their symbols distinct. The service enumerates only the
+two managed asset block names, so Base CAD, accepted surroundings, managed pole/rack objects,
+and manual entities are outside its removal/update scope. It never rematches, auto-confirms, or
+changes project matching state.
+
+Real AutoCAD 2027 validation used a temporary B003-derived DXF plus controlled canonical pole
+inserts. It confirmed Transformer create, unchanged rerun, confirmed-pole move, stale removal,
+Switch create, source-coordinate preservation, and survival of an unrelated manual entity.
+A separate run activated a scratch drawing and still created/read the pole fixture through the
+locked target. AutoCAD 2027 required explicit SAFEARRAY points for block, geometry, and attribute
+COM calls; bounded retry is used only for idempotent collection/attribute reads during brief
+`RPC_E_CALL_REJECTED` busy periods.
 
 ### Active visual defects reported after the CAD-sheet baseline
 

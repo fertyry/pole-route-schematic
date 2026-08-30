@@ -28,14 +28,17 @@ from PySide6.QtWidgets import (
 )
 
 from pole_route.cad import (
+    AssetPoleResolution,
     AutoCADConnection,
     AutoCADConnectionError,
     CadReadbackError,
     ComCadGateway,
+    build_asset_overlay_plan,
     build_pole_overlay_plan,
     read_latest_pole_offset,
     read_latest_route,
     read_managed_pole_positions,
+    update_managed_assets,
     update_managed_poles,
 )
 from pole_route.diagnostics.fetch_benchmark import (
@@ -519,6 +522,9 @@ class MainWindow(QMainWindow):
         self.update_cad_poles_action = QAction("Update Poles", self)
         self.update_cad_poles_action.setEnabled(False)
         self.update_cad_poles_action.triggered.connect(self._update_cad_poles)
+        self.update_cad_assets_action = QAction("Update Assets", self)
+        self.update_cad_assets_action.setEnabled(False)
+        self.update_cad_assets_action.triggered.connect(self._update_cad_assets)
         self.read_cad_poles_action = QAction("Read Pole Positions", self)
         self.read_cad_poles_action.setEnabled(False)
         self.read_cad_poles_action.triggered.connect(self._read_cad_pole_positions)
@@ -589,6 +595,7 @@ class MainWindow(QMainWindow):
                 self.read_cad_route_action,
                 self.read_cad_offset_action,
                 self.update_cad_poles_action,
+                self.update_cad_assets_action,
                 self.read_cad_poles_action,
             ]
         )
@@ -1190,6 +1197,9 @@ class MainWindow(QMainWindow):
         self.update_cad_poles_action.setEnabled(
             connected and self.current_geometry is not None and bool(self.current_poles)
         )
+        self.update_cad_assets_action.setEnabled(
+            connected and bool(self.current_pea_assets)
+        )
 
     def _read_cad_route(self) -> None:
         try:
@@ -1232,6 +1242,60 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"Updated {len(updated)} managed pole/rack object(s); base CAD unchanged"
         )
+
+    def _update_cad_assets(self) -> None:
+        """Reconcile confirmed assets against managed poles in the locked drawing."""
+        if not self.current_pea_assets:
+            QMessageBox.warning(
+                self, "Update Assets", "Import and review GIS asset data first."
+            )
+            return
+        try:
+            gateway = self._cad_gateway()
+            plan = build_asset_overlay_plan(
+                self.current_pea_assets,
+                self.current_pea_asset_matches,
+                self._asset_pole_resolutions(),
+                gateway.managed_poles(),
+            )
+            result = update_managed_assets(gateway, plan)
+        except (AutoCADConnectionError, CadReadbackError) as error:
+            self._cad_operation_failed("Update Assets", error)
+            return
+        message = (
+            f"Confirmed assets: {result.confirmed_count}; Created: {result.created}; "
+            f"Updated: {result.updated}; Removed: {result.removed}; "
+            f"Unchanged: {result.unchanged}; Skipped: {len(result.diagnostics)}"
+        )
+        self.statusBar().showMessage(message + "; base CAD unchanged")
+        if result.diagnostics:
+            details = "\n".join(
+                f"- {item.asset_id}: {item.reason}" for item in result.diagnostics[:20]
+            )
+            QMessageBox.information(self, "Asset CAD update", message + "\n\n" + details)
+
+    def _asset_pole_resolutions(self) -> tuple[AssetPoleResolution, ...]:
+        mapping = self._physical_pole_mapping()
+        active_numbers = {pole.number for pole in self.current_poles}
+        resolutions: dict[str, AssetPoleResolution] = {}
+        for pole in self.current_poles:
+            assignment = mapping.assignment_for(pole.number)
+            resolutions[f"GENERIC_POLE:{pole.number}"] = AssetPoleResolution(
+                f"GENERIC_POLE:{pole.number}", assignment.physical_pole_id, True
+            )
+        ordering = {
+            item.source_key: item for item in self.current_pea_ordering.entries
+        } if self.current_pea_ordering else {}
+        for pole in self.current_pea_poles:
+            assignment = mapping.assignment_for(pole.source_id)
+            entry = ordering.get(pole.source_key)
+            included = (
+                entry.included if entry is not None else pole.source_id in active_numbers
+            )
+            resolutions[pole.source_key] = AssetPoleResolution(
+                pole.source_key, assignment.physical_pole_id, included
+            )
+        return tuple(resolutions[key] for key in sorted(resolutions))
 
     def _read_cad_pole_positions(self) -> None:
         """Apply edited managed-block positions to matching source pole records."""
@@ -1526,6 +1590,7 @@ class MainWindow(QMainWindow):
         ))
         self.review_pea_assets_action.setEnabled(bool(self.current_pea_assets))
         self._update_pea_qc_action()
+        self._set_cad_actions_enabled(self.autocad_connection.connected)
         self.statusBar().showMessage(
             f"Imported {len(imported)} assets; {merge.added} added, "
             f"{merge.updated} updated, {merge.missing_from_source} missing from source"
@@ -1581,6 +1646,7 @@ class MainWindow(QMainWindow):
         )
         self.review_pea_assets_action.setEnabled(bool(self.current_pea_assets))
         self._update_pea_qc_action()
+        self._set_cad_actions_enabled(self.autocad_connection.connected)
         if records is None:
             QMessageBox.information(
                 self, "PEA GIS import summary",
@@ -1674,6 +1740,7 @@ class MainWindow(QMainWindow):
             confirmed = sum(item.state.value == "confirmed" for item in self.current_pea_asset_matches)
             self.statusBar().showMessage(f"Asset review saved; {confirmed} confirmed")
             QMessageBox.information(self, "Asset review summary", self._pea_asset_summary())
+            self._set_cad_actions_enabled(self.autocad_connection.connected)
             self._mark_dirty()
 
     def _asset_match_poles(self):

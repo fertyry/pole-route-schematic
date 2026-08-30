@@ -26,4 +26,26 @@ def test_closed_target_disconnects_safely() -> None:
     app.Documents.clear()
     assert not connection.connected
     with pytest.raises(AutoCADConnectionError):
-        connection.target_document
+        _ = connection.target_document
+
+
+def test_connection_retries_read_only_document_enumeration_when_autocad_is_busy() -> None:
+    target = _doc("one.dwg")
+
+    class BusyError(Exception):
+        hresult = -2147418111
+
+    class BusyDocuments:
+        attempts = 0
+
+        def __iter__(self):
+            self.attempts += 1
+            if self.attempts == 1:
+                raise BusyError("Call was rejected by callee")
+            return iter((target,))
+
+    documents = BusyDocuments()
+    connection = AutoCADConnection(SimpleNamespace(Documents=documents))
+
+    assert connection.select(target.FullName).name == "one.dwg"
+    assert documents.attempts == 2
